@@ -4,7 +4,7 @@ Guidance for agents and developers working in this repository.
 
 ## What this is
 
-`sergey` is a CLI for the Google Workspace REST APIs (Drive v3, Sheets v4,
+`graham` is a CLI for the Google Workspace REST APIs (Drive v3, Sheets v4,
 Docs v1, Slides v1). It follows the same pattern as its sibling CLIs `hunch`
 (Notion) and `cirqueduci` (CircleCI): one SwiftPM package with a library that
 holds all logic, plus a thin executable installed with mint.
@@ -20,10 +20,10 @@ Two products, one rule: **if it can be unit-tested, it belongs in the
 library**. The executable only parses arguments, calls the library, and prints.
 
 ```
-Sources/SergeyKit/            the library — ALL logic lives here
+Sources/GrahamKit/            the library — ALL logic lives here
   DotEnv.swift                .env loader; walks up parent dirs, nearest wins
   CredentialsResolver.swift   env-var-first, .env-fallback credential lookup
-  SergeyError.swift           the one typed error enum + DecodingError detail
+  GrahamError.swift           the one typed error enum + DecodingError detail
   HTTP/HTTPTransport.swift    protocol seam + URLSessionTransport
   Auth/
     GoogleScope.swift         OAuth scopes + CLI short names
@@ -38,12 +38,12 @@ Sources/SergeyKit/            the library — ALL logic lives here
     DocsClient.swift
     SlidesClient.swift
   Models/                     trimmed Codable models, one file per service
-  Helpers/                    GoogleURL, GoogleJSON, OutputFormatter, SergeyLog
-Sources/sergey/               the thin CLI
-  Sergey.swift                @main root command
+  Helpers/                    GoogleURL, GoogleJSON, OutputFormatter, GrahamLog
+Sources/graham/               the thin CLI
+  Graham.swift                @main root command
   CLISupport.swift            builds the shared GoogleAPI, log handler
   Commands/                   one file per subcommand group
-Tests/SergeyKitTests/         offline tests; StubTransport + inline fixtures
+Tests/GrahamKitTests/         offline tests; StubTransport + inline fixtures
 Tests/CLITests/               argument-parsing tests only
 ```
 
@@ -69,7 +69,7 @@ Google uses OAuth2, unlike hunch's single static token:
 
 - `.env` holds `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
   `GOOGLE_REFRESH_TOKEN`. Process environment beats `.env`.
-- `sergey auth login` runs the consent flow: loopback server on an ephemeral
+- `graham auth login` runs the consent flow: loopback server on an ephemeral
   127.0.0.1 port, browser consent, code exchange with `access_type=offline`
   and `prompt=consent`, then prints the refresh token for the user to paste
   into `.env`. The tool never writes `.env` itself.
@@ -92,7 +92,7 @@ Google uses OAuth2, unlike hunch's single static token:
 
 ### Add a new list output
 
-Conform the model to `SergeyRow` (`tableColumns`, `tableValues`, `idValue`)
+Conform the model to `GrahamRow` (`tableColumns`, `tableValues`, `idValue`)
 next to the model. Then any command can render it in all four formats.
 
 ### Write endpoints (future)
@@ -109,10 +109,10 @@ this; add request-body models under `Models/` when the time comes.
 - Resolve credentials ONCE at command start (`CLI.makeAPI()`); pass injectable
   `environment` and `startingIn` parameters so tests never depend on the
   machine's real environment.
-- Surface decode failures with `SergeyError.decodingDetail` — it names the
+- Surface decode failures with `GrahamError.decodingDetail` — it names the
   JSON path of the failing field. Keep this working; it pays for itself the
   first time Google adds a field.
-- The library never prints. It logs through `SergeyLog.handler`; the CLI
+- The library never prints. It logs through `GrahamLog.handler`; the CLI
   sends that to stderr so stdout stays clean for piping.
 - Google rate-limit errors can also arrive as 403 with status
   `rateLimitExceeded`/`userRateLimitExceeded` in the error envelope. The
@@ -125,5 +125,5 @@ this; add request-body models under `Models/` when the time comes.
 
 - Build: `swift build`
 - Test: `swift test`
-- Run: `swift run sergey --help`
-- Install: `mint install adamwulf/sergey@main --force`
+- Run: `swift run graham --help`
+- Install: `mint install adamwulf/graham@main --force`

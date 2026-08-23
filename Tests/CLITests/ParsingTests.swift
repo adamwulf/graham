@@ -1,12 +1,12 @@
 import XCTest
-import SergeyKit
-@testable import sergey
+import GrahamKit
+@testable import graham
 
 final class ParsingTests: XCTestCase {
     func testRootListsAllSubcommands() {
-        let names = Sergey.configuration.subcommands.map { $0.configuration.commandName ?? "\($0)" }
-        XCTAssertEqual(Sergey.configuration.subcommands.count, 5)
-        XCTAssertEqual(Sergey.configuration.commandName, "sergey")
+        let names = Graham.configuration.subcommands.map { $0.configuration.commandName ?? "\($0)" }
+        XCTAssertEqual(Graham.configuration.subcommands.count, 5)
+        XCTAssertEqual(Graham.configuration.commandName, "graham")
         XCTAssertFalse(names.isEmpty)
     }
 

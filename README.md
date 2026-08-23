@@ -1,11 +1,13 @@
-# sergey
+# graham
 
 A command-line tool for Google Drive, Docs, Sheets, and Slides.
+
+Named after Graham's number — a contrast to the googol that named Google.
 
 ## Install
 
 ```bash
-mint install adamwulf/sergey@main --force
+mint install adamwulf/graham@main --force
 ```
 
 ## Google Cloud setup (one time)
@@ -20,36 +22,36 @@ GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
 ```
 
-`sergey` searches for `.env` from the current directory up to the filesystem
+`graham` searches for `.env` from the current directory up to the filesystem
 root. The nearest `.env` wins, and real environment variables win over `.env`.
 
 5. Log in and store the refresh token:
 
 ```bash
-sergey auth login
+graham auth login
 # a browser window opens; approve access, then copy the printed
 # GOOGLE_REFRESH_TOKEN=... line into your .env
-sergey auth status
+graham auth status
 ```
 
 ## Usage
 
 ```bash
-sergey drive list --query "name contains 'report'" --limit 20
-sergey drive get <file-id> --format json
-sergey drive export <file-id> --mime application/pdf -o report.pdf
+graham drive list --query "name contains 'report'" --limit 20
+graham drive get <file-id> --format json
+graham drive export <file-id> --mime application/pdf -o report.pdf
 
-sergey sheets get <spreadsheet-id>
-sergey sheets values <spreadsheet-id> "Sheet1!A1:C10"
+graham sheets get <spreadsheet-id>
+graham sheets values <spreadsheet-id> "Sheet1!A1:C10"
 
-sergey docs cat <document-id>
-sergey slides cat <presentation-id>
+graham docs cat <document-id>
+graham slides cat <presentation-id>
 ```
 
 List commands support `--format table|json|jsonl|id`.
 
 ## Development
 
-- `SergeyKit` is the library with all logic; `sergey` is a thin CLI on top.
+- `GrahamKit` is the library with all logic; `graham` is a thin CLI on top.
 - `swift test` runs the full offline test suite; no test touches the network.
 - See `CLAUDE.md` for the architecture and the extension recipes.
