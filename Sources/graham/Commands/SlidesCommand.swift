@@ -5,7 +5,10 @@ import GrahamKit
 struct Slides: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Work with Google Slides presentations.",
-        subcommands: [Cat.self, List.self, Images.self, Add.self, Create.self, Move.self, Delete.self]
+        subcommands: [
+            Cat.self, List.self, Images.self, Add.self, Create.self, Group.self,
+            Ungroup.self, Move.self, Delete.self,
+        ]
     )
 
     struct Cat: AsyncParsableCommand {
@@ -103,8 +106,41 @@ struct Slides: AsyncParsableCommand {
     struct Create: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Create a page element on a slide.",
-            subcommands: [Textbox.self]
+            subcommands: [Textbox.self, Image.self, Video.self, Line.self, Table.self, Chart.self]
         )
+
+        /// Optional placement and size shared by non-text-box element creation.
+        struct GeometryOptions: ParsableArguments {
+            @Option(parsing: .unconditional, help: "The horizontal position in points.")
+            var x: Double?
+
+            @Option(parsing: .unconditional, help: "The vertical position in points.")
+            var y: Double?
+
+            @Option(
+                parsing: .unconditional,
+                help: "The width in points; provide it with --height."
+            )
+            var width: Double?
+
+            @Option(
+                parsing: .unconditional,
+                help: "The height in points; provide it with --width."
+            )
+            var height: Double?
+
+            func validate() throws {
+                if (width == nil) != (height == nil) {
+                    throw ValidationError("--width and --height must be provided together.")
+                }
+                if let width, width <= 0 {
+                    throw ValidationError("--width must be greater than zero.")
+                }
+                if let height, height <= 0 {
+                    throw ValidationError("--height must be greater than zero.")
+                }
+            }
+        }
 
         struct Textbox: AsyncParsableCommand {
             static let configuration = CommandConfiguration(
@@ -163,6 +199,282 @@ struct Slides: AsyncParsableCommand {
                     width: width,
                     height: height
                 )
+                print(objectId)
+            }
+        }
+
+        struct Image: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Create an image and print its object id.",
+                discussion: """
+                    Optional geometry is measured in points. Get slide ids \
+                    from `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the slide that will hold the image.")
+            var slideID: String
+
+            @Option(help: "The public URL of the image.")
+            var url: String
+
+            @OptionGroup
+            var geometry: GeometryOptions
+
+            func validate() throws {
+                try geometry.validate()
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                let objectId = try await client.createImage(
+                    presentationId: presentationID,
+                    slideId: slideID,
+                    url: url,
+                    x: geometry.x,
+                    y: geometry.y,
+                    width: geometry.width,
+                    height: geometry.height
+                )
+                print(objectId)
+            }
+        }
+
+        struct Video: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Create a video and print its object id.",
+                discussion: """
+                    Optional geometry is measured in points. Get slide ids \
+                    from `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the slide that will hold the video.")
+            var slideID: String
+
+            @Option(name: .customLong("id"), help: "The YouTube or Drive video ID.")
+            var videoID: String
+
+            @Option(help: "The video source: youtube or drive.")
+            var source: VideoSource = .youtube
+
+            @OptionGroup
+            var geometry: GeometryOptions
+
+            func validate() throws {
+                try geometry.validate()
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                let objectId = try await client.createVideo(
+                    presentationId: presentationID,
+                    slideId: slideID,
+                    source: source,
+                    videoId: videoID,
+                    x: geometry.x,
+                    y: geometry.y,
+                    width: geometry.width,
+                    height: geometry.height
+                )
+                print(objectId)
+            }
+        }
+
+        struct Line: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Create a line and print its object id.",
+                discussion: """
+                    Optional geometry is measured in points. Get slide ids \
+                    from `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the slide that will hold the line.")
+            var slideID: String
+
+            @Option(help: "The line category: straight, bent, or curved.")
+            var category: LineCategory = .straight
+
+            @OptionGroup
+            var geometry: GeometryOptions
+
+            func validate() throws {
+                try geometry.validate()
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                let objectId = try await client.createLine(
+                    presentationId: presentationID,
+                    slideId: slideID,
+                    category: category,
+                    x: geometry.x,
+                    y: geometry.y,
+                    width: geometry.width,
+                    height: geometry.height
+                )
+                print(objectId)
+            }
+        }
+
+        struct Table: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Create a table and print its object id.",
+                discussion: """
+                    Optional geometry is measured in points. Get slide ids \
+                    from `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the slide that will hold the table.")
+            var slideID: String
+
+            @Option(help: "The number of rows; must be 1 or greater.")
+            var rows: Int
+
+            @Option(help: "The number of columns; must be 1 or greater.")
+            var columns: Int
+
+            @OptionGroup
+            var geometry: GeometryOptions
+
+            func validate() throws {
+                try geometry.validate()
+                if rows < 1 {
+                    throw ValidationError("--rows must be 1 or greater.")
+                }
+                if columns < 1 {
+                    throw ValidationError("--columns must be 1 or greater.")
+                }
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                let objectId = try await client.createTable(
+                    presentationId: presentationID,
+                    slideId: slideID,
+                    rows: rows,
+                    columns: columns,
+                    x: geometry.x,
+                    y: geometry.y,
+                    width: geometry.width,
+                    height: geometry.height
+                )
+                print(objectId)
+            }
+        }
+
+        struct Chart: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Create a Sheets chart and print its object id.",
+                discussion: """
+                    Optional geometry is measured in points. Get slide ids \
+                    from `slides list --format json`. The chart id is the \
+                    spreadsheet's embedded-chart id; --linked keeps the chart \
+                    connected to the sheet.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the slide that will hold the chart.")
+            var slideID: String
+
+            @Option(name: .customLong("spreadsheet"), help: "The source spreadsheet ID.")
+            var spreadsheetID: String
+
+            @Option(help: "The spreadsheet embedded-chart ID.")
+            var chartID: Int
+
+            @Flag(help: "Keep the chart connected to its source sheet.")
+            var linked = false
+
+            @OptionGroup
+            var geometry: GeometryOptions
+
+            func validate() throws {
+                try geometry.validate()
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                let objectId = try await client.createSheetsChart(
+                    presentationId: presentationID,
+                    slideId: slideID,
+                    spreadsheetId: spreadsheetID,
+                    chartId: chartID,
+                    linked: linked,
+                    x: geometry.x,
+                    y: geometry.y,
+                    width: geometry.width,
+                    height: geometry.height
+                )
+                print(objectId)
+            }
+        }
+    }
+
+    struct Group: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Group page elements and print the new group's object id."
+        )
+
+        @Argument(help: "The presentation ID.")
+        var presentationID: String
+
+        @Argument(help: "Two or more child page-element object ids.")
+        var childObjectIDs: [String]
+
+        func validate() throws {
+            if childObjectIDs.count < 2 {
+                throw ValidationError("group requires at least two child object ids.")
+            }
+        }
+
+        func run() async throws {
+            let client = SlidesClient(api: try CLI.makeAPI())
+            let objectId = try await client.groupElements(
+                presentationId: presentationID, childIds: childObjectIDs)
+            print(objectId)
+        }
+    }
+
+    struct Ungroup: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Ungroup page elements and print each former group id."
+        )
+
+        @Argument(help: "The presentation ID.")
+        var presentationID: String
+
+        @Argument(help: "One or more top-level group object ids.")
+        var groupObjectIDs: [String]
+
+        func validate() throws {
+            if groupObjectIDs.isEmpty {
+                throw ValidationError("ungroup requires at least one group object id.")
+            }
+        }
+
+        func run() async throws {
+            let client = SlidesClient(api: try CLI.makeAPI())
+            try await client.ungroupElements(
+                presentationId: presentationID, objectIds: groupObjectIDs)
+            for objectId in groupObjectIDs {
                 print(objectId)
             }
         }
