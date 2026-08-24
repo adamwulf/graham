@@ -2,4 +2,6 @@
 .build/
 .swiftpm/
 DerivedData/
+AGENTS.md
 .DS_Store
+.codex/
