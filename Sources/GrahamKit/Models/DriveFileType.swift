@@ -34,3 +34,36 @@ public enum DriveFileType: String, CaseIterable, Sendable {
         self = match
     }
 }
+
+/// The Google Workspace file types graham can create.
+///
+/// Unlike ``DriveFileType`` (a listing filter, which also has `all` and
+/// `folders`), every case here maps to a concrete Google MIME type, so
+/// `files.create` always has a type to send. The short names mirror the
+/// matching ``DriveFileType`` cases, so the command line is consistent.
+public enum DriveCreateType: String, CaseIterable, Sendable {
+    case docs
+    case sheets
+    case slides
+
+    /// The Google Workspace MIME type of a new file of this type.
+    public var mimeType: String {
+        switch self {
+        case .docs: return "application/vnd.google-apps.document"
+        case .sheets: return "application/vnd.google-apps.spreadsheet"
+        case .slides: return "application/vnd.google-apps.presentation"
+        }
+    }
+
+    /// The short name used on the command line.
+    public var shortName: String {
+        rawValue
+    }
+
+    public init?(shortName: String) {
+        guard let match = DriveCreateType.allCases.first(where: { $0.shortName == shortName }) else {
+            return nil
+        }
+        self = match
+    }
+}

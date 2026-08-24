@@ -5,7 +5,7 @@ import GrahamKit
 struct Drive: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Work with Google Drive files.",
-        subcommands: [List.self, Get.self, Export.self]
+        subcommands: [List.self, Get.self, Create.self, Export.self]
     )
 
     struct List: AsyncParsableCommand {
@@ -52,6 +52,27 @@ struct Drive: AsyncParsableCommand {
         func run() async throws {
             let client = DriveClient(api: try CLI.makeAPI())
             let file = try await client.file(id: fileID)
+            print(try OutputFormatter.render([file], format: format))
+        }
+    }
+
+    struct Create: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Create a new, empty Doc, Sheet, or Slides file."
+        )
+
+        @Argument(help: "The name of the new file.")
+        var name: String
+
+        @Option(help: "The file type to create: docs, sheets, or slides.")
+        var type: DriveCreateType
+
+        @Option(help: "The output format: table, json, jsonl, or id.")
+        var format: OutputFormat = .id
+
+        func run() async throws {
+            let client = DriveClient(api: try CLI.makeAPI())
+            let file = try await client.create(name: name, type: type)
             print(try OutputFormatter.render([file], format: format))
         }
     }
