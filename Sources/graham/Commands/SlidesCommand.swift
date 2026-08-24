@@ -2518,21 +2518,21 @@ enum BulletPresetArgument: String, ExpressibleByArgument {
     /// The Slides API bullet preset this argument maps to.
     var bulletPreset: BulletPreset {
         switch self {
-        case .discCircleSquare: return .discCircleSquare
-        case .diamondxArrow3dSquare: return .diamondxArrow3dSquare
-        case .checkbox: return .checkbox
-        case .arrowDiamondDisc: return .arrowDiamondDisc
-        case .starCircleSquare: return .starCircleSquare
-        case .arrow3dCircleSquare: return .arrow3dCircleSquare
-        case .lefttriangleDiamondDisc: return .lefttriangleDiamondDisc
-        case .diamondxHollowdiamondSquare: return .diamondxHollowdiamondSquare
-        case .diamondCircleSquare: return .diamondCircleSquare
-        case .digitAlphaRoman: return .digitAlphaRoman
-        case .digitAlphaRomanParens: return .digitAlphaRomanParens
-        case .digitNested: return .digitNested
-        case .upperalphaAlphaRoman: return .upperalphaAlphaRoman
-        case .upperromanUpperalphaDigit: return .upperromanUpperalphaDigit
-        case .zerodigitAlphaRoman: return .zerodigitAlphaRoman
+        case .discCircleSquare: return .bulletDiscCircleSquare
+        case .diamondxArrow3dSquare: return .bulletDiamondxArrow3dSquare
+        case .checkbox: return .bulletCheckbox
+        case .arrowDiamondDisc: return .bulletArrowDiamondDisc
+        case .starCircleSquare: return .bulletStarCircleSquare
+        case .arrow3dCircleSquare: return .bulletArrow3dCircleSquare
+        case .lefttriangleDiamondDisc: return .bulletLefttriangleDiamondDisc
+        case .diamondxHollowdiamondSquare: return .bulletDiamondxHollowdiamondSquare
+        case .diamondCircleSquare: return .bulletDiamondCircleSquare
+        case .digitAlphaRoman: return .numberedDigitAlphaRoman
+        case .digitAlphaRomanParens: return .numberedDigitAlphaRomanParens
+        case .digitNested: return .numberedDigitNested
+        case .upperalphaAlphaRoman: return .numberedUpperalphaAlphaRoman
+        case .upperromanUpperalphaDigit: return .numberedUpperromanUpperalphaDigit
+        case .zerodigitAlphaRoman: return .numberedZerodigitAlphaRoman
         }
     }
 }
