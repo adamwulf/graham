@@ -6,66 +6,15 @@ architecture and implementation conventions, see `CLAUDE.md`.
 The remaining focus is comprehensive Google Slides write support. Slides
 writes use `presentations.batchUpdate` with typed request bodies. File
 creation, the complete nine-type page-element model, detailed element reading,
-and image listing/download are complete.
+image listing/download, and the slide lifecycle (the shared batch-update
+foundation plus `slides add`, `slides move`, and `slides delete`) are complete.
 
-## Next milestone: slide lifecycle and batch-update foundation
+## Next milestone: create elements
 
-Build the shared write path first, then use it for a complete slide-structure
-workflow. This gives later element-editing commands one tested batch-update
-foundation instead of independently constructing requests.
-
-### API and library
-
-- Add typed `presentations.batchUpdate` request, request-union, reply, and
-  response models under `Models/`. Request fields should be required where the
-  API operation requires them; response fields should decode defensively.
-- Add a `SlidesClient` batch-update executor for
-  `POST /v1/presentations/{presentationId}:batchUpdate`. The client owns URL
-  construction and response decoding; the CLI must not construct JSON.
-- Add high-level client methods for `createSlide`, `updateSlidesPosition`, and
-  `deleteObject`. Escape presentation IDs with
-  `GoogleURL.escapePathComponent`.
-- `updateSlidesPosition.insertionIndex` is based on the order before the move.
-  A high-level `moveSlide` method must resolve the current slide index and
-  translate the requested final position correctly, especially when moving a
-  slide forward. Do not implement this as `position - 1` alone.
-- Keep the generic batch-update representation extensible so later element,
-  geometry, text, and appearance requests can join the same request union.
-
-### CLI
-
-- `graham slides add <presentation-id> [--at <position>] [--layout <layout>]`
-  creates a slide. Default to appending a `BLANK` slide and print the new slide
-  object ID.
-- `graham slides move <presentation-id> <slide-id> --to <position>` reorders one
-  slide to the requested final position and prints its ID.
-- `graham slides delete <presentation-id> <slide-id>` deletes one exact slide
-  ID and prints that ID. It must never infer or expand the target.
-- User-facing positions are one-based, matching `slides cat` and `slides list`;
-  translate them to the API semantics in `GrahamKit`.
-- Keep commands thin: parse arguments, call `SlidesClient`, and print the
-  result.
-
-### Completion criteria
-
-- Static `StubTransport` tests assert the exact POST method, escaped path, JSON
-  body, and decoded replies for add, move, and delete. Include insertion at the
-  beginning, append behavior, predefined-layout encoding, and empty replies.
-- Move tests cover forward, backward, no-op, first/last, missing-ID, and
-  out-of-range cases, including the extra presentation read needed to resolve
-  the API insertion index.
-- CLI parsing tests cover defaults, positive one-based position validation,
-  required IDs, layout parsing, and all three registered subcommands.
-- Existing `slides cat`, `slides list`, and `slides images` behavior remains
-  unchanged.
-- No test calls Google or any other live network service. The full `swift test`
-  suite passes.
-- README usage and this roadmap move the milestone to completed only after
-  implementation and review.
-
-## Slides: create elements
-
-Add every element type that the Slides batch-update API can create:
+Add every element type that the Slides batch-update API can create. New
+operations join the existing `SlidesBatchUpdateRequest` union, so they share
+the tested batch-update path; keep the client owning the request bodies and
+the CLI thin.
 
 - **Shape / text box** (`createShape`), **image** (`createImage`), **video**
   (`createVideo`, from YouTube or Drive), **line / connector** (`createLine`),
@@ -112,6 +61,27 @@ Add every element type that the Slides batch-update API can create:
 - **Add, update, or delete presenter notes** by editing the notes-page text
   through `presentations.batchUpdate`.
 
+## Slides: layouts
+
+A slide's layout is chosen at creation, and each deck carries its own layout
+list (`layouts[]` on `presentations.get`); graham does not decode it yet.
+
+- **Read layouts.** Extend `Presentation` with `layouts`, and add a
+  `slides layouts` command that lists each layout's object id and display
+  name. Follow the `elementRows` pattern: extraction in `GrahamKit`, a thin
+  command that renders `GrahamRow`s.
+- **`slides add --layout-id <id>`.** Send `slideLayoutReference.layoutId`
+  (the model already supports it). A deck can lack a given predefined layout
+  name, which makes Google reject the add; a real layout id from
+  `slides layouts` always works. Reject `--layout` and `--layout-id` given
+  together.
+
+## Drive: copy files
+
+- **`graham drive copy <file-id> [--name <name>]`** through `files.copy`,
+  with `supportsAllDrives=true`, printing the new file id like
+  `drive create`.
+
 ## Slides: delete objects and files
 
 - Extend the exact-ID delete operation from slides to any page element
@@ -121,8 +91,11 @@ Add every element type that the Slides batch-update API can create:
 
 ## Suggested order
 
-1. **Slide lifecycle and shared batch-update foundation** — the next milestone defined above.
-2. **Create elements**, beginning with a text box plus inserted text.
+1. **Create elements** — the next milestone defined above, beginning with a
+   text box plus inserted text.
+2. **Layouts read facade, `slides add --layout-id`, and `drive copy`** —
+   small and independent of the element work; they can land alongside any
+   milestone.
 3. **Geometry**, then **appearance**.
 4. **Text and links**, **alt text**, and **presenter notes**.
 5. **General element deletion** and whole-presentation deletion or trash.

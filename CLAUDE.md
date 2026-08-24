@@ -122,9 +122,11 @@ next to the model. Then any command can render it in all four formats.
 
 ### Add a write endpoint
 
-Drive file creation already uses `GoogleAPI.sendJSON`. The next write foundation
-is Slides `presentations.batchUpdate`; Sheets and Docs also use
-batch-update-style POST endpoints.
+Drive file creation already uses `GoogleAPI.sendJSON`. Slides writes go
+through `SlidesClient.batchUpdate` and the `SlidesBatchUpdateRequest` union
+(`Models/SlidesBatchUpdateModels.swift`); a new Slides operation joins that
+union as a new case. Sheets and Docs also use batch-update-style POST
+endpoints, and will follow the same shape.
 
 1. Define typed request and response models under `Models/`. Request fields
    should be required when the operation requires them; response fields should

@@ -5,7 +5,7 @@ import GrahamKit
 struct Slides: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Work with Google Slides presentations.",
-        subcommands: [Cat.self, List.self, Images.self]
+        subcommands: [Cat.self, List.self, Images.self, Add.self, Move.self, Delete.self]
     )
 
     struct Cat: AsyncParsableCommand {
@@ -62,6 +62,97 @@ struct Slides: AsyncParsableCommand {
             let client = SlidesClient(api: try CLI.makeAPI())
             let presentation = try await client.presentation(id: presentationID)
             print(try OutputFormatter.render(presentation.elementRows, format: format))
+        }
+    }
+
+    struct Add: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Add a new slide and print its object id.",
+            discussion: """
+                Without --at, the slide is appended at the end. Positions are \
+                one-based and match the slide numbers of `slides cat` and \
+                `slides list`. The layout is a predefined layout name such as \
+                BLANK, TITLE, TITLE_AND_BODY, or SECTION_HEADER; the name is \
+                case-insensitive and accepts - for _.
+                """
+        )
+
+        @Argument(help: "The presentation ID.")
+        var presentationID: String
+
+        @Option(help: "The one-based position of the new slide; omit to append.")
+        var at: Int?
+
+        @Option(help: "The predefined layout of the new slide.")
+        var layout: String = "BLANK"
+
+        func validate() throws {
+            if let at, at < 1 {
+                throw ValidationError("--at must be 1 or greater.")
+            }
+        }
+
+        func run() async throws {
+            let client = SlidesClient(api: try CLI.makeAPI())
+            let objectId = try await client.createSlide(
+                presentationId: presentationID, at: at, layout: layout)
+            print(objectId)
+        }
+    }
+
+    struct Move: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Move one slide to a new position and print its id.",
+            discussion: """
+                --to is the one-based final position of the slide, matching \
+                the slide numbers of `slides cat` and `slides list`. Moving a \
+                slide to its current position is a no-op and sends no write.
+                """
+        )
+
+        @Argument(help: "The presentation ID.")
+        var presentationID: String
+
+        @Argument(help: "The object id of the slide to move.")
+        var slideID: String
+
+        @Option(help: "The one-based final position of the slide.")
+        var to: Int
+
+        func validate() throws {
+            if to < 1 {
+                throw ValidationError("--to must be 1 or greater.")
+            }
+        }
+
+        func run() async throws {
+            let client = SlidesClient(api: try CLI.makeAPI())
+            try await client.moveSlide(
+                presentationId: presentationID, slideId: slideID, to: to)
+            print(slideID)
+        }
+    }
+
+    struct Delete: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Delete one slide by its exact object id and print the id.",
+            discussion: """
+                The id is sent exactly as given; nothing is inferred or \
+                expanded. Get slide ids from `slides list --format json`.
+                """
+        )
+
+        @Argument(help: "The presentation ID.")
+        var presentationID: String
+
+        @Argument(help: "The object id of the slide to delete.")
+        var slideID: String
+
+        func run() async throws {
+            let client = SlidesClient(api: try CLI.makeAPI())
+            try await client.deleteObject(
+                presentationId: presentationID, objectId: slideID)
+            print(slideID)
         }
     }
 
