@@ -14,6 +14,7 @@ final class SlidesParsingTests: XCTestCase {
         XCTAssertTrue(names.contains("list"))
         XCTAssertTrue(names.contains("images"))
         XCTAssertTrue(names.contains("add"))
+        XCTAssertTrue(names.contains("create"))
         XCTAssertTrue(names.contains("move"))
         XCTAssertTrue(names.contains("delete"))
     }
@@ -93,6 +94,54 @@ final class SlidesParsingTests: XCTestCase {
 
     func testSlidesAddRejectsANonNumericPosition() {
         XCTAssertThrowsError(try Slides.Add.parse(["deck-id", "--at", "first"]))
+    }
+
+    // MARK: - create textbox
+
+    func testSlidesCreateListsTextbox() {
+        let names = Slides.Create.configuration.subcommands.compactMap {
+            $0.configuration.commandName ?? "\($0)".lowercased()
+        }
+        XCTAssertTrue(names.contains("textbox"))
+    }
+
+    func testSlidesCreateTextboxParsesDefaults() throws {
+        let command = try Slides.Create.Textbox.parse(["deck-id", "slide-9"])
+        XCTAssertEqual(command.presentationID, "deck-id")
+        XCTAssertEqual(command.slideID, "slide-9")
+        XCTAssertEqual(command.text, "")
+        XCTAssertEqual(command.x, 50)
+        XCTAssertEqual(command.y, 50)
+        XCTAssertEqual(command.width, 300)
+        XCTAssertEqual(command.height, 50)
+    }
+
+    func testSlidesCreateTextboxParsesEveryFlag() throws {
+        let command = try Slides.Create.Textbox.parse([
+            "deck-id",
+            "slide-9",
+            "--text", "Hello world",
+            "--x", "-25.5",
+            "--y", "10.25",
+            "--width", "400.5",
+            "--height", "80.75",
+        ])
+        XCTAssertEqual(command.presentationID, "deck-id")
+        XCTAssertEqual(command.slideID, "slide-9")
+        XCTAssertEqual(command.text, "Hello world")
+        XCTAssertEqual(command.x, -25.5)
+        XCTAssertEqual(command.y, 10.25)
+        XCTAssertEqual(command.width, 400.5)
+        XCTAssertEqual(command.height, 80.75)
+    }
+
+    func testSlidesCreateTextboxRejectsNonPositiveDimensions() {
+        XCTAssertThrowsError(try Slides.Create.Textbox.parse([
+            "deck-id", "slide-9", "--width", "0",
+        ]))
+        XCTAssertThrowsError(try Slides.Create.Textbox.parse([
+            "deck-id", "slide-9", "--height", "-1",
+        ]))
     }
 
     // MARK: - move

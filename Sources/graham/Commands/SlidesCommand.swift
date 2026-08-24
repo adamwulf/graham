@@ -5,7 +5,7 @@ import GrahamKit
 struct Slides: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Work with Google Slides presentations.",
-        subcommands: [Cat.self, List.self, Images.self, Add.self, Move.self, Delete.self]
+        subcommands: [Cat.self, List.self, Images.self, Add.self, Create.self, Move.self, Delete.self]
     )
 
     struct Cat: AsyncParsableCommand {
@@ -97,6 +97,74 @@ struct Slides: AsyncParsableCommand {
             let objectId = try await client.createSlide(
                 presentationId: presentationID, at: at, layout: layout)
             print(objectId)
+        }
+    }
+
+    struct Create: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Create a page element on a slide.",
+            subcommands: [Textbox.self]
+        )
+
+        struct Textbox: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "textbox",
+                abstract: "Create a text box and print its object id.",
+                discussion: """
+                    Geometry is measured in points. Empty text creates an empty \
+                    text box. Get slide ids from `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the slide that will hold the text box.")
+            var slideID: String
+
+            @Option(help: "The initial text; empty creates an empty text box.")
+            var text = ""
+
+            @Option(parsing: .unconditional, help: "The horizontal position in points.")
+            var x: Double = 50
+
+            @Option(parsing: .unconditional, help: "The vertical position in points.")
+            var y: Double = 50
+
+            @Option(
+                parsing: .unconditional,
+                help: "The width in points; must be greater than zero."
+            )
+            var width: Double = 300
+
+            @Option(
+                parsing: .unconditional,
+                help: "The height in points; must be greater than zero."
+            )
+            var height: Double = 50
+
+            func validate() throws {
+                if width <= 0 {
+                    throw ValidationError("--width must be greater than zero.")
+                }
+                if height <= 0 {
+                    throw ValidationError("--height must be greater than zero.")
+                }
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                let objectId = try await client.createTextBox(
+                    presentationId: presentationID,
+                    slideId: slideID,
+                    text: text,
+                    x: x,
+                    y: y,
+                    width: width,
+                    height: height
+                )
+                print(objectId)
+            }
         }
     }
 
