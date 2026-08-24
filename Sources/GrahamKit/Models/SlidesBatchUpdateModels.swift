@@ -20,6 +20,20 @@ public enum SlidesBatchUpdateRequest: Encodable, Sendable, Equatable {
     case createSlide(CreateSlideRequest)
     /// Creates a shape page element.
     case createShape(CreateShapeRequest)
+    /// Creates an image page element.
+    case createImage(CreateImageRequest)
+    /// Creates a video page element.
+    case createVideo(CreateVideoRequest)
+    /// Creates a line page element.
+    case createLine(CreateLineRequest)
+    /// Creates a table page element.
+    case createTable(CreateTableRequest)
+    /// Creates a page element from a Sheets embedded chart.
+    case createSheetsChart(CreateSheetsChartRequest)
+    /// Groups page elements under a new group object.
+    case groupObjects(GroupObjectsRequest)
+    /// Removes groups while keeping their children in place.
+    case ungroupObjects(UngroupObjectsRequest)
     /// Inserts text into a shape or other text-bearing page element.
     case insertText(InsertTextRequest)
     /// Moves slides to a new position.
@@ -30,6 +44,13 @@ public enum SlidesBatchUpdateRequest: Encodable, Sendable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case createSlide
         case createShape
+        case createImage
+        case createVideo
+        case createLine
+        case createTable
+        case createSheetsChart
+        case groupObjects
+        case ungroupObjects
         case insertText
         case updateSlidesPosition
         case deleteObject
@@ -42,6 +63,20 @@ public enum SlidesBatchUpdateRequest: Encodable, Sendable, Equatable {
             try container.encode(request, forKey: .createSlide)
         case .createShape(let request):
             try container.encode(request, forKey: .createShape)
+        case .createImage(let request):
+            try container.encode(request, forKey: .createImage)
+        case .createVideo(let request):
+            try container.encode(request, forKey: .createVideo)
+        case .createLine(let request):
+            try container.encode(request, forKey: .createLine)
+        case .createTable(let request):
+            try container.encode(request, forKey: .createTable)
+        case .createSheetsChart(let request):
+            try container.encode(request, forKey: .createSheetsChart)
+        case .groupObjects(let request):
+            try container.encode(request, forKey: .groupObjects)
+        case .ungroupObjects(let request):
+            try container.encode(request, forKey: .ungroupObjects)
         case .insertText(let request):
             try container.encode(request, forKey: .insertText)
         case .updateSlidesPosition(let request):
@@ -121,6 +156,163 @@ public struct CreateShapeRequest: Codable, Sendable, Equatable {
         self.objectId = objectId
         self.elementProperties = elementProperties
         self.shapeType = shapeType
+    }
+}
+
+/// The `createImage` operation. The target page and source URL are required;
+/// size and transform are optional because Google supplies defaults.
+///
+/// The URL must be public and at most 2 kB. The image may be at most 50 MB and
+/// 25 megapixels, and its format must be PNG, JPEG, or GIF.
+public struct CreateImageRequest: Codable, Sendable, Equatable {
+    public let objectId: String?
+    public let elementProperties: PageElementProperties
+    public let url: String
+
+    public init(
+        objectId: String? = nil,
+        elementProperties: PageElementProperties,
+        url: String
+    ) {
+        self.objectId = objectId
+        self.elementProperties = elementProperties
+        self.url = url
+    }
+}
+
+/// Sources accepted by the Slides `createVideo` operation.
+public enum VideoSource: String, Codable, Sendable {
+    case youtube = "YOUTUBE"
+    case drive = "DRIVE"
+}
+
+/// The `createVideo` operation. A Drive video requires a Drive OAuth scope;
+/// graham's default scopes already include one.
+public struct CreateVideoRequest: Codable, Sendable, Equatable {
+    public let objectId: String?
+    public let elementProperties: PageElementProperties
+    public let source: VideoSource
+    public let id: String
+
+    public init(
+        objectId: String? = nil,
+        elementProperties: PageElementProperties,
+        source: VideoSource,
+        id: String
+    ) {
+        self.objectId = objectId
+        self.elementProperties = elementProperties
+        self.source = source
+        self.id = id
+    }
+}
+
+/// Categories accepted by the Slides `createLine` operation.
+public enum LineCategory: String, Codable, Sendable {
+    case straight = "STRAIGHT"
+    case bent = "BENT"
+    case curved = "CURVED"
+}
+
+/// The `createLine` operation.
+///
+/// The wire key is `category`. The Slides API's separate `lineCategory` field
+/// is deprecated and deliberately not modeled here.
+public struct CreateLineRequest: Codable, Sendable, Equatable {
+    public let objectId: String?
+    public let elementProperties: PageElementProperties
+    public let category: LineCategory
+
+    public init(
+        objectId: String? = nil,
+        elementProperties: PageElementProperties,
+        category: LineCategory
+    ) {
+        self.objectId = objectId
+        self.elementProperties = elementProperties
+        self.category = category
+    }
+}
+
+/// The `createTable` operation. Rows, columns, and the target page are
+/// required by the API.
+///
+/// A table transform must use scale 1 and no shear. The shared geometry helper
+/// in ``SlidesClient`` guarantees that constraint.
+public struct CreateTableRequest: Codable, Sendable, Equatable {
+    public let objectId: String?
+    public let elementProperties: PageElementProperties
+    public let rows: Int
+    public let columns: Int
+
+    public init(
+        objectId: String? = nil,
+        elementProperties: PageElementProperties,
+        rows: Int,
+        columns: Int
+    ) {
+        self.objectId = objectId
+        self.elementProperties = elementProperties
+        self.rows = rows
+        self.columns = columns
+    }
+}
+
+/// Linking modes accepted by the Slides `createSheetsChart` operation.
+public enum ChartLinkingMode: String, Codable, Sendable {
+    case notLinkedImage = "NOT_LINKED_IMAGE"
+    case linked = "LINKED"
+}
+
+/// The `createSheetsChart` operation. A linked chart requires a Sheets or
+/// Drive OAuth scope.
+public struct CreateSheetsChartRequest: Codable, Sendable, Equatable {
+    public let objectId: String?
+    public let elementProperties: PageElementProperties
+    public let spreadsheetId: String
+    public let chartId: Int
+    /// `nil` omits the key and uses the API default, `NOT_LINKED_IMAGE`.
+    public let linkingMode: ChartLinkingMode?
+
+    public init(
+        objectId: String? = nil,
+        elementProperties: PageElementProperties,
+        spreadsheetId: String,
+        chartId: Int,
+        linkingMode: ChartLinkingMode? = nil
+    ) {
+        self.objectId = objectId
+        self.elementProperties = elementProperties
+        self.spreadsheetId = spreadsheetId
+        self.chartId = chartId
+        self.linkingMode = linkingMode
+    }
+}
+
+/// The `groupObjects` operation.
+///
+/// At least two children are required. They must all be on the same page and
+/// none may already be in a group. Videos, tables, and placeholders cannot be
+/// grouped.
+public struct GroupObjectsRequest: Codable, Sendable, Equatable {
+    public let groupObjectId: String?
+    public let childrenObjectIds: [String]
+
+    public init(groupObjectId: String? = nil, childrenObjectIds: [String]) {
+        self.groupObjectId = groupObjectId
+        self.childrenObjectIds = childrenObjectIds
+    }
+}
+
+/// The `ungroupObjects` operation.
+///
+/// Only top-level groups may be ungrouped, and they must all be on the same
+/// page. Their children keep their visual positions and the group is deleted.
+public struct UngroupObjectsRequest: Codable, Sendable, Equatable {
+    public let objectIds: [String]
+
+    public init(objectIds: [String]) {
+        self.objectIds = objectIds
     }
 }
 
@@ -259,6 +451,12 @@ public struct SlidesBatchUpdateResponse: Codable, Sendable {
 public struct SlidesBatchUpdateReply: Codable, Sendable {
     public let createSlide: CreateSlideReply?
     public let createShape: CreateShapeReply?
+    public let createImage: CreateImageReply?
+    public let createVideo: CreateVideoReply?
+    public let createLine: CreateLineReply?
+    public let createTable: CreateTableReply?
+    public let createSheetsChart: CreateSheetsChartReply?
+    public let groupObjects: GroupObjectsReply?
 }
 
 /// The reply of a `createSlide` operation.
@@ -270,5 +468,35 @@ public struct CreateSlideReply: Codable, Sendable {
 /// The reply of a `createShape` operation.
 public struct CreateShapeReply: Codable, Sendable {
     /// The object id of the new shape.
+    public let objectId: String?
+}
+
+/// The reply of a `createImage` operation.
+public struct CreateImageReply: Codable, Sendable {
+    public let objectId: String?
+}
+
+/// The reply of a `createVideo` operation.
+public struct CreateVideoReply: Codable, Sendable {
+    public let objectId: String?
+}
+
+/// The reply of a `createLine` operation.
+public struct CreateLineReply: Codable, Sendable {
+    public let objectId: String?
+}
+
+/// The reply of a `createTable` operation.
+public struct CreateTableReply: Codable, Sendable {
+    public let objectId: String?
+}
+
+/// The reply of a `createSheetsChart` operation.
+public struct CreateSheetsChartReply: Codable, Sendable {
+    public let objectId: String?
+}
+
+/// The reply of a `groupObjects` operation.
+public struct GroupObjectsReply: Codable, Sendable {
     public let objectId: String?
 }

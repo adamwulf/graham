@@ -149,6 +149,241 @@ public struct SlidesClient: Sendable {
         return response.replies?.first?.createShape?.objectId ?? sentObjectId
     }
 
+    /// Creates an image on one slide and returns the new element's object id.
+    /// Geometry is measured in points; when omitted, Google keeps the image's
+    /// native size and chooses its placement.
+    public func createImage(
+        presentationId: String,
+        slideId: String,
+        url: String,
+        objectId: String? = nil,
+        x: Double? = nil,
+        y: Double? = nil,
+        width: Double? = nil,
+        height: Double? = nil
+    ) async throws -> String {
+        guard !url.isEmpty else {
+            throw GrahamError.invalidArgument("the image URL is empty")
+        }
+        let sentObjectId = objectId ?? "graham-\(UUID().uuidString)"
+        let request = CreateImageRequest(
+            objectId: sentObjectId,
+            elementProperties: try makeElementProperties(
+                slideId: slideId, x: x, y: y, width: width, height: height),
+            url: url
+        )
+        let response = try await batchUpdate(
+            presentationId: presentationId,
+            requests: [.createImage(request)]
+        )
+        return response.replies?.first?.createImage?.objectId ?? sentObjectId
+    }
+
+    /// Creates a YouTube or Drive video on one slide and returns the new
+    /// element's object id. Geometry is measured in points.
+    public func createVideo(
+        presentationId: String,
+        slideId: String,
+        source: VideoSource = .youtube,
+        videoId: String,
+        objectId: String? = nil,
+        x: Double? = nil,
+        y: Double? = nil,
+        width: Double? = nil,
+        height: Double? = nil
+    ) async throws -> String {
+        guard !videoId.isEmpty else {
+            throw GrahamError.invalidArgument("the video id is empty")
+        }
+        let sentObjectId = objectId ?? "graham-\(UUID().uuidString)"
+        let request = CreateVideoRequest(
+            objectId: sentObjectId,
+            elementProperties: try makeElementProperties(
+                slideId: slideId, x: x, y: y, width: width, height: height),
+            source: source,
+            id: videoId
+        )
+        let response = try await batchUpdate(
+            presentationId: presentationId,
+            requests: [.createVideo(request)]
+        )
+        return response.replies?.first?.createVideo?.objectId ?? sentObjectId
+    }
+
+    /// Creates a line on one slide and returns the new element's object id.
+    /// Geometry is measured in points.
+    public func createLine(
+        presentationId: String,
+        slideId: String,
+        category: LineCategory = .straight,
+        objectId: String? = nil,
+        x: Double? = nil,
+        y: Double? = nil,
+        width: Double? = nil,
+        height: Double? = nil
+    ) async throws -> String {
+        let sentObjectId = objectId ?? "graham-\(UUID().uuidString)"
+        let request = CreateLineRequest(
+            objectId: sentObjectId,
+            elementProperties: try makeElementProperties(
+                slideId: slideId, x: x, y: y, width: width, height: height),
+            category: category
+        )
+        let response = try await batchUpdate(
+            presentationId: presentationId,
+            requests: [.createLine(request)]
+        )
+        return response.replies?.first?.createLine?.objectId ?? sentObjectId
+    }
+
+    /// Creates a table on one slide and returns the new element's object id.
+    /// Geometry is measured in points.
+    public func createTable(
+        presentationId: String,
+        slideId: String,
+        rows: Int,
+        columns: Int,
+        objectId: String? = nil,
+        x: Double? = nil,
+        y: Double? = nil,
+        width: Double? = nil,
+        height: Double? = nil
+    ) async throws -> String {
+        guard rows >= 1 else {
+            throw GrahamError.invalidArgument("table rows must be 1 or greater, got \(rows)")
+        }
+        guard columns >= 1 else {
+            throw GrahamError.invalidArgument(
+                "table columns must be 1 or greater, got \(columns)")
+        }
+        let sentObjectId = objectId ?? "graham-\(UUID().uuidString)"
+        let request = CreateTableRequest(
+            objectId: sentObjectId,
+            elementProperties: try makeElementProperties(
+                slideId: slideId, x: x, y: y, width: width, height: height),
+            rows: rows,
+            columns: columns
+        )
+        let response = try await batchUpdate(
+            presentationId: presentationId,
+            requests: [.createTable(request)]
+        )
+        return response.replies?.first?.createTable?.objectId ?? sentObjectId
+    }
+
+    /// Creates a page element from a Sheets embedded chart and returns its
+    /// object id. Geometry is measured in points.
+    public func createSheetsChart(
+        presentationId: String,
+        slideId: String,
+        spreadsheetId: String,
+        chartId: Int,
+        linked: Bool = false,
+        objectId: String? = nil,
+        x: Double? = nil,
+        y: Double? = nil,
+        width: Double? = nil,
+        height: Double? = nil
+    ) async throws -> String {
+        guard !spreadsheetId.isEmpty else {
+            throw GrahamError.invalidArgument("the spreadsheet id is empty")
+        }
+        let sentObjectId = objectId ?? "graham-\(UUID().uuidString)"
+        let request = CreateSheetsChartRequest(
+            objectId: sentObjectId,
+            elementProperties: try makeElementProperties(
+                slideId: slideId, x: x, y: y, width: width, height: height),
+            spreadsheetId: spreadsheetId,
+            chartId: chartId,
+            linkingMode: linked ? .linked : nil
+        )
+        let response = try await batchUpdate(
+            presentationId: presentationId,
+            requests: [.createSheetsChart(request)]
+        )
+        return response.replies?.first?.createSheetsChart?.objectId ?? sentObjectId
+    }
+
+    /// Groups page elements and returns the new group's object id.
+    public func groupElements(
+        presentationId: String,
+        childIds: [String],
+        groupObjectId: String? = nil
+    ) async throws -> String {
+        guard childIds.count >= 2 else {
+            throw GrahamError.invalidArgument("a group requires at least 2 child object ids")
+        }
+        let sentObjectId = groupObjectId ?? "graham-\(UUID().uuidString)"
+        let response = try await batchUpdate(
+            presentationId: presentationId,
+            requests: [.groupObjects(GroupObjectsRequest(
+                groupObjectId: sentObjectId,
+                childrenObjectIds: childIds
+            ))]
+        )
+        return response.replies?.first?.groupObjects?.objectId ?? sentObjectId
+    }
+
+    /// Removes top-level groups while keeping their children in place.
+    public func ungroupElements(
+        presentationId: String,
+        objectIds: [String]
+    ) async throws {
+        guard !objectIds.isEmpty else {
+            throw GrahamError.invalidArgument("ungroup requires at least 1 group object id")
+        }
+        _ = try await batchUpdate(
+            presentationId: presentationId,
+            requests: [.ungroupObjects(UngroupObjectsRequest(objectIds: objectIds))]
+        )
+    }
+
+    /// Builds optional creation geometry shared by every non-shape element.
+    private func makeElementProperties(
+        slideId: String,
+        x: Double?,
+        y: Double?,
+        width: Double?,
+        height: Double?
+    ) throws -> PageElementProperties {
+        guard (width == nil) == (height == nil) else {
+            throw GrahamError.invalidArgument("width and height must be provided together")
+        }
+
+        let size: ElementSize?
+        if let width, let height {
+            guard width > 0 else {
+                throw GrahamError.invalidArgument("width must be greater than zero")
+            }
+            guard height > 0 else {
+                throw GrahamError.invalidArgument("height must be greater than zero")
+            }
+            size = ElementSize(
+                width: ElementDimension(magnitude: width, unit: .pt),
+                height: ElementDimension(magnitude: height, unit: .pt)
+            )
+        } else {
+            size = nil
+        }
+
+        let transform: ElementTransform?
+        if x != nil || y != nil {
+            transform = ElementTransform(
+                translateX: x ?? 0,
+                translateY: y ?? 0,
+                unit: .pt
+            )
+        } else {
+            transform = nil
+        }
+
+        return PageElementProperties(
+            pageObjectId: slideId,
+            size: size,
+            transform: transform
+        )
+    }
+
     /// Inserts text into a text-bearing page element.
     ///
     /// Empty text is a no-op and sends no network request.
