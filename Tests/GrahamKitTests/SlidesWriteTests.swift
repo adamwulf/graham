@@ -1854,6 +1854,7 @@ final class SlidesWriteTests: XCTestCase {
     func testOpaqueColorParseRejectsBadHexCharacters() {
         assertColorParseThrows("#ZZZ")
         assertColorParseThrows("#GG0011")
+        assertColorParseThrows("#Ｆ００")
     }
 
     func testOpaqueColorParseRejectsAnUnknownThemeName() {

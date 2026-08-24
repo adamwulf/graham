@@ -777,7 +777,7 @@ public struct OpaqueColor: Codable, Sendable, Equatable {
             return nil
         }
         let digits = Array(normalized)
-        guard digits.allSatisfy(\.isHexDigit) else { return nil }
+        guard digits.allSatisfy({ $0.isASCII && $0.isHexDigit }) else { return nil }
         func channel(_ start: Int) -> Double {
             Double(Int(String(digits[start..<start + 2]), radix: 16) ?? 0) / 255
         }
