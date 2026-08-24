@@ -133,10 +133,10 @@ struct Slides: AsyncParsableCommand {
                 if (width == nil) != (height == nil) {
                     throw ValidationError("--width and --height must be provided together.")
                 }
-                if let width, width <= 0 {
+                if let width, !(width > 0) {
                     throw ValidationError("--width must be greater than zero.")
                 }
-                if let height, height <= 0 {
+                if let height, !(height > 0) {
                     throw ValidationError("--height must be greater than zero.")
                 }
             }
