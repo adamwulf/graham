@@ -4,37 +4,12 @@ What is still to do. For what already works, see `README.md`. For the
 architecture and the recipes that show how to add each kind of feature, see
 `CLAUDE.md`.
 
-The focus is comprehensive Google Slides support — read and write for **every**
-page-element type — plus file creation. Writes are mostly POST `batchUpdate`
-endpoints with request bodies. `GoogleAPI.sendJSON(_:method:url:body:)` already
-exists; add request-body models under `Models/` as each feature lands.
-
-## Create files
-
-- **Create a Doc, a Sheet, or a Slides file.** Make a new, empty Google Doc,
-  spreadsheet, or presentation and print its id. Use the service `create`
-  endpoint (for example Slides `presentations.create`) or Drive `files.create`
-  with the right `mimeType`.
-
-## Slides: model foundation
-
-The current `PageElement` model reads only `objectId` and shapes. Extend it to
-decode the common properties on every element and each element type. This
-foundation unblocks all the read and write work below.
-
-- **Common properties** on every page element: `objectId`, `size`,
-  `transform` (position, scale, rotation), `title` and `description` (alt text).
-- **All element types** (exactly one per page element): shape (this includes
-  text boxes / text blocks and placeholders), image, video, line/connector,
-  table, chart from Sheets (`sheetsChart`), word art, and grouped elements
-  (`elementGroup`, which nests more page elements).
-
-## Slides: read
-
-- **List a presentation's slides and their elements.** For each slide, print
-  every element with its type, position and size, text, links, and alt text.
-- **Fetch the images on each slide.** List and download the images (the image
-  `contentUrl`), and read each image's alt text.
+The focus is comprehensive Google Slides write support for every page-element
+type. Writes are mostly POST `batchUpdate` endpoints with request bodies.
+`GoogleAPI.sendJSON(_:method:url:body:)` already exists; add request-body models
+under `Models/` as each feature lands. File creation, the complete page-element
+model foundation, detailed element reading, and image downloads are complete;
+see `README.md` for their commands.
 
 ## Slides: create elements
 
@@ -91,11 +66,6 @@ Add each element type to a slide:
 
 ## Suggested order
 
-1. **Create files** and the **model foundation** first — create gives us a file
-   to work on, and the extended `PageElement` model unblocks every read and
-   write.
-2. **Read** (slides + elements), which surfaces the object ids that every edit
-   needs.
-3. **Create elements**, then **geometry** (move/resize/reorder).
-4. **Appearance**, **text and links**, **alt text**, and **presenter notes**.
-5. **Delete** and the slide/file structure operations.
+1. **Create elements**, then **geometry** (move/resize/reorder).
+2. **Appearance**, **text and links**, **alt text**, and **presenter notes**.
+3. **Delete** and the slide/file structure operations.
