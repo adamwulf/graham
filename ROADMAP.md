@@ -22,7 +22,8 @@ already exists; add request-body models under `Models/` as each feature lands.
    Builds on `SlidesClient.presentation(id:)`; add a command that walks the
    slides and renders their text.
 3. **Fetch the images on each slide.** For a presentation, list the images per
-   slide and download them (the image `contentUrl` per page element).
+   slide and download them (the image `contentUrl` per page element), and read
+   each image's alt text (its `title` and `description`).
 
 ## Edit Slides
 
@@ -33,9 +34,16 @@ already exists; add request-body models under `Models/` as each feature lands.
    covered by items 4 and 6.
 6. **Add, update, or delete the presenter notes** on a slide (the notes page
    text, edited through `presentations.batchUpdate`).
+7. **Add, edit, or delete an image's alt text** — its `title` and `description`
+   — on any slide, through `presentations.batchUpdate` with an
+   `updatePageElementAltText` request. "Delete" means clearing both fields; the
+   API has no separate delete. This also needs the `PageElement` model extended
+   to decode `title`, `description`, and the `image` field, which it currently
+   ignores (that same extension serves the reads in items 2 and 3).
 
 ## Suggested order
 
 Build **item 1** (create) and **item 2** (read slides) first: create gives us a
-file to work on, and read gives us the object ids that every edit needs. Then
-the edits (items 4 and 6), then item 3 (images) and the delete part of item 5.
+file to work on, and read gives us the object ids that every edit needs. Extend
+the `PageElement` model early, since items 2, 3, and 7 all need it. Then the
+edits (items 4, 6, and 7), then item 3 (images) and the delete part of item 5.
