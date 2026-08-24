@@ -38,6 +38,10 @@ public enum SlidesBatchUpdateRequest: Encodable, Sendable, Equatable {
     case insertText(InsertTextRequest)
     /// Moves slides to a new position.
     case updateSlidesPosition(UpdateSlidesPositionRequest)
+    /// Moves, scales, and rotates a page element by setting its transform.
+    case updatePageElementTransform(UpdatePageElementTransformRequest)
+    /// Reorders page elements front-to-back on their slide.
+    case updatePageElementsZOrder(UpdatePageElementsZOrderRequest)
     /// Deletes a slide or a page element by its exact object id.
     case deleteObject(DeleteObjectRequest)
 
@@ -53,6 +57,8 @@ public enum SlidesBatchUpdateRequest: Encodable, Sendable, Equatable {
         case ungroupObjects
         case insertText
         case updateSlidesPosition
+        case updatePageElementTransform
+        case updatePageElementsZOrder
         case deleteObject
     }
 
@@ -81,6 +87,10 @@ public enum SlidesBatchUpdateRequest: Encodable, Sendable, Equatable {
             try container.encode(request, forKey: .insertText)
         case .updateSlidesPosition(let request):
             try container.encode(request, forKey: .updateSlidesPosition)
+        case .updatePageElementTransform(let request):
+            try container.encode(request, forKey: .updatePageElementTransform)
+        case .updatePageElementsZOrder(let request):
+            try container.encode(request, forKey: .updatePageElementsZOrder)
         case .deleteObject(let request):
             try container.encode(request, forKey: .deleteObject)
         }
@@ -394,6 +404,137 @@ public struct ElementTransform: Codable, Sendable, Equatable {
     }
 }
 
+// MARK: - Transform math (pure, unit-testable)
+
+/// The affine-transform math the geometry edits rely on.
+///
+/// A transform maps element-local coordinates into the parent's space (the
+/// page, or the group for a grouped element), using the Slides matrix layout:
+///
+///     | scaleX  shearX  translateX |     | a  c  tx |
+///     | shearY  scaleY  translateY |  =  | b  d  ty |
+///     | 0       0       1          |     | 0  0  1  |
+///
+/// Every helper here is pure and unit-agnostic: the math runs in whatever unit
+/// the caller supplies, because the Slides API does not convert units between a
+/// transform update and an element's existing transform. Each helper that
+/// returns a transform sets all six matrix fields explicitly (shears included,
+/// even when 0), so a computed result never relies on the wire model's
+/// omit-shear default.
+extension ElementTransform {
+    /// The `a`, `b`, `c`, `d`, `tx`, `ty` matrix entries, with a missing scale
+    /// read as 1 and a missing shear read as 0. Named to match the matrix
+    /// layout above (`a = scaleX`, `b = shearY`, `c = shearX`, `d = scaleY`).
+    private var matrix: (a: Double, b: Double, c: Double, d: Double, tx: Double, ty: Double) {
+        (a: scaleX, b: shearY ?? 0, c: shearX ?? 0, d: scaleY, tx: translateX, ty: translateY)
+    }
+
+    /// Concatenates `update × existing`: the transform that applies `existing`
+    /// first and then `update` (the API's `RELATIVE` semantics, `B × T`).
+    ///
+    /// Order matters — `update × existing` is not `existing × update`. The
+    /// result carries `update`'s unit; the caller must ensure both transforms
+    /// share that unit, because affine concatenation mixes their translations
+    /// and the API never converts units.
+    public static func concatenate(
+        _ update: ElementTransform,
+        with existing: ElementTransform
+    ) -> ElementTransform {
+        let b = update.matrix
+        let t = existing.matrix
+        // Standard 3×3 affine product B × T.
+        let a = b.a * t.a + b.c * t.b
+        let c = b.a * t.c + b.c * t.d
+        let bb = b.b * t.a + b.d * t.b
+        let d = b.b * t.c + b.d * t.d
+        let tx = b.a * t.tx + b.c * t.ty + b.tx
+        let ty = b.b * t.tx + b.d * t.ty + b.ty
+        return ElementTransform(
+            scaleX: a,
+            scaleY: d,
+            shearX: c,
+            shearY: bb,
+            translateX: tx,
+            translateY: ty,
+            unit: update.unit
+        )
+    }
+
+    /// The element's center in the parent's coordinate space, given the raw
+    /// (unscaled) size. `cx = a·(w/2) + c·(h/2) + tx`,
+    /// `cy = b·(w/2) + d·(h/2) + ty`.
+    public static func center(
+        of transform: ElementTransform,
+        width: Double,
+        height: Double
+    ) -> (x: Double, y: Double) {
+        let m = transform.matrix
+        let halfWidth = width / 2
+        let halfHeight = height / 2
+        let x = m.a * halfWidth + m.c * halfHeight + m.tx
+        let y = m.b * halfWidth + m.d * halfHeight + m.ty
+        return (x: x, y: y)
+    }
+
+    /// A rotation by `degrees` about the point `(aboutX, y)`, positive degrees
+    /// rotating clockwise on screen (y grows downward), matching the read
+    /// facade's `SlideElementGeometry.rotationDegrees`.
+    ///
+    /// Left-multiply the result onto the element's existing transform (or use
+    /// it directly with an already-composed transform) to rotate the element
+    /// about that fixed point.
+    public static func rotation(
+        degrees: Double,
+        aboutX: Double,
+        y aboutY: Double,
+        unit: ElementUnit
+    ) -> ElementTransform {
+        let theta = degrees * .pi / 180
+        let cosTheta = cos(theta)
+        let sinTheta = sin(theta)
+        // B rotates about (aboutX, aboutY): translate to origin, rotate, back.
+        return ElementTransform(
+            scaleX: cosTheta,
+            scaleY: cosTheta,
+            shearX: -sinTheta,
+            shearY: sinTheta,
+            translateX: aboutX - aboutX * cosTheta + aboutY * sinTheta,
+            translateY: aboutY - aboutX * sinTheta - aboutY * cosTheta,
+            unit: unit
+        )
+    }
+
+    /// A scale by `(x, y)` about the point `(aboutX, aboutY)`, which leaves that
+    /// point fixed (resize-in-place when the point is the element center).
+    public static func scale(
+        x: Double,
+        y: Double,
+        aboutX: Double,
+        aboutY: Double,
+        unit: ElementUnit
+    ) -> ElementTransform {
+        // B scales about (aboutX, aboutY), so the fixed point does not move.
+        ElementTransform(
+            scaleX: x,
+            scaleY: y,
+            shearX: 0,
+            shearY: 0,
+            translateX: (1 - x) * aboutX,
+            translateY: (1 - y) * aboutY,
+            unit: unit
+        )
+    }
+
+    /// The current rotation of this transform in degrees: `atan2(b, a)`, that
+    /// is `atan2(shearY, scaleX)`, with a missing shear read as 0.
+    ///
+    /// This mirrors ``SlideElementGeometry/rotationDegrees(scaleX:shearY:)`` but
+    /// stays unrounded, so a `rotate --to` delta (`target − current`) is exact.
+    public var rotationDegrees: Double {
+        atan2(shearY ?? 0, scaleX) * 180 / .pi
+    }
+}
+
 /// The `insertText` operation. The insertion index is required by the API and
 /// defaults to the start of the element's text.
 public struct InsertTextRequest: Codable, Sendable, Equatable {
@@ -422,6 +563,74 @@ public struct UpdateSlidesPositionRequest: Codable, Sendable, Equatable {
     public init(slideObjectIds: [String], insertionIndex: Int) {
         self.slideObjectIds = slideObjectIds
         self.insertionIndex = insertionIndex
+    }
+}
+
+/// How an `updatePageElementTransform` operation applies its matrix.
+///
+/// `RELATIVE` left-multiplies the update matrix `B` onto the element's existing
+/// transform `T`, giving `B × T`. `ABSOLUTE` replaces `T` with the update
+/// matrix outright. The API never accepts an unspecified mode, so this enum has
+/// no default and both cases are always sent.
+public enum TransformApplyMode: String, Codable, Sendable {
+    case relative = "RELATIVE"
+    case absolute = "ABSOLUTE"
+}
+
+/// The `updatePageElementTransform` operation. Every field is required by the
+/// API.
+///
+/// The API does not convert units between the update matrix and the element's
+/// existing transform, so a `RELATIVE` update must be expressed in the same
+/// unit as the element already uses. graham's computed edits therefore read the
+/// element, do the math in its native unit, and send one precomputed
+/// `ABSOLUTE` transform (Google's documented recommendation).
+public struct UpdatePageElementTransformRequest: Codable, Sendable, Equatable {
+    /// The object id of the page element to transform.
+    public let objectId: String
+    /// The affine transform to apply, interpreted per ``applyMode``.
+    public let transform: ElementTransform
+    /// Whether the transform is left-multiplied onto the element's existing
+    /// transform (`RELATIVE`) or replaces it (`ABSOLUTE`).
+    public let applyMode: TransformApplyMode
+
+    public init(
+        objectId: String,
+        transform: ElementTransform,
+        applyMode: TransformApplyMode
+    ) {
+        self.objectId = objectId
+        self.transform = transform
+        self.applyMode = applyMode
+    }
+}
+
+/// The front-to-back reorder operations of `updatePageElementsZOrder`.
+///
+/// `BRING_FORWARD` and `SEND_BACKWARD` move by one step; `BRING_TO_FRONT` and
+/// `SEND_TO_BACK` move all the way. When several elements are reordered at once
+/// their relative order among themselves is preserved.
+public enum ZOrderOperation: String, Codable, Sendable {
+    case bringToFront = "BRING_TO_FRONT"
+    case bringForward = "BRING_FORWARD"
+    case sendBackward = "SEND_BACKWARD"
+    case sendToBack = "SEND_TO_BACK"
+}
+
+/// The `updatePageElementsZOrder` operation. Both fields are required by the
+/// API.
+///
+/// All the given page elements must be on the same page and none may be
+/// grouped. When several are given their relative order is kept.
+public struct UpdatePageElementsZOrderRequest: Codable, Sendable, Equatable {
+    /// The object ids of the page elements to reorder, all on the same page.
+    public let pageElementObjectIds: [String]
+    /// The reorder operation to apply.
+    public let operation: ZOrderOperation
+
+    public init(pageElementObjectIds: [String], operation: ZOrderOperation) {
+        self.pageElementObjectIds = pageElementObjectIds
+        self.operation = operation
     }
 }
 
