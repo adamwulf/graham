@@ -16,6 +16,65 @@ final class SlidesWriteTests: XCTestCase {
     private static let fourSlidesJSON =
         #"{"slides":[{"objectId":"s1"},{"objectId":"s2"},{"objectId":"s3"},{"objectId":"s4"}]}"#
 
+    /// Geometry fixture with a sheared EMU element, a nested group child, and
+    /// a PT element. Computed edits read this fixture before sending one
+    /// absolute transform update.
+    private static let geometryPresentationJSON = #"""
+    {
+      "presentationId": "p-geometry",
+      "slides": [{
+        "objectId": "slide-1",
+        "pageElements": [
+          {
+            "objectId": "top",
+            "size": {
+              "width": {"magnitude": 100, "unit": "EMU"},
+              "height": {"magnitude": 40, "unit": "EMU"}
+            },
+            "transform": {
+              "scaleX": 2, "scaleY": 3,
+              "shearX": 0.25, "shearY": 0.5,
+              "translateX": 1000, "translateY": 2000,
+              "unit": "EMU"
+            },
+            "shape": {"shapeType": "RECTANGLE"}
+          },
+          {
+            "objectId": "group",
+            "elementGroup": {"children": [{
+              "objectId": "child",
+              "size": {
+                "width": {"magnitude": 10, "unit": "EMU"},
+                "height": {"magnitude": 20, "unit": "EMU"}
+              },
+              "transform": {
+                "scaleX": 1.5, "scaleY": 0.5,
+                "shearX": -0.25, "shearY": 0.75,
+                "translateX": 100, "translateY": 200,
+                "unit": "EMU"
+              },
+              "image": {"contentUrl": "https://example.test/child"}
+            }]}
+          },
+          {
+            "objectId": "pt-element",
+            "size": {
+              "width": {"magnitude": 20, "unit": "PT"},
+              "height": {"magnitude": 10, "unit": "PT"}
+            },
+            "transform": {
+              "scaleX": 1, "scaleY": 1,
+              "shearX": 0, "shearY": 0,
+              "translateX": 5, "translateY": 6,
+              "unit": "PT"
+            },
+            "shape": {"shapeType": "RECTANGLE"}
+          }
+        ]
+      }]
+    }
+    """#
+
     // MARK: - Request-union encoding
 
     func testCreateSlideRequestEncodesUnderItsOperationKey() throws {
@@ -110,6 +169,61 @@ final class SlidesWriteTests: XCTestCase {
             try encode(.insertText(InsertTextRequest(
                 objectId: "textbox-1", text: "Hello", insertionIndex: 3))),
             #"{"insertText":{"insertionIndex":3,"objectId":"textbox-1","text":"Hello"}}"#
+        )
+    }
+
+    func testUpdatePageElementTransformRequestEncodesAbsoluteAndOmitsNilShears() throws {
+        let request = SlidesBatchUpdateRequest.updatePageElementTransform(
+            UpdatePageElementTransformRequest(
+                objectId: "element-1",
+                transform: ElementTransform(
+                    scaleX: 2,
+                    scaleY: 3,
+                    translateX: 4,
+                    translateY: 5,
+                    unit: .pt
+                ),
+                applyMode: .absolute
+            )
+        )
+        XCTAssertEqual(
+            try encode(request),
+            #"{"updatePageElementTransform":{"applyMode":"ABSOLUTE","objectId":"element-1","transform":{"scaleX":2,"scaleY":3,"translateX":4,"translateY":5,"unit":"PT"}}}"#
+        )
+    }
+
+    func testUpdatePageElementTransformRequestEncodesRelative() throws {
+        let request = SlidesBatchUpdateRequest.updatePageElementTransform(
+            UpdatePageElementTransformRequest(
+                objectId: "element-2",
+                transform: ElementTransform(
+                    scaleX: 1,
+                    scaleY: 1,
+                    shearX: 6,
+                    shearY: 7,
+                    translateX: 8,
+                    translateY: 9,
+                    unit: .emu
+                ),
+                applyMode: .relative
+            )
+        )
+        XCTAssertEqual(
+            try encode(request),
+            #"{"updatePageElementTransform":{"applyMode":"RELATIVE","objectId":"element-2","transform":{"scaleX":1,"scaleY":1,"shearX":6,"shearY":7,"translateX":8,"translateY":9,"unit":"EMU"}}}"#
+        )
+    }
+
+    func testUpdatePageElementsZOrderRequestEncodesExactly() throws {
+        let request = SlidesBatchUpdateRequest.updatePageElementsZOrder(
+            UpdatePageElementsZOrderRequest(
+                pageElementObjectIds: ["a", "b"],
+                operation: .sendToBack
+            )
+        )
+        XCTAssertEqual(
+            try encode(request),
+            #"{"updatePageElementsZOrder":{"operation":"SEND_TO_BACK","pageElementObjectIds":["a","b"]}}"#
         )
     }
 
@@ -1430,7 +1544,281 @@ final class SlidesWriteTests: XCTestCase {
         XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
     }
 
+    // MARK: - Element geometry and z-order
+
+    private func stubGeometryEndpoints(
+        _ transport: StubTransport,
+        writeJSON: String = #"{"presentationId":"p-geometry","replies":[{}]}"#,
+        writeStatus: Int = 200
+    ) {
+        transport.stub(
+            urlContains: "presentations/p-geometry?fields=",
+            json: Self.geometryPresentationJSON
+        )
+        transport.stub(urlContains: ":batchUpdate", json: writeJSON, status: writeStatus)
+    }
+
+    func testMoveElementToConvertsPointsToEmuAndPreservesTheLinearMatrix() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        stubGeometryEndpoints(transport)
+
+        try await client.moveElement(
+            presentationId: "p-geometry", objectId: "top", toX: 2, toY: -3)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updatePageElementTransform":{"applyMode":"ABSOLUTE","objectId":"top","transform":{"scaleX":2,"scaleY":3,"shearX":0.25,"shearY":0.5,"translateX":25400,"translateY":-38100,"unit":"EMU"}}}]}"#
+        )
+        let read = try XCTUnwrap(transport.requests(urlContains: "presentations/p-geometry?").first)
+        XCTAssertEqual(read.method, "GET")
+        XCTAssertTrue(read.url.absoluteString.contains("fields=slides.pageElements"))
+        XCTAssertEqual(Self.path(read.url), "/v1/presentations/p-geometry")
+        XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-geometry:batchUpdate")
+    }
+
+    func testMoveElementToDoesNotConvertPointsForAPtElement() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        stubGeometryEndpoints(transport)
+
+        try await client.moveElement(
+            presentationId: "p-geometry", objectId: "pt-element", toX: -2.5, toY: 7)
+
+        let sent = try sentTransform(transport)
+        XCTAssertEqual(sent.applyMode, .absolute)
+        XCTAssertEqual(sent.transform.translateX, -2.5)
+        XCTAssertEqual(sent.transform.translateY, 7)
+        XCTAssertEqual(sent.transform.unit, .pt)
+    }
+
+    func testMoveElementByAddsConvertedDeltas() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        stubGeometryEndpoints(transport)
+
+        try await client.moveElement(
+            presentationId: "p-geometry", objectId: "top", byX: 2, byY: -1)
+
+        let sent = try sentTransform(transport)
+        XCTAssertEqual(sent.transform.translateX, 26_400)
+        XCTAssertEqual(sent.transform.translateY, -10_700)
+        XCTAssertEqual(sent.transform.unit, .emu)
+    }
+
+    func testMoveElementFindsAChildInsideAGroup() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        stubGeometryEndpoints(transport)
+
+        try await client.moveElement(
+            presentationId: "p-geometry", objectId: "child", byX: 1, byY: 0)
+
+        let sent = try sentTransform(transport)
+        XCTAssertEqual(sent.objectId, "child")
+        XCTAssertEqual(sent.transform.scaleX, 1.5)
+        XCTAssertEqual(sent.transform.scaleY, 0.5)
+        XCTAssertEqual(sent.transform.shearX, -0.25)
+        XCTAssertEqual(sent.transform.shearY, 0.75)
+        XCTAssertEqual(sent.transform.translateX, 12_800)
+        XCTAssertEqual(sent.transform.translateY, 200)
+    }
+
+    func testScaleElementPrecomputesAbsoluteBTimesTAboutTheCenter() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        stubGeometryEndpoints(transport)
+
+        try await client.scaleElement(
+            presentationId: "p-geometry", objectId: "top", factorX: 2, factorY: 0.5)
+
+        let sent = try sentTransform(transport)
+        XCTAssertEqual(sent.applyMode, .absolute)
+        XCTAssertEqual(sent.transform.scaleX, 4, accuracy: 0.000_000_1)
+        XCTAssertEqual(sent.transform.scaleY, 1.5, accuracy: 0.000_000_1)
+        XCTAssertEqual(try XCTUnwrap(sent.transform.shearX), 0.5, accuracy: 0.000_000_1)
+        XCTAssertEqual(try XCTUnwrap(sent.transform.shearY), 0.25, accuracy: 0.000_000_1)
+        XCTAssertEqual(sent.transform.translateX, 895, accuracy: 0.000_000_1)
+        XCTAssertEqual(sent.transform.translateY, 2042.5, accuracy: 0.000_000_1)
+        XCTAssertEqual(sent.transform.unit, .emu)
+    }
+
+    func testScaleElementRejectsNonPositiveFactorsBeforeReading() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        do {
+            try await client.scaleElement(
+                presentationId: "p-geometry", objectId: "top", factorX: 1, factorY: 0)
+            XCTFail("Expected an error")
+        } catch {
+            guard case GrahamError.invalidArgument = error else {
+                return XCTFail("Wrong error: \(error)")
+            }
+        }
+        XCTAssertTrue(transport.requests.isEmpty)
+    }
+
+    func testRotateElementByPrecomputesClockwiseRotationAboutTheCenter() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        stubGeometryEndpoints(transport)
+
+        try await client.rotateElement(
+            presentationId: "p-geometry", objectId: "top", byDegrees: 90)
+
+        let sent = try sentTransform(transport)
+        XCTAssertEqual(sent.transform.scaleX, -0.5, accuracy: 0.000_000_1)
+        XCTAssertEqual(sent.transform.scaleY, 0.25, accuracy: 0.000_000_1)
+        XCTAssertEqual(try XCTUnwrap(sent.transform.shearX), -3, accuracy: 0.000_000_1)
+        XCTAssertEqual(try XCTUnwrap(sent.transform.shearY), 2, accuracy: 0.000_000_1)
+        XCTAssertEqual(sent.transform.translateX, 1190, accuracy: 0.000_000_1)
+        XCTAssertEqual(sent.transform.translateY, 1980, accuracy: 0.000_000_1)
+    }
+
+    func testRotateElementToUsesTheDeltaFromTheCurrentRotation() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        stubGeometryEndpoints(transport)
+
+        try await client.rotateElement(
+            presentationId: "p-geometry", objectId: "top", toDegrees: 90)
+
+        let sent = try sentTransform(transport)
+        XCTAssertEqual(sent.transform.scaleX, 0, accuracy: 0.000_000_1)
+        XCTAssertEqual(sent.transform.scaleY, 0.970_142_500_1, accuracy: 0.000_000_1)
+        XCTAssertEqual(try XCTUnwrap(sent.transform.shearX), -2.849_793_594, accuracy: 0.000_000_1)
+        XCTAssertEqual(try XCTUnwrap(sent.transform.shearY), 2.061_552_813, accuracy: 0.000_000_1)
+        XCTAssertEqual(sent.transform.translateX, 1161.995_871_9, accuracy: 0.000_000_1)
+        XCTAssertEqual(sent.transform.translateY, 1962.519_509_3, accuracy: 0.000_000_1)
+    }
+
+    func testUnknownElementRejectsAfterReadAndSendsNoWrite() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: "presentations/p-geometry?fields=",
+            json: Self.geometryPresentationJSON
+        )
+
+        do {
+            try await client.moveElement(
+                presentationId: "p-geometry", objectId: "missing", toX: 1, toY: 2)
+            XCTFail("Expected an error")
+        } catch {
+            guard case GrahamError.invalidArgument(let message) = error else {
+                return XCTFail("Wrong error: \(error)")
+            }
+            XCTAssertTrue(message.contains("missing"))
+        }
+        XCTAssertEqual(transport.requests(urlContains: "presentations/p-geometry?").count, 1)
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testRawTransformSendsVerbatimWithoutARead() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
+        let transform = ElementTransform(
+            scaleX: 2,
+            scaleY: 3,
+            shearX: nil,
+            shearY: -4,
+            translateX: -5,
+            translateY: 6,
+            unit: .pt
+        )
+
+        try await client.transformElement(
+            presentationId: "p-geometry",
+            objectId: "top",
+            transform: transform,
+            mode: .relative
+        )
+
+        XCTAssertEqual(transport.requests(urlContains: "presentations/p-geometry").count, 1)
+        let sent = try sentTransform(transport)
+        XCTAssertEqual(sent.objectId, "top")
+        XCTAssertEqual(sent.transform, transform)
+        XCTAssertEqual(sent.applyMode, .relative)
+    }
+
+    func testReorderElementsSendsExactBodyAndKeepsIdOrder() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
+
+        try await client.reorderElements(
+            presentationId: "p-geometry",
+            objectIds: ["a", "b"],
+            operation: .bringForward
+        )
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updatePageElementsZOrder":{"operation":"BRING_FORWARD","pageElementObjectIds":["a","b"]}}]}"#
+        )
+    }
+
+    func testReorderElementsRejectsAnEmptyListWithoutARequest() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        do {
+            try await client.reorderElements(
+                presentationId: "p-geometry", objectIds: [], operation: .bringToFront)
+            XCTFail("Expected an error")
+        } catch {
+            guard case GrahamError.invalidArgument = error else {
+                return XCTFail("Wrong error: \(error)")
+            }
+        }
+        XCTAssertTrue(transport.requests.isEmpty)
+    }
+
+    func testComputedTransformPropagatesAGoogleErrorEnvelope() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        stubGeometryEndpoints(
+            transport,
+            writeJSON: #"{"error":{"code":400,"message":"Bad transform","status":"INVALID_ARGUMENT"}}"#,
+            writeStatus: 400
+        )
+
+        do {
+            try await client.moveElement(
+                presentationId: "p-geometry", objectId: "top", toX: 1, toY: 2)
+            XCTFail("Expected an error")
+        } catch {
+            guard case GrahamError.googleAPIError(let code, let status, let message) = error else {
+                return XCTFail("Wrong error: \(error)")
+            }
+            XCTAssertEqual(code, 400)
+            XCTAssertEqual(status, "INVALID_ARGUMENT")
+            XCTAssertEqual(message, "Bad transform")
+        }
+    }
+
     // MARK: - Helpers
+
+    private struct SentTransformBatch: Decodable {
+        let requests: [SentTransformEnvelope]
+    }
+
+    private struct SentTransformEnvelope: Decodable {
+        let updatePageElementTransform: UpdatePageElementTransformRequest
+    }
+
+    private func sentTransform(_ transport: StubTransport) throws
+        -> UpdatePageElementTransformRequest
+    {
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        let body = try XCTUnwrap(request.body)
+        return try GoogleJSON.decoder.decode(SentTransformBatch.self, from: body)
+            .requests[0].updatePageElementTransform
+    }
 
     /// Encodes one union request with the shared encoder (sorted keys).
     private func encode(_ request: SlidesBatchUpdateRequest) throws -> String {
