@@ -286,6 +286,23 @@ final class SlidesWriteTests: XCTestCase {
         )
     }
 
+    func testMoveSlideForwardFromAMiddleIndex() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        stubMoveEndpoints(transport)
+
+        // s2 (index 1) to final position 3 (index 2): a forward move that
+        // neither starts at the first slide nor ends at the last one still
+        // adds one, so the insertion index is 3.
+        try await client.moveSlide(presentationId: "p-1", slideId: "s2", to: 3)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateSlidesPosition":{"insertionIndex":3,"slideObjectIds":["s2"]}}]}"#
+        )
+    }
+
     func testMoveSlideBackwardUsesTheFinalIndexDirectly() async throws {
         let transport = StubTransport()
         let client = makeClient(transport: transport)

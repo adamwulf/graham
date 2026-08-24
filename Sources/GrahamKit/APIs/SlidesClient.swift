@@ -64,7 +64,9 @@ public struct SlidesClient: Sendable {
     ///   - presentationId: The presentation to add the slide to.
     ///   - position: The one-based final position of the new slide, matching
     ///     the slide numbers that `slides cat` and `slides list` print. `nil`
-    ///     appends the slide at the end.
+    ///     appends the slide at the end. Only the lower bound is checked here;
+    ///     the upper bound is left to Google, so an add stays a single write
+    ///     with no extra read of the deck.
     ///   - layout: A predefined layout name, for example `BLANK` or
     ///     `TITLE_AND_BODY`. The name is normalized (trimmed, uppercased, `-`
     ///     and spaces become `_`), so `title-and-body` also works. Google
