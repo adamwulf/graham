@@ -4,46 +4,98 @@ What is still to do. For what already works, see `README.md`. For the
 architecture and the recipes that show how to add each kind of feature, see
 `CLAUDE.md`.
 
-The focus is Google Slides, plus file creation. Writes are mostly POST
-`batchUpdate` endpoints with request bodies. `GoogleAPI.sendJSON(_:method:url:body:)`
-already exists; add request-body models under `Models/` as each feature lands.
+The focus is comprehensive Google Slides support — read and write for **every**
+page-element type — plus file creation. Writes are mostly POST `batchUpdate`
+endpoints with request bodies. `GoogleAPI.sendJSON(_:method:url:body:)` already
+exists; add request-body models under `Models/` as each feature lands.
 
 ## Create files
 
-1. **Create a Doc, a Sheet, or a Slides file.** Make a new, empty Google Doc,
-   spreadsheet, or presentation and print its id. Use the service `create`
-   endpoint (for example Slides `presentations.create`) or Drive `files.create`
-   with the right `mimeType`.
+- **Create a Doc, a Sheet, or a Slides file.** Make a new, empty Google Doc,
+  spreadsheet, or presentation and print its id. Use the service `create`
+  endpoint (for example Slides `presentations.create`) or Drive `files.create`
+  with the right `mimeType`.
 
-## Read Slides
+## Slides: model foundation
 
-2. **List a presentation's slides and their contents.** Read a Slides file and
-   print each slide with its text (title, body, and other text on the slide).
-   Builds on `SlidesClient.presentation(id:)`; add a command that walks the
-   slides and renders their text.
-3. **Fetch the images on each slide.** For a presentation, list the images per
-   slide and download them (the image `contentUrl` per page element), and read
-   each image's alt text (its `title` and `description`).
+The current `PageElement` model reads only `objectId` and shapes. Extend it to
+decode the common properties on every element and each element type. This
+foundation unblocks all the read and write work below.
 
-## Edit Slides
+- **Common properties** on every page element: `objectId`, `size`,
+  `transform` (position, scale, rotation), `title` and `description` (alt text).
+- **All element types** (exactly one per page element): shape (this includes
+  text boxes / text blocks and placeholders), image, video, line/connector,
+  table, chart from Sheets (`sheetsChart`), word art, and grouped elements
+  (`elementGroup`, which nests more page elements).
 
-4. **Add, update, or delete a slide** inside a presentation
-   (`presentations.batchUpdate`: `createSlide`, element updates, `deleteObject`).
-5. **Add or delete a Slides file** (create covered by item 1; delete via Drive
-   `files.delete`, or trash). "Update" of the whole file means its content,
-   covered by items 4 and 6.
-6. **Add, update, or delete the presenter notes** on a slide (the notes page
-   text, edited through `presentations.batchUpdate`).
-7. **Add, edit, or delete an image's alt text** — its `title` and `description`
-   — on any slide, through `presentations.batchUpdate` with an
-   `updatePageElementAltText` request. "Delete" means clearing both fields; the
-   API has no separate delete. This also needs the `PageElement` model extended
-   to decode `title`, `description`, and the `image` field, which it currently
-   ignores (that same extension serves the reads in items 2 and 3).
+## Slides: read
+
+- **List a presentation's slides and their elements.** For each slide, print
+  every element with its type, position and size, text, links, and alt text.
+- **Fetch the images on each slide.** List and download the images (the image
+  `contentUrl`), and read each image's alt text.
+
+## Slides: create elements
+
+Add each element type to a slide:
+
+- **Shape / text box** (`createShape`), **image** (`createImage`), **video**
+  (`createVideo`, from YouTube or Drive), **line / connector** (`createLine`),
+  **table** (`createTable`), and **chart from Sheets** (`createSheetsChart`).
+- **Group / ungroup** elements (`groupObjects`, `ungroupObjects`).
+
+## Slides: edit geometry (all element types)
+
+- **Move and resize** any element — position, scale, and rotation
+  (`updatePageElementTransform`).
+- **Reorder** elements front-to-back (`updatePageElementsZOrder`).
+
+## Slides: edit appearance (all element types)
+
+- **Image recolor and adjustments** (`updateImageProperties`): recolor, the
+  adjustments — opacity (transparency), brightness, and contrast — plus crop,
+  outline, and drop shadow.
+- **Recolor and style, other types:** shape fill, outline, and drop shadow
+  (`updateShapeProperties`); line properties (`updateLineProperties`); video
+  properties (`updateVideoProperties`).
+- **Tables:** insert and delete rows and columns, merge and unmerge cells, and
+  cell / row / column / border properties (the `*Table*` requests).
+- **Charts:** refresh a linked Sheets chart (`refreshSheetsChart`).
+
+## Slides: edit text and links
+
+- **Text blocks:** insert and delete text, and style runs and paragraphs
+  (`insertText`, `deleteText`, `updateTextStyle`, `updateParagraphStyle`).
+- **Bullets / lists:** add and remove list formatting (`createParagraphBullets`,
+  `deleteParagraphBullets`).
+- **Links:** set or clear a link on a text run (a `Link` in the text style, via
+  `updateTextStyle`).
+
+## Slides: alt text
+
+- **Add, edit, or delete an image's alt text** — its `title` and `description`
+  — on any element (`updatePageElementAltText`). "Delete" means clearing both
+  fields; the API has no separate delete.
+
+## Slides: presenter notes
+
+- **Add, update, or delete the presenter notes** on a slide (the notes page
+  text, edited through `presentations.batchUpdate`).
+
+## Slides: delete
+
+- **Delete a slide or any element** (`deleteObject`).
+- **Add, reorder, or delete slides**, and **delete the whole presentation file**
+  (Drive `files.delete`, or trash).
 
 ## Suggested order
 
-Build **item 1** (create) and **item 2** (read slides) first: create gives us a
-file to work on, and read gives us the object ids that every edit needs. Extend
-the `PageElement` model early, since items 2, 3, and 7 all need it. Then the
-edits (items 4, 6, and 7), then item 3 (images) and the delete part of item 5.
+1. **Create files** and the **model foundation** first — create gives us a file
+   to work on, and the extended `PageElement` model unblocks every read and
+   write.
+2. **Read** (slides + elements), which surfaces the object ids that every edit
+   needs.
+3. **Create elements**, then **geometry** (move/resize/reorder).
+4. **Appearance**, **text and links**, **alt text**, and **presenter notes**.
+5. **Delete** and the slide/file structure operations.
