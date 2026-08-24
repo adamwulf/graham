@@ -422,9 +422,10 @@ public struct ElementTransform: Codable, Sendable, Equatable {
 /// even when 0), so a computed result never relies on the wire model's
 /// omit-shear default.
 extension ElementTransform {
-    /// The `a`, `b`, `c`, `d`, `tx`, `ty` matrix entries, with a missing scale
-    /// read as 1 and a missing shear read as 0. Named to match the matrix
-    /// layout above (`a = scaleX`, `b = shearY`, `c = shearX`, `d = scaleY`).
+    /// The `a`, `b`, `c`, `d`, `tx`, `ty` matrix entries, with a missing shear
+    /// read as 0 (the scale and translate fields are always present on the
+    /// write-side transform). Named to match the matrix layout above
+    /// (`a = scaleX`, `b = shearY`, `c = shearX`, `d = scaleY`).
     private var matrix: (a: Double, b: Double, c: Double, d: Double, tx: Double, ty: Double) {
         (a: scaleX, b: shearY ?? 0, c: shearX ?? 0, d: scaleY, tx: translateX, ty: translateY)
     }
