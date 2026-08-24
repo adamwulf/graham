@@ -1801,7 +1801,596 @@ final class SlidesWriteTests: XCTestCase {
         }
     }
 
+    // MARK: - OpaqueColor parsing
+
+    func testOpaqueColorParsesShortHexExpandingEachNibble() throws {
+        // #F00 expands to #FF0000: red 255/255 = 1, green and blue 0.
+        XCTAssertEqual(
+            try encodeJSON(OpaqueColor.parse("#F00")),
+            #"{"rgbColor":{"blue":0,"green":0,"red":1}}"#
+        )
+    }
+
+    func testOpaqueColorParsesSixDigitHexCaseInsensitively() throws {
+        XCTAssertEqual(
+            try encodeJSON(OpaqueColor.parse("#ff0000")),
+            #"{"rgbColor":{"blue":0,"green":0,"red":1}}"#
+        )
+    }
+
+    func testOpaqueColorParsesHexWithoutALeadingHash() throws {
+        XCTAssertEqual(
+            try encodeJSON(OpaqueColor.parse("ff0000")),
+            #"{"rgbColor":{"blue":0,"green":0,"red":1}}"#
+        )
+        // The short form works without a hash too.
+        XCTAssertEqual(
+            try encodeJSON(OpaqueColor.parse("00f")),
+            #"{"rgbColor":{"blue":1,"green":0,"red":0}}"#
+        )
+    }
+
+    func testOpaqueColorParsesThemeNamesInAnyCase() throws {
+        XCTAssertEqual(
+            try encodeJSON(OpaqueColor.parse("accent1")),
+            #"{"themeColor":"ACCENT1"}"#
+        )
+        XCTAssertEqual(
+            try encodeJSON(OpaqueColor.parse("DARK1")),
+            #"{"themeColor":"DARK1"}"#
+        )
+        // A multi-word theme name matches case-insensitively as well.
+        XCTAssertEqual(
+            try encodeJSON(OpaqueColor.parse("followed_hyperlink")),
+            #"{"themeColor":"FOLLOWED_HYPERLINK"}"#
+        )
+    }
+
+    func testOpaqueColorParseRejectsABadHexLength() {
+        // Four hex digits is neither the short (3) nor the long (6) form.
+        assertColorParseThrows("#FF00")
+    }
+
+    func testOpaqueColorParseRejectsBadHexCharacters() {
+        assertColorParseThrows("#ZZZ")
+        assertColorParseThrows("#GG0011")
+    }
+
+    func testOpaqueColorParseRejectsAnUnknownThemeName() {
+        assertColorParseThrows("mauve")
+    }
+
+    private func assertColorParseThrows(
+        _ input: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        do {
+            _ = try OpaqueColor.parse(input)
+            XCTFail("Expected a parse failure for \"\(input)\"", file: file, line: line)
+        } catch {
+            guard case GrahamError.invalidArgument(let message) = error else {
+                return XCTFail("Wrong error: \(error)", file: file, line: line)
+            }
+            // The message names the offending input.
+            XCTAssertTrue(message.contains(input), "message should name the input: \(message)",
+                          file: file, line: line)
+        }
+    }
+
+    // MARK: - Element-style request encoding
+
+    /// The exact wire form of a shape style request that sets a fill, an
+    /// outline, a shadow, and content alignment. Shared by the model-level
+    /// encode test and the client body test so the two never drift.
+    private static let shapeStyleUnionJSON =
+        #"{"updateShapeProperties":{"fields":"shapeBackgroundFill.solidFill.color,shapeBackgroundFill.solidFill.alpha,outline.outlineFill.solidFill.color,outline.weight,shadow.color,shadow.blurRadius,shadow.transform,contentAlignment","objectId":"shape-1","shapeProperties":{"contentAlignment":"MIDDLE","outline":{"outlineFill":{"solidFill":{"color":{"themeColor":"ACCENT1"}}},"weight":{"magnitude":2,"unit":"PT"}},"shadow":{"blurRadius":{"magnitude":3,"unit":"PT"},"color":{"rgbColor":{"blue":0,"green":0,"red":0}},"transform":{"scaleX":1,"scaleY":1,"shearX":0,"shearY":0,"translateX":4,"translateY":5,"unit":"PT"}},"shapeBackgroundFill":{"solidFill":{"alpha":0.5,"color":{"rgbColor":{"blue":0,"green":0,"red":1}}}}}}}"#
+
+    func testUpdateShapePropertiesRequestEncodesFillOutlineShadowAndAlignment() throws {
+        let request = SlidesBatchUpdateRequest.updateShapeProperties(
+            UpdateShapePropertiesRequest(
+                objectId: "shape-1",
+                shapeProperties: ShapeStyle(
+                    shapeBackgroundFill: ShapeBackgroundFill(
+                        solidFill: SolidFill(
+                            color: OpaqueColor(red: 1, green: 0, blue: 0),
+                            alpha: 0.5
+                        )
+                    ),
+                    outline: Outline(
+                        outlineFill: OutlineFill(
+                            solidFill: SolidFill(color: OpaqueColor(theme: .accent1))
+                        ),
+                        weight: ElementDimension(magnitude: 2, unit: .pt)
+                    ),
+                    shadow: Shadow(
+                        color: OpaqueColor(red: 0, green: 0, blue: 0),
+                        blurRadius: ElementDimension(magnitude: 3, unit: .pt),
+                        transform: ElementTransform(
+                            scaleX: 1, scaleY: 1, shearX: 0, shearY: 0,
+                            translateX: 4, translateY: 5, unit: .pt
+                        )
+                    ),
+                    contentAlignment: .middle
+                ),
+                fields: "shapeBackgroundFill.solidFill.color,shapeBackgroundFill.solidFill.alpha,"
+                    + "outline.outlineFill.solidFill.color,outline.weight,"
+                    + "shadow.color,shadow.blurRadius,shadow.transform,contentAlignment"
+            )
+        )
+        XCTAssertEqual(try encode(request), Self.shapeStyleUnionJSON)
+    }
+
+    func testUpdateShapePropertiesRequestNoFillEncodesNotRendered() throws {
+        let request = SlidesBatchUpdateRequest.updateShapeProperties(
+            UpdateShapePropertiesRequest(
+                objectId: "shape-1",
+                shapeProperties: ShapeStyle(
+                    shapeBackgroundFill: ShapeBackgroundFill(propertyState: .notRendered)
+                ),
+                fields: "shapeBackgroundFill.propertyState"
+            )
+        )
+        XCTAssertEqual(
+            try encode(request),
+            #"{"updateShapeProperties":{"fields":"shapeBackgroundFill.propertyState","objectId":"shape-1","shapeProperties":{"shapeBackgroundFill":{"propertyState":"NOT_RENDERED"}}}}"#
+        )
+    }
+
+    func testUpdateImagePropertiesRequestUsesTheImagePropertiesKey() throws {
+        let request = SlidesBatchUpdateRequest.updateImageProperties(
+            UpdateImagePropertiesRequest(
+                objectId: "image-1",
+                imageProperties: ImageStyle(outline: Outline(propertyState: .notRendered)),
+                fields: "outline.propertyState"
+            )
+        )
+        let json = try encode(request)
+        XCTAssertEqual(
+            json,
+            #"{"updateImageProperties":{"fields":"outline.propertyState","imageProperties":{"outline":{"propertyState":"NOT_RENDERED"}},"objectId":"image-1"}}"#
+        )
+        XCTAssertTrue(json.contains(#""imageProperties""#))
+    }
+
+    func testUpdateLinePropertiesRequestUsesTheLinePropertiesKey() throws {
+        let request = SlidesBatchUpdateRequest.updateLineProperties(
+            UpdateLinePropertiesRequest(
+                objectId: "line-1",
+                lineProperties: LineStyle(dashStyle: .solid),
+                fields: "dashStyle"
+            )
+        )
+        let json = try encode(request)
+        XCTAssertEqual(
+            json,
+            #"{"updateLineProperties":{"fields":"dashStyle","lineProperties":{"dashStyle":"SOLID"},"objectId":"line-1"}}"#
+        )
+        XCTAssertTrue(json.contains(#""lineProperties""#))
+    }
+
+    func testUpdateVideoPropertiesRequestUsesTheVideoPropertiesKey() throws {
+        let request = SlidesBatchUpdateRequest.updateVideoProperties(
+            UpdateVideoPropertiesRequest(
+                objectId: "video-1",
+                videoProperties: VideoStyle(mute: true),
+                fields: "mute"
+            )
+        )
+        let json = try encode(request)
+        XCTAssertEqual(
+            json,
+            #"{"updateVideoProperties":{"fields":"mute","objectId":"video-1","videoProperties":{"mute":true}}}"#
+        )
+        XCTAssertTrue(json.contains(#""videoProperties""#))
+    }
+
+    func testRefreshSheetsChartRequestEncodesTheObjectId() throws {
+        XCTAssertEqual(
+            try encode(.refreshSheetsChart(RefreshSheetsChartRequest(objectId: "chart-1"))),
+            #"{"refreshSheetsChart":{"objectId":"chart-1"}}"#
+        )
+    }
+
+    func testArrowStyleNoneEncodesAsNONE() throws {
+        // ArrowStyle.none must round-trip as "NONE"; it is a real arrow value,
+        // distinct from an absent (Optional.none) arrow.
+        XCTAssertEqual(
+            try encodeJSON(LineStyle(startArrow: ArrowStyle.none)),
+            #"{"startArrow":"NONE"}"#
+        )
+    }
+
+    // MARK: - styleShape
+
+    func testStyleShapeSendsFillOutlineShadowAndAlignment() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"presentationId":"p-1","replies":[{}]}"#)
+
+        try await client.styleShape(
+            presentationId: "p-1",
+            objectId: "shape-1",
+            fillColor: OpaqueColor(red: 1, green: 0, blue: 0),
+            fillAlpha: 0.5,
+            outlineColor: OpaqueColor(theme: .accent1),
+            outlineWeight: 2,
+            shadowColor: OpaqueColor(red: 0, green: 0, blue: 0),
+            shadowBlur: 3,
+            shadowOffsetX: 4,
+            shadowOffsetY: 5,
+            contentAlignment: .middle
+        )
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-1:batchUpdate")
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":["# + Self.shapeStyleUnionJSON + #"]}"#
+        )
+    }
+
+    func testStyleShapeWithOnlyAFillColorMasksOnlyThatPath() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
+
+        try await client.styleShape(
+            presentationId: "p-1", objectId: "shape-1",
+            fillColor: OpaqueColor(red: 0, green: 0, blue: 1))
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateShapeProperties":{"fields":"shapeBackgroundFill.solidFill.color","objectId":"shape-1","shapeProperties":{"shapeBackgroundFill":{"solidFill":{"color":{"rgbColor":{"blue":1,"green":0,"red":0}}}}}}}]}"#
+        )
+    }
+
+    func testStyleShapeNoFillSendsNotRenderedState() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
+
+        try await client.styleShape(presentationId: "p-1", objectId: "shape-1", noFill: true)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateShapeProperties":{"fields":"shapeBackgroundFill.propertyState","objectId":"shape-1","shapeProperties":{"shapeBackgroundFill":{"propertyState":"NOT_RENDERED"}}}}]}"#
+        )
+    }
+
+    func testStyleShapeShadowOffsetsBuildOneTransformWithAMissingAxisZero() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
+
+        // Only the x offset is given; the transform still appears once, with a
+        // zero y translation and a single shadow.transform mask path.
+        try await client.styleShape(
+            presentationId: "p-1", objectId: "shape-1", shadowOffsetX: 4)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateShapeProperties":{"fields":"shadow.transform","objectId":"shape-1","shapeProperties":{"shadow":{"transform":{"scaleX":1,"scaleY":1,"shearX":0,"shearY":0,"translateX":4,"translateY":0,"unit":"PT"}}}}}]}"#
+        )
+    }
+
+    func testStyleShapeRejectsNoOptionsWithoutARequest() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            try await client.styleShape(presentationId: "p-1", objectId: "shape-1")
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testStyleShapeRejectsNoFillWithAFillColor() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            try await client.styleShape(
+                presentationId: "p-1", objectId: "shape-1",
+                fillColor: OpaqueColor(theme: .accent1), noFill: true)
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testStyleShapeRejectsNoOutlineWithAnOutlineColor() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            try await client.styleShape(
+                presentationId: "p-1", objectId: "shape-1",
+                outlineColor: OpaqueColor(theme: .accent1), noOutline: true)
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testStyleShapeRejectsNoShadowWithAShadowColor() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            try await client.styleShape(
+                presentationId: "p-1", objectId: "shape-1",
+                shadowColor: OpaqueColor(theme: .accent1), noShadow: true)
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testStyleShapeRejectsAnAlphaOutOfRange() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            try await client.styleShape(
+                presentationId: "p-1", objectId: "shape-1", fillAlpha: 2)
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testStyleShapeRejectsANonPositiveOutlineWeight() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            try await client.styleShape(
+                presentationId: "p-1", objectId: "shape-1", outlineWeight: 0)
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testStyleShapePropagatesAGoogleError() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"error":{"code":400,"message":"Invalid requests[0]","status":"INVALID_ARGUMENT"}}"#,
+            status: 400
+        )
+
+        do {
+            try await client.styleShape(
+                presentationId: "p-1", objectId: "shape-1", noFill: true)
+            XCTFail("Expected an error")
+        } catch {
+            guard case GrahamError.googleAPIError(let code, let status, _) = error else {
+                return XCTFail("Wrong error: \(error)")
+            }
+            XCTAssertEqual(code, 400)
+            XCTAssertEqual(status, "INVALID_ARGUMENT")
+        }
+    }
+
+    // MARK: - styleImage
+
+    func testStyleImageSendsOnlyTheOutline() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
+
+        try await client.styleImage(
+            presentationId: "p-1", objectId: "image-1",
+            outlineColor: OpaqueColor(theme: .accent2), outlineAlpha: 0.5,
+            outlineWeight: 2, outlineDash: .dash)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-1:batchUpdate")
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateImageProperties":{"fields":"outline.outlineFill.solidFill.color,outline.outlineFill.solidFill.alpha,outline.weight,outline.dashStyle","imageProperties":{"outline":{"dashStyle":"DASH","outlineFill":{"solidFill":{"alpha":0.5,"color":{"themeColor":"ACCENT2"}}},"weight":{"magnitude":2,"unit":"PT"}}},"objectId":"image-1"}}]}"#
+        )
+    }
+
+    func testStyleImageNoOutlineClearsIt() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
+
+        try await client.styleImage(
+            presentationId: "p-1", objectId: "image-1", noOutline: true)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateImageProperties":{"fields":"outline.propertyState","imageProperties":{"outline":{"propertyState":"NOT_RENDERED"}},"objectId":"image-1"}}]}"#
+        )
+    }
+
+    func testStyleImageRejectsNoOptionsWithoutARequest() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            try await client.styleImage(presentationId: "p-1", objectId: "image-1")
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testStyleImageRejectsNoOutlineWithAnotherOutlineOption() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            try await client.styleImage(
+                presentationId: "p-1", objectId: "image-1",
+                outlineWeight: 2, noOutline: true)
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    // MARK: - styleLine
+
+    func testStyleLineSendsFillWeightDashAndArrows() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
+
+        try await client.styleLine(
+            presentationId: "p-1", objectId: "line-1",
+            color: OpaqueColor(red: 0, green: 0, blue: 1), alpha: 0.8,
+            weight: 3, dash: .dashDot,
+            startArrow: ArrowStyle.none, endArrow: ArrowStyle.fillArrow)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-1:batchUpdate")
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateLineProperties":{"fields":"lineFill.solidFill.color,lineFill.solidFill.alpha,weight,dashStyle,startArrow,endArrow","lineProperties":{"dashStyle":"DASH_DOT","endArrow":"FILL_ARROW","lineFill":{"solidFill":{"alpha":0.8,"color":{"rgbColor":{"blue":1,"green":0,"red":0}}}},"startArrow":"NONE","weight":{"magnitude":3,"unit":"PT"}},"objectId":"line-1"}}]}"#
+        )
+    }
+
+    func testStyleLineMasksOnlyTheProvidedOption() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
+
+        try await client.styleLine(presentationId: "p-1", objectId: "line-1", dash: .dot)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateLineProperties":{"fields":"dashStyle","lineProperties":{"dashStyle":"DOT"},"objectId":"line-1"}}]}"#
+        )
+    }
+
+    func testStyleLineRejectsNoOptionsWithoutARequest() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            try await client.styleLine(presentationId: "p-1", objectId: "line-1")
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testStyleLineRejectsAnAlphaOutOfRange() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            try await client.styleLine(presentationId: "p-1", objectId: "line-1", alpha: -0.5)
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    // MARK: - styleVideo
+
+    func testStyleVideoSendsPlaybackOptionsAndOutline() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
+
+        try await client.styleVideo(
+            presentationId: "p-1", objectId: "video-1",
+            autoPlay: true, mute: false, start: 5, end: 30,
+            outlineColor: OpaqueColor(theme: .dark1), outlineWeight: 1.5)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-1:batchUpdate")
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateVideoProperties":{"fields":"autoPlay,mute,start,end,outline.outlineFill.solidFill.color,outline.weight","objectId":"video-1","videoProperties":{"autoPlay":true,"end":30,"mute":false,"outline":{"outlineFill":{"solidFill":{"color":{"themeColor":"DARK1"}}},"weight":{"magnitude":1.5,"unit":"PT"}},"start":5}}}]}"#
+        )
+    }
+
+    func testStyleVideoTreatsFalseFlagsAsProvided() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
+
+        // autoPlay:false and mute:true are both "provided" (not nil), so both
+        // appear in the mask and body; a nil flag would be left unchanged.
+        try await client.styleVideo(
+            presentationId: "p-1", objectId: "video-1", autoPlay: false, mute: true)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateVideoProperties":{"fields":"autoPlay,mute","objectId":"video-1","videoProperties":{"autoPlay":false,"mute":true}}}]}"#
+        )
+    }
+
+    func testStyleVideoRejectsANegativeStartWithoutARequest() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            try await client.styleVideo(presentationId: "p-1", objectId: "video-1", start: -1)
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testStyleVideoRejectsAnEndNotGreaterThanStart() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            try await client.styleVideo(
+                presentationId: "p-1", objectId: "video-1", start: 10, end: 10)
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testStyleVideoRejectsNoOptionsWithoutARequest() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            try await client.styleVideo(presentationId: "p-1", objectId: "video-1")
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    // MARK: - refreshSheetsChart
+
+    func testRefreshSheetsChartSendsOnlyTheObjectId() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"presentationId":"p-1","replies":[{}]}"#)
+
+        try await client.refreshSheetsChart(presentationId: "p-1", objectId: "chart-1")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-1:batchUpdate")
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"refreshSheetsChart":{"objectId":"chart-1"}}]}"#
+        )
+    }
+
     // MARK: - Helpers
+
+    /// Fails unless the async body throws ``GrahamError/invalidArgument(_:)``.
+    private func assertInvalidArgument(
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        _ body: () async throws -> Void
+    ) async {
+        do {
+            try await body()
+            XCTFail("Expected an error", file: file, line: line)
+        } catch {
+            guard case GrahamError.invalidArgument = error else {
+                return XCTFail("Wrong error: \(error)", file: file, line: line)
+            }
+        }
+    }
+
+    /// Encodes any Encodable value with the shared encoder (sorted keys).
+    private func encodeJSON<T: Encodable>(_ value: T) throws -> String {
+        String(data: try GoogleJSON.encoder.encode(value), encoding: .utf8) ?? ""
+    }
 
     private struct SentTransformBatch: Decodable {
         let requests: [SentTransformEnvelope]
