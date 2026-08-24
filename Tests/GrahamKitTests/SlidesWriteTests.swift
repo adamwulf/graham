@@ -665,7 +665,7 @@ final class SlidesWriteTests: XCTestCase {
         ))
         XCTAssertEqual(
             try encode(request),
-            #"{"createImage":{"elementProperties":{"pageObjectId":"slide-1","size":{"height":{"magnitude":50,"unit":"PT"},"width":{"magnitude":300,"unit":"PT"}},"transform":{"scaleX":1,"scaleY":1,"translateX":25,"translateY":75,"unit":"PT"}},"objectId":"image-1","url":"https://example.com/pic.png"}}"#
+            #"{"createImage":{"elementProperties":{"pageObjectId":"slide-1","size":{"height":{"magnitude":50,"unit":"PT"},"width":{"magnitude":300,"unit":"PT"}},"transform":{"scaleX":1,"scaleY":1,"translateX":25,"translateY":75,"unit":"PT"}},"objectId":"image-1","url":"https:\/\/example.com\/pic.png"}}"#
         )
     }
 
@@ -676,7 +676,7 @@ final class SlidesWriteTests: XCTestCase {
         ))
         XCTAssertEqual(
             try encode(request),
-            #"{"createImage":{"elementProperties":{"pageObjectId":"slide-1"},"url":"https://example.com/pic.png"}}"#
+            #"{"createImage":{"elementProperties":{"pageObjectId":"slide-1"},"url":"https:\/\/example.com\/pic.png"}}"#
         )
     }
 
@@ -947,7 +947,7 @@ final class SlidesWriteTests: XCTestCase {
         XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-1:batchUpdate")
         XCTAssertEqual(
             Self.bodyString(request),
-            #"{"requests":[{"createImage":{"elementProperties":{"pageObjectId":"s1","size":{"height":{"magnitude":50,"unit":"PT"},"width":{"magnitude":300,"unit":"PT"}},"transform":{"scaleX":1,"scaleY":1,"translateX":25,"translateY":75,"unit":"PT"}},"objectId":"image-1","url":"https://example.com/pic.png"}}]}"#
+            #"{"requests":[{"createImage":{"elementProperties":{"pageObjectId":"s1","size":{"height":{"magnitude":50,"unit":"PT"},"width":{"magnitude":300,"unit":"PT"}},"transform":{"scaleX":1,"scaleY":1,"translateX":25,"translateY":75,"unit":"PT"}},"objectId":"image-1","url":"https:\/\/example.com\/pic.png"}}]}"#
         )
     }
 
