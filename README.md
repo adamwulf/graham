@@ -16,10 +16,11 @@ Named after Graham's number — a contrast to the googol that named Google.
   geometry, text, links, and alt text; list or download every image, including
   images nested in groups; add, move, and delete slides through the shared
   `presentations.batchUpdate` write path; create text boxes, images, videos,
-  lines, tables, and Sheets charts; group and ungroup elements.
+  lines, tables, and Sheets charts; group and ungroup elements; move, scale,
+  rotate, transform, and reorder elements.
 
 See `ROADMAP.md` for the remaining Slides editing work. The next milestone is
-editing element geometry.
+editing element appearance.
 
 ## Install
 
@@ -111,6 +112,12 @@ graham slides create chart <presentation-id> <slide-id> --spreadsheet <spreadshe
 # Group two or more elements (prints the new group id), or ungroup one or more groups.
 graham slides group <presentation-id> <child-object-id> <child-object-id>
 graham slides ungroup <presentation-id> <group-object-id>
+# Edit element geometry in points; object ids come from `slides list --format json`.
+graham slides element move <presentation-id> <object-id> --to-x 100 --to-y 75
+graham slides element scale <presentation-id> <object-id> --by 1.5
+graham slides element rotate <presentation-id> <object-id> --by 90
+graham slides element transform <presentation-id> <object-id> --translate-x 10 --unit pt --relative
+graham slides element reorder <presentation-id> <object-id> --to front
 # Move one slide to a one-based final position (as shown by cat and list).
 graham slides move <presentation-id> <slide-id> --to 1
 # Delete one slide by its exact object id.

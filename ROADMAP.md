@@ -10,17 +10,10 @@ image listing/download, and the slide lifecycle (the shared batch-update
 foundation plus `slides add`, `slides move`, and `slides delete`) are complete.
 Shape/text-box creation and basic text insertion are also complete, as is
 creating images, videos, lines, tables, and Sheets charts and grouping and
-ungrouping elements.
+ungrouping elements. Element geometry can be moved, scaled, rotated,
+transformed directly, and reordered front-to-back.
 
-## Next milestone: edit geometry
-
-- **Move, resize, scale, and rotate** any element
-  (`updatePageElementTransform`).
-- **Reorder** elements front-to-back (`updatePageElementsZOrder`).
-- Handle grouped-element coordinate spaces deliberately; a child transform is
-  relative to its group.
-
-## Slides: edit appearance
+## Next milestone: edit appearance
 
 - **Image recolor and adjustments** (`updateImageProperties`): opacity,
   brightness, contrast, crop, outline, and drop shadow.
@@ -80,7 +73,7 @@ list (`layouts[]` on `presentations.get`); graham does not decode it yet.
 
 ## Suggested order
 
-1. **Geometry**, then **appearance**.
+1. **Appearance**.
 2. **Layouts read facade, `slides add --layout-id`, and `drive copy`** —
    small and independent; they can land alongside any milestone.
 3. **Text and links**, **alt text**, and **presenter notes**.
