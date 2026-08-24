@@ -11,20 +11,11 @@ foundation plus `slides add`, `slides move`, and `slides delete`) are complete.
 Shape/text-box creation and basic text insertion are also complete, as is
 creating images, videos, lines, tables, and Sheets charts and grouping and
 ungrouping elements. Element geometry can be moved, scaled, rotated,
-transformed directly, and reordered front-to-back.
+transformed directly, and reordered front-to-back. Appearance editing is
+complete for the writable element properties, including table structure,
+cells, dimensions, and borders.
 
-## Next milestone: edit appearance
-
-Only table styling remains in this milestone.
-
-- **Tables:** insert/delete rows and columns, merge/unmerge cells, and edit
-  cell, row, column, and border properties (the `*Table*` requests).
-
-The Slides API exposes image brightness, contrast, transparency, crop, recolor,
-and shadow as read-only, so graham cannot offer them; image outline is writable
-and is already supported.
-
-## Slides: edit text and links
+## Next milestone: edit text and links
 
 - **Text blocks:** delete text and style runs and paragraphs
   (`deleteText`, `updateTextStyle`, `updateParagraphStyle`).
@@ -73,8 +64,8 @@ list (`layouts[]` on `presentations.get`); graham does not decode it yet.
 
 ## Suggested order
 
-1. **Appearance**.
+1. **Text and links**.
 2. **Layouts read facade, `slides add --layout-id`, and `drive copy`** —
    small and independent; they can land alongside any milestone.
-3. **Text and links**, **alt text**, and **presenter notes**.
+3. **Alt text** and **presenter notes**.
 4. **General element deletion** and whole-presentation deletion or trash.

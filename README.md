@@ -18,10 +18,11 @@ Named after Graham's number — a contrast to the googol that named Google.
   `presentations.batchUpdate` write path; create text boxes, images, videos,
   lines, tables, and Sheets charts; group and ungroup elements; move, scale,
   rotate, transform, and reorder elements; style shape fills, outlines, and
-  shadows; style lines and videos; refresh linked charts.
+  shadows; style lines and videos; edit table rows, columns, merged cells, and
+  borders; refresh linked charts.
 
 See `ROADMAP.md` for the remaining Slides editing work. The next milestone is
-editing element appearance.
+editing text and links.
 
 ## Install
 
@@ -128,6 +129,15 @@ graham slides style image <presentation-id> <object-id> --outline "#333333" --ou
 graham slides style line <presentation-id> <object-id> --color accent2 --weight 3 --dash dash-dot --end-arrow open-arrow
 # Style a video's playback and outline.
 graham slides style video <presentation-id> <object-id> --autoplay --mute --start 5 --end 30
+# Edit table structure with one-based row and column indices.
+graham slides table insert-rows <presentation-id> <table-id> --below 2 --count 2
+graham slides table insert-columns <presentation-id> <table-id> --right-of 1
+graham slides table merge <presentation-id> <table-id> --row 1 --column 1 --row-span 2 --column-span 3
+# Style cells, dimensions, and borders; omit a range to update the whole table.
+graham slides table style-cells <presentation-id> <table-id> --fill accent1 --align middle
+graham slides table row-height <presentation-id> <table-id> --min-height 24 --rows 1 3
+graham slides table column-width <presentation-id> <table-id> --width 72
+graham slides table borders <presentation-id> <table-id> --position inner-horizontal --weight 1 --dash solid
 # Refresh a linked Sheets chart embedded on a slide.
 graham slides chart refresh <presentation-id> <object-id>
 # Move one slide to a one-based final position (as shown by cat and list).
