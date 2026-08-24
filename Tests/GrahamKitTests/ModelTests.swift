@@ -118,7 +118,40 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(file("application/vnd.google-apps.spreadsheet").shortType, "sheet")
         XCTAssertEqual(file("application/vnd.google-apps.presentation").shortType, "slides")
         XCTAssertEqual(file("application/vnd.google-apps.folder").shortType, "folder")
+        XCTAssertEqual(file("application/vnd.google-apps.drive").shortType, "drive")
         XCTAssertEqual(file("application/pdf").shortType, "pdf")
         XCTAssertEqual(file(nil).shortType, "")
+    }
+
+    func testSharedDriveListDecodes() throws {
+        let json = #"""
+        {"nextPageToken":"n","drives":[
+            {"id":"d1","name":"Team A"},
+            {"id":"d2"}
+        ]}
+        """#
+        let page = try GoogleJSON.decoder.decode(SharedDriveList.self, from: Data(json.utf8))
+
+        XCTAssertEqual(page.nextPageToken, "n")
+        XCTAssertEqual(page.drives?.map(\.id), ["d1", "d2"])
+        XCTAssertEqual(page.drives?.first?.name, "Team A")
+        XCTAssertNil(page.drives?.last?.name)
+    }
+
+    func testSharedDriveMapsToADriveFileRow() {
+        let file = SharedDrive(id: "d1", name: "Team A").asDriveFile()
+
+        XCTAssertEqual(file.id, "d1")
+        XCTAssertEqual(file.name, "Team A")
+        XCTAssertEqual(file.mimeType, "application/vnd.google-apps.drive")
+        XCTAssertEqual(file.shortType, "drive")
+    }
+
+    func testDriveFileTypeShortNames() {
+        XCTAssertEqual(DriveFileType.sheets.mimeType, "application/vnd.google-apps.spreadsheet")
+        XCTAssertNil(DriveFileType.all.mimeType)
+        XCTAssertEqual(DriveFileType(shortName: "folders"), .folders)
+        XCTAssertEqual(DriveFileType.folders.shortName, "folders")
+        XCTAssertNil(DriveFileType(shortName: "images"))
     }
 }

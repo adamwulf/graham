@@ -52,10 +52,12 @@ final class DriveClientTests: XCTestCase {
 
         _ = try await client.list(query: "name contains 'x'", orderBy: "modifiedTime desc", limit: 10)
 
-        let url = try XCTUnwrap(transport.requests(urlContains: "/drive/v3/files?").first).url.absoluteString
-        XCTAssertTrue(url.contains("q=name%20contains"))
+        let request = try XCTUnwrap(transport.requests(urlContains: "/drive/v3/files?").first)
+        let url = request.url.absoluteString
         XCTAssertTrue(url.contains("orderBy=modifiedTime%20desc"))
         XCTAssertTrue(url.contains("pageSize=10"))
+        // The user query is wrapped in parentheses and ANDed with trashed = false.
+        XCTAssertEqual(Self.queryValue(request.url), "(name contains 'x') and trashed = false")
     }
 
     func testGetFetchesOneFile() async throws {
@@ -84,5 +86,127 @@ final class DriveClientTests: XCTestCase {
         XCTAssertEqual(String(data: data, encoding: .utf8), "plain text")
         let url = try XCTUnwrap(transport.requests(urlContains: "/export").first).url.absoluteString
         XCTAssertTrue(url.contains("mimeType=text/plain"))
+    }
+
+    // MARK: - Navigation and filters
+
+    func testListByParentIDScopesToTheFolderAndAllDrives() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: "/drive/v3/files?", json: #"{"files":[]}"#)
+
+        _ = try await client.list(parentID: "folder123")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: "/drive/v3/files?").first)
+        XCTAssertEqual(Self.queryValue(request.url), "'folder123' in parents and trashed = false")
+        let url = request.url.absoluteString
+        XCTAssertTrue(url.contains("corpora=allDrives"))
+        XCTAssertTrue(url.contains("includeItemsFromAllDrives=true"))
+        XCTAssertTrue(url.contains("supportsAllDrives=true"))
+    }
+
+    func testListByTypeAddsTheMimeClause() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: "/drive/v3/files?", json: #"{"files":[]}"#)
+
+        _ = try await client.list(type: .sheets)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: "/drive/v3/files?").first)
+        XCTAssertEqual(
+            Self.queryValue(request.url),
+            "mimeType='application/vnd.google-apps.spreadsheet' and trashed = false"
+        )
+    }
+
+    func testListCombinesParentTypeAndQuery() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: "/drive/v3/files?", json: #"{"files":[]}"#)
+
+        _ = try await client.list(parentID: "p1", type: .docs, query: "name contains 'x'")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: "/drive/v3/files?").first)
+        XCTAssertEqual(
+            Self.queryValue(request.url),
+            "'p1' in parents and mimeType='application/vnd.google-apps.document' "
+                + "and (name contains 'x') and trashed = false"
+        )
+    }
+
+    func testListEscapesSingleQuotesInTheParentID() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: "/drive/v3/files?", json: #"{"files":[]}"#)
+
+        _ = try await client.list(parentID: "a'b")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: "/drive/v3/files?").first)
+        XCTAssertEqual(Self.queryValue(request.url), #"'a\'b' in parents and trashed = false"#)
+    }
+
+    func testDrivesWalksAllPages() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: "/drive/v3/drives?", responses: [
+            StubTransport.json(#"""
+            {"nextPageToken":"pg+2","drives":[
+                {"id":"d1","name":"Team A"},
+                {"id":"d2","name":"Team B"}
+            ]}
+            """#),
+            StubTransport.json(#"{"drives":[{"id":"d3","name":"Team C"}]}"#),
+        ])
+
+        let drives = try await client.drives()
+
+        XCTAssertEqual(drives.map(\.id), ["d1", "d2", "d3"])
+        XCTAssertEqual(drives.map { $0.name ?? "" }, ["Team A", "Team B", "Team C"])
+        let requests = transport.requests(urlContains: "/drive/v3/drives?")
+        XCTAssertEqual(requests.count, 2)
+        XCTAssertTrue(requests[0].url.absoluteString.contains("fields=nextPageToken,drives(id,name)"))
+        // The "+" in the page token must reach the server as %2B, not as a space.
+        XCTAssertTrue(requests[1].url.absoluteString.contains("pageToken=pg%2B2"))
+    }
+
+    func testDrivesStopsAtTheLimit() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: "/drive/v3/drives?", json: #"""
+        {"nextPageToken":"more","drives":[
+            {"id":"d1","name":"Team A"},
+            {"id":"d2","name":"Team B"}
+        ]}
+        """#)
+
+        let drives = try await client.drives(limit: 1)
+
+        XCTAssertEqual(drives.map(\.id), ["d1"])
+        XCTAssertEqual(transport.requests(urlContains: "/drive/v3/drives?").count, 1)
+    }
+
+    func testRootDecodesTheFilesGetResponse() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: "/drive/v3/files/root",
+            json: #"{"id":"root-id","name":"My Drive","mimeType":"application/vnd.google-apps.folder"}"#
+        )
+
+        let root = try await client.root()
+
+        XCTAssertEqual(root.id, "root-id")
+        XCTAssertEqual(root.name, "My Drive")
+        XCTAssertEqual(root.shortType, "folder")
+        let url = try XCTUnwrap(transport.requests(urlContains: "/drive/v3/files/root").first).url.absoluteString
+        XCTAssertTrue(url.contains("fields=id,name,mimeType"))
+    }
+
+    /// Reads the decoded `q` query item from a request URL.
+    private static func queryValue(_ url: URL) -> String? {
+        URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .first(where: { $0.name == "q" })?
+            .value
     }
 }

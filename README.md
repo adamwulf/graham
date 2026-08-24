@@ -54,7 +54,16 @@ review.
 ## Usage
 
 ```bash
+# Navigate Drive. With no ID, list the top-level roots (My Drive + shared drives).
+graham drive list
+# List the contents of one folder or shared drive.
+graham drive list <folder-or-drive-id>
+# Filter by type in any form: docs, sheets, slides, folders, or all (default).
+graham drive list --type sheets
+graham drive list <folder-id> --type docs
+# Search across all drives (a query, or a docs/sheets/slides type, triggers a global search).
 graham drive list --query "name contains 'report'" --limit 20
+
 graham drive get <file-id> --format json
 graham drive export <file-id> --mime application/pdf -o report.pdf
 
@@ -64,6 +73,17 @@ graham sheets values <spreadsheet-id> "Sheet1!A1:C10"
 graham docs cat <document-id>
 graham slides cat <presentation-id>
 ```
+
+`graham drive list [<id>]` has three forms:
+
+- **No `<id>`, no `--query`, `--type all` or `folders`** — the top-level roots:
+  "My Drive" plus every shared drive you can see.
+- **No `<id>`, but a `--query`, or `--type docs|sheets|slides`** — a global
+  search across all drives.
+- **`<id>` given** — the contents of that folder or shared drive.
+
+All forms accept `--type`, `--query`, `--limit`, and `--format` and combine
+them.
 
 List commands support `--format table|json|jsonl|id`.
 

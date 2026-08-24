@@ -13,3 +13,4 @@ struct Graham: AsyncParsableCommand {
 }
 
 extension OutputFormat: ExpressibleByArgument {}
+extension DriveFileType: ExpressibleByArgument {}

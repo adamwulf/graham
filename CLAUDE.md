@@ -124,6 +124,20 @@ this; add request-body models under `Models/` when the time comes.
   practice, extend `GoogleAPI.send` to inspect the envelope status.
 - Output is deterministic: JSON encoders sort keys, tables pad all but the
   last column (no trailing whitespace).
+- Shared-drive items are invisible to `files.list` unless the request sets
+  `supportsAllDrives=true`, `includeItemsFromAllDrives=true`, and
+  `corpora=allDrives`. `DriveClient.list` sets all three, so it spans shared
+  drives for both contents and global-search calls. `DriveClient.drives` lists
+  the shared drives themselves (the `/drives` endpoint), and `DriveClient.root`
+  fetches "My Drive" via `files.get` on the id `root`. The CLI's top-level
+  `drive list` renders My Drive plus the shared drives together by mapping each
+  `SharedDrive` to a `DriveFile` row with a synthetic
+  `application/vnd.google-apps.drive` MIME (`SharedDrive.asDriveFile`).
+- `DriveFileType` lives in `GrahamKit` (no ArgumentParser import). Its
+  `ExpressibleByArgument` conformance lives in the CLI target next to
+  `OutputFormat`'s. Building a Drive `q` goes through `DriveClient.buildQuery`,
+  which backslash-escapes any `'`/`\` inside a quoted id — never interpolate a
+  raw id into a `q` clause.
 - The default OAuth scopes (`GoogleScope.all`) include the full `drive` scope,
   which Google classes as a **restricted** scope. Two consequences: an External
   OAuth app cannot publish to Production without Google's verification review,
