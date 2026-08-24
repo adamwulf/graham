@@ -52,6 +52,21 @@ public struct DriveFileList: Codable, Sendable {
     public let files: [DriveFile]?
 }
 
+/// The request body for `files.create`: the metadata of a new, empty file.
+///
+/// Only the name and the MIME type are sent; Drive fills in everything else.
+/// Encoding through ``GoogleJSON`` escapes the name safely, so a name with a
+/// quote, a backslash, or a newline never breaks the JSON.
+public struct DriveFileCreateRequest: Codable, Sendable, Equatable {
+    public let name: String
+    public let mimeType: String
+
+    public init(name: String, mimeType: String) {
+        self.name = name
+        self.mimeType = mimeType
+    }
+}
+
 /// One shared drive the user can see.
 ///
 /// `id` is the only invariant; `name` is optional so the model decodes even

@@ -56,12 +56,33 @@ Tests/CLITests/               argument-parsing tests only
   and return typed models. Pagination lives ONLY here. Every list method
   threads a client-side `limit` guard through the page loop.
 
+### Slides model and read facade
+
+`SlidesModels.swift` mirrors the live Slides v1 `PageElement` union. It
+currently models nine variants: group, shape, image, video, line, table, Sheets
+chart, word art, and speaker spotlight, plus `.unknown` for forward
+compatibility. Common geometry and alt-text fields live on `PageElement`;
+nested groups recursively contain more page elements.
+
+`Presentation.elementRows` is the detailed read facade used by `slides list`.
+It flattens groups depth-first while retaining `parentObjectId` and nesting
+depth, and extracts direct text, links, alt text, raw geometry, and image URLs.
+`Presentation.imageRows` recursively filters images for `slides images`. Keep
+extraction and flattening logic in `GrahamKit`; commands only fetch and render.
+
 ### The transport seam
 
-`HTTPTransport` is a protocol with one method. Production uses
-`URLSessionTransport`; tests use `StubTransport` (static JSON, in order, HTTP
-599 for unmatched requests). Never mock URLSession, and never write a test
+`HTTPTransport` is the only network seam. Production uses
+`URLSessionTransport`; tests use `StubTransport` (static responses in order,
+HTTP 599 for unmatched requests). Never mock URLSession, and never write a test
 that touches the network.
+
+`SlidesClient` has a second injected transport specifically for image
+`contentUrl` downloads. These short-lived URLs are pre-authorized and live on a
+Google user-content host, so downloads must use a plain GET with **no OAuth
+`Authorization` header**. Never route a `contentUrl` through `GoogleAPI`, which
+would attach the API bearer token. Tests must stub both API requests and image
+bytes.
 
 ### Auth model
 
@@ -99,11 +120,27 @@ Google uses OAuth2, unlike hunch's single static token:
 Conform the model to `GrahamRow` (`tableColumns`, `tableValues`, `idValue`)
 next to the model. Then any command can render it in all four formats.
 
-### Write endpoints (future)
+### Add a write endpoint
 
-Sheets/Docs/Slides writes are mostly POST `batchUpdate` endpoints with request
-bodies, not REST verbs. `GoogleAPI.sendJSON(_:method:url:body:)` exists for
-this; add request-body models under `Models/` when the time comes.
+Drive file creation already uses `GoogleAPI.sendJSON`. The next write foundation
+is Slides `presentations.batchUpdate`; Sheets and Docs also use
+batch-update-style POST endpoints.
+
+1. Define typed request and response models under `Models/`. Request fields
+   should be required when the operation requires them; response fields should
+   remain optional unless they are true invariants.
+2. Add a high-level service-client method that owns the endpoint, escaped path,
+   HTTP method, and request body. For Slides, keep one extensible request union
+   so later element, geometry, text, and appearance operations share the same
+   batch-update path.
+3. Test the exact method, URL, encoded JSON body, decoded replies, empty replies,
+   and Google error propagation through `StubTransport`.
+4. Add a thin CLI command only after the client behavior is covered.
+   User-facing slide positions are one-based; translate the Slides API
+   pre-move insertion-index semantics in `GrahamKit`, not in the command.
+
+Never update response fixtures or `Package.resolved` by hand to simulate a
+write. Tests remain offline and exercise the real encoding path.
 
 ## Gotchas (learned from hunch/cirqueduci, kept here on purpose)
 
@@ -147,6 +184,16 @@ this; add request-body models under `Models/` when the time comes.
   expire 7 days after issue (so `graham auth login` must be re-run about
   weekly). If a write feature only needs files graham creates or opens, adding
   a `drive.file` scope (not restricted) to `GoogleScope` avoids both problems.
+
+- `drive create` uses `DriveCreateType`, not the broader listing-only
+  `DriveFileType`. It sends the name and Google Workspace MIME type in a JSON
+  body through `DriveClient.create`; it does not put names in URLs. Without a
+  parent, new files land in My Drive.
+- Slides batch updates use zero-based insertion indices based on the slide order
+  before a move, while graham displays and accepts final slide positions as
+  one-based. Resolve the source index and translate at the high-level client
+  boundary. A batch response can contain empty replies for operations such as
+  move/delete, so do not require every request to return an object ID.
 
 ## Commands
 

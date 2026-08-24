@@ -10,11 +10,15 @@ Named after Graham's number — a contrast to the googol that named Google.
   check.
 - **Drive** — navigate the top-level drives, list a folder or shared drive,
   search across all drives, and filter by type; get metadata; export and
-  download files.
-- **Sheets, Docs, Slides** — read a spreadsheet and its values; read a document;
-  read a presentation.
+  download files; create empty Docs, Sheets, and Slides files.
+- **Sheets and Docs** — read a spreadsheet and its values; read a document.
+- **Slides** — read presentation text; list every page element with its type,
+  geometry, text, links, and alt text; list or download every image, including
+  images nested in groups.
 
-These are read-only for now. See `ROADMAP.md` for what is planned next.
+See `ROADMAP.md` for the remaining Slides editing work. The next milestone is a
+shared `presentations.batchUpdate` foundation plus commands to add, reorder,
+and delete slides.
 
 ## Install
 
@@ -78,12 +82,20 @@ graham drive list --query "name contains 'report'" --limit 20
 
 graham drive get <file-id> --format json
 graham drive export <file-id> --mime application/pdf -o report.pdf
+# Create an empty Google Workspace file and print its new id.
+graham drive create "Quarterly Report" --type docs
 
 graham sheets get <spreadsheet-id>
 graham sheets values <spreadsheet-id> "Sheet1!A1:C10"
 
 graham docs cat <document-id>
 graham slides cat <presentation-id>
+# List every element; JSON includes raw geometry, links, alt text, and image URLs.
+graham slides list <presentation-id>
+graham slides list <presentation-id> --format json
+# List image metadata, or download every image under safe deterministic names.
+graham slides images <presentation-id>
+graham slides images <presentation-id> --download ./images
 ```
 
 `graham drive list [<id>]` has three forms:
