@@ -7,7 +7,7 @@ struct Slides: AsyncParsableCommand {
         abstract: "Work with Google Slides presentations.",
         subcommands: [
             Cat.self, List.self, Images.self, Add.self, Create.self, Element.self,
-            Group.self, Ungroup.self, Move.self, Delete.self,
+            Group.self, Ungroup.self, Move.self, Delete.self, Style.self, Chart.self,
         ]
     )
 
@@ -936,6 +936,397 @@ struct Slides: AsyncParsableCommand {
             return failed
         }
     }
+
+    struct Style: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "style",
+            abstract: "Style a page element: shape, image, line, or video.",
+            subcommands: [Shape.self, Image.self, Line.self, Video.self]
+        )
+
+        /// The outline options shared by `style shape`, `style image`, and
+        /// `style video`. The color is a hex value or a theme name; it is parsed
+        /// by ``OpaqueColor/parse(_:)`` in each command's `run()`, so here it is
+        /// only captured as a string.
+        struct OutlineOptions: ParsableArguments {
+            @Option(help: "The outline color: a hex value like #FF0000 or a theme name like accent1.")
+            var outline: String?
+
+            @Option(parsing: .unconditional, help: "The outline fill alpha, from 0 to 1.")
+            var outlineAlpha: Double?
+
+            @Option(
+                parsing: .unconditional,
+                help: "The outline weight in points; must be greater than zero."
+            )
+            var outlineWeight: Double?
+
+            @Option(help: "The outline dash: solid, dot, dash, dash-dot, long-dash, or long-dash-dot.")
+            var outlineDash: DashStyleArgument?
+
+            @Flag(help: "Remove the outline; cannot be combined with the other outline flags.")
+            var noOutline = false
+
+            /// Whether any outline flag was given at all.
+            var hasAnyFlag: Bool {
+                outline != nil || outlineAlpha != nil || outlineWeight != nil
+                    || outlineDash != nil || noOutline
+            }
+
+            func validate() throws {
+                if noOutline
+                    && (outline != nil || outlineAlpha != nil || outlineWeight != nil
+                        || outlineDash != nil)
+                {
+                    throw ValidationError(
+                        "--no-outline cannot be combined with the other outline flags.")
+                }
+                try validateAlpha(outlineAlpha, name: "--outline-alpha")
+                try validatePositive(outlineWeight, name: "--outline-weight")
+            }
+        }
+
+        struct Shape: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "shape",
+                abstract: "Style a shape and print its object id.",
+                discussion: """
+                    Sets a shape's background fill, outline, shadow, and content \
+                    alignment; at least one flag is required. Colors are a hex \
+                    value like #FF0000 (or #F00) or a theme name like accent1. \
+                    Alphas are 0 to 1; weights, blur, and offsets are in points. \
+                    --no-fill, --no-outline, and --no-shadow each remove that \
+                    part and cannot be combined with the other flags of the same \
+                    group. This changes appearance only; use `slides element` to \
+                    move, scale, or rotate. Get object ids from \
+                    `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the shape to style.")
+            var objectID: String
+
+            @Option(help: "The fill color: a hex value like #FF0000 or a theme name like accent1.")
+            var fill: String?
+
+            @Option(parsing: .unconditional, help: "The fill alpha, from 0 to 1.")
+            var fillAlpha: Double?
+
+            @Flag(help: "Remove the fill; cannot be combined with the other fill flags.")
+            var noFill = false
+
+            @OptionGroup
+            var outlineOptions: OutlineOptions
+
+            @Option(help: "The shadow color: a hex value like #FF0000 or a theme name like accent1.")
+            var shadowColor: String?
+
+            @Option(parsing: .unconditional, help: "The shadow alpha, from 0 to 1.")
+            var shadowAlpha: Double?
+
+            @Option(
+                parsing: .unconditional,
+                help: "The shadow blur radius in points; must be greater than zero."
+            )
+            var shadowBlur: Double?
+
+            @Option(parsing: .unconditional, help: "The shadow horizontal offset in points.")
+            var shadowOffsetX: Double?
+
+            @Option(parsing: .unconditional, help: "The shadow vertical offset in points.")
+            var shadowOffsetY: Double?
+
+            @Flag(help: "Remove the shadow; cannot be combined with the other shadow flags.")
+            var noShadow = false
+
+            @Option(help: "The content alignment: top, middle, or bottom.")
+            var align: ContentAlignmentArgument?
+
+            func validate() throws {
+                let hasFill = fill != nil || fillAlpha != nil || noFill
+                let hasShadow =
+                    shadowColor != nil || shadowAlpha != nil || shadowBlur != nil
+                    || shadowOffsetX != nil || shadowOffsetY != nil || noShadow
+                guard hasFill || hasShadow || align != nil || outlineOptions.hasAnyFlag
+                else {
+                    throw ValidationError("Provide at least one style flag.")
+                }
+                try outlineOptions.validate()
+                if noFill && (fill != nil || fillAlpha != nil) {
+                    throw ValidationError(
+                        "--no-fill cannot be combined with the other fill flags.")
+                }
+                if noShadow
+                    && (shadowColor != nil || shadowAlpha != nil || shadowBlur != nil
+                        || shadowOffsetX != nil || shadowOffsetY != nil)
+                {
+                    throw ValidationError(
+                        "--no-shadow cannot be combined with the other shadow flags.")
+                }
+                try validateAlpha(fillAlpha, name: "--fill-alpha")
+                try validateAlpha(shadowAlpha, name: "--shadow-alpha")
+                try validatePositive(shadowBlur, name: "--shadow-blur")
+            }
+
+            func run() async throws {
+                let fillColor = try fill.map { try OpaqueColor.parse($0) }
+                let outlineColor = try outlineOptions.outline.map { try OpaqueColor.parse($0) }
+                let shadow = try shadowColor.map { try OpaqueColor.parse($0) }
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.styleShape(
+                    presentationId: presentationID,
+                    objectId: objectID,
+                    fillColor: fillColor,
+                    fillAlpha: fillAlpha,
+                    noFill: noFill,
+                    outlineColor: outlineColor,
+                    outlineAlpha: outlineOptions.outlineAlpha,
+                    outlineWeight: outlineOptions.outlineWeight,
+                    outlineDash: outlineOptions.outlineDash?.dashStyle,
+                    noOutline: outlineOptions.noOutline,
+                    shadowColor: shadow,
+                    shadowAlpha: shadowAlpha,
+                    shadowBlur: shadowBlur,
+                    shadowOffsetX: shadowOffsetX,
+                    shadowOffsetY: shadowOffsetY,
+                    noShadow: noShadow,
+                    contentAlignment: align?.contentAlignment
+                )
+                print(objectID)
+            }
+        }
+
+        struct Image: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "image",
+                abstract: "Style an image's outline and print its object id.",
+                discussion: """
+                    Sets an image's outline only; at least one outline flag is \
+                    required. The color is a hex value like #FF0000 (or #F00) or \
+                    a theme name like accent1; the weight is in points and the \
+                    alpha is 0 to 1. The Slides API exposes an image's \
+                    brightness, contrast, transparency, crop, recolor, and \
+                    shadow as read-only, so graham cannot change them. Get object \
+                    ids from `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the image to style.")
+            var objectID: String
+
+            @OptionGroup
+            var outlineOptions: OutlineOptions
+
+            func validate() throws {
+                guard outlineOptions.hasAnyFlag else {
+                    throw ValidationError("Provide at least one outline flag.")
+                }
+                try outlineOptions.validate()
+            }
+
+            func run() async throws {
+                let outlineColor = try outlineOptions.outline.map { try OpaqueColor.parse($0) }
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.styleImage(
+                    presentationId: presentationID,
+                    objectId: objectID,
+                    outlineColor: outlineColor,
+                    outlineAlpha: outlineOptions.outlineAlpha,
+                    outlineWeight: outlineOptions.outlineWeight,
+                    outlineDash: outlineOptions.outlineDash?.dashStyle,
+                    noOutline: outlineOptions.noOutline
+                )
+                print(objectID)
+            }
+        }
+
+        struct Line: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "line",
+                abstract: "Style a line and print its object id.",
+                discussion: """
+                    Sets a line's fill color, weight, dash style, and arrow \
+                    ends; at least one flag is required. The color is a hex \
+                    value like #FF0000 (or #F00) or a theme name like accent1; \
+                    the weight is in points and the alpha is 0 to 1. The dash \
+                    style is solid, dot, dash, dash-dot, long-dash, or \
+                    long-dash-dot; each arrow is none, stealth-arrow, \
+                    fill-arrow, fill-circle, fill-square, fill-diamond, \
+                    open-arrow, open-circle, open-square, or open-diamond. Get \
+                    object ids from `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the line to style.")
+            var objectID: String
+
+            @Option(help: "The line color: a hex value like #FF0000 or a theme name like accent1.")
+            var color: String?
+
+            @Option(parsing: .unconditional, help: "The line fill alpha, from 0 to 1.")
+            var alpha: Double?
+
+            @Option(
+                parsing: .unconditional,
+                help: "The line weight in points; must be greater than zero."
+            )
+            var weight: Double?
+
+            @Option(help: "The dash style: solid, dot, dash, dash-dot, long-dash, or long-dash-dot.")
+            var dash: DashStyleArgument?
+
+            @Option(help: "The start arrow style, such as none, open-arrow, or fill-circle.")
+            var startArrow: ArrowStyleArgument?
+
+            @Option(help: "The end arrow style, such as none, open-arrow, or fill-circle.")
+            var endArrow: ArrowStyleArgument?
+
+            func validate() throws {
+                guard color != nil || alpha != nil || weight != nil || dash != nil
+                    || startArrow != nil || endArrow != nil
+                else {
+                    throw ValidationError("Provide at least one style flag.")
+                }
+                try validateAlpha(alpha, name: "--alpha")
+                try validatePositive(weight, name: "--weight")
+            }
+
+            func run() async throws {
+                let lineColor = try color.map { try OpaqueColor.parse($0) }
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.styleLine(
+                    presentationId: presentationID,
+                    objectId: objectID,
+                    color: lineColor,
+                    alpha: alpha,
+                    weight: weight,
+                    dash: dash?.dashStyle,
+                    startArrow: startArrow?.arrowStyle,
+                    endArrow: endArrow?.arrowStyle
+                )
+                print(objectID)
+            }
+        }
+
+        struct Video: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "video",
+                abstract: "Style a video and print its object id.",
+                discussion: """
+                    Sets a video's playback options and outline; at least one \
+                    flag is required. --autoplay/--no-autoplay and \
+                    --mute/--no-mute toggle those settings, and omitting them \
+                    leaves the setting unchanged. --start and --end are whole \
+                    seconds from the beginning; when both are given, --end must \
+                    be after --start. The outline color is a hex value like \
+                    #FF0000 (or #F00) or a theme name like accent1 and its \
+                    weight is in points. Get object ids from \
+                    `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the video to style.")
+            var objectID: String
+
+            @Flag(inversion: .prefixedNo, help: "Play the video automatically.")
+            var autoplay: Bool?
+
+            @Flag(inversion: .prefixedNo, help: "Mute the video's audio.")
+            var mute: Bool?
+
+            @Option(parsing: .unconditional, help: "The start time in whole seconds; 0 or greater.")
+            var start: Int?
+
+            @Option(parsing: .unconditional, help: "The end time in whole seconds; after --start.")
+            var end: Int?
+
+            @OptionGroup
+            var outlineOptions: OutlineOptions
+
+            func validate() throws {
+                guard autoplay != nil || mute != nil || start != nil || end != nil
+                    || outlineOptions.hasAnyFlag
+                else {
+                    throw ValidationError("Provide at least one style flag.")
+                }
+                try outlineOptions.validate()
+                if let start, start < 0 {
+                    throw ValidationError("--start must be 0 or greater.")
+                }
+                if let end, end < 0 {
+                    throw ValidationError("--end must be 0 or greater.")
+                }
+                if let start, let end, !(end > start) {
+                    throw ValidationError("--end must be greater than --start.")
+                }
+            }
+
+            func run() async throws {
+                let outlineColor = try outlineOptions.outline.map { try OpaqueColor.parse($0) }
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.styleVideo(
+                    presentationId: presentationID,
+                    objectId: objectID,
+                    autoPlay: autoplay,
+                    mute: mute,
+                    start: start,
+                    end: end,
+                    outlineColor: outlineColor,
+                    outlineAlpha: outlineOptions.outlineAlpha,
+                    outlineWeight: outlineOptions.outlineWeight,
+                    outlineDash: outlineOptions.outlineDash?.dashStyle,
+                    noOutline: outlineOptions.noOutline
+                )
+                print(objectID)
+            }
+        }
+    }
+
+    struct Chart: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "chart",
+            abstract: "Work with charts on slides.",
+            subcommands: [Refresh.self]
+        )
+
+        struct Refresh: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "refresh",
+                abstract: "Refresh a linked Sheets chart and print its object id.",
+                discussion: """
+                    Re-fetches the chart from its source spreadsheet. This works \
+                    only on a chart that was added linked to a sheet; an \
+                    unlinked chart cannot be refreshed. Get object ids from \
+                    `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the linked chart to refresh.")
+            var objectID: String
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.refreshSheetsChart(
+                    presentationId: presentationID, objectId: objectID)
+                print(objectID)
+            }
+        }
+    }
 }
 
 /// CLI-facing names for a z-order move. This keeps the wire enum
@@ -965,5 +1356,89 @@ enum ReorderPosition: String, ExpressibleByArgument {
 extension ElementUnit: ExpressibleByArgument {
     public init?(argument: String) {
         self.init(rawValue: argument.uppercased())
+    }
+}
+
+/// CLI-facing dash-style names. Keeps the API's SCREAMING wire spellings
+/// (``DashStyle``) out of the command surface: the user types lower-kebab words
+/// like `dash-dot`, following the ``ReorderPosition`` precedent.
+enum DashStyleArgument: String, ExpressibleByArgument {
+    case solid
+    case dot
+    case dash
+    case dashDot = "dash-dot"
+    case longDash = "long-dash"
+    case longDashDot = "long-dash-dot"
+
+    /// The Slides API dash style this argument maps to.
+    var dashStyle: DashStyle {
+        switch self {
+        case .solid: return .solid
+        case .dot: return .dot
+        case .dash: return .dash
+        case .dashDot: return .dashDot
+        case .longDash: return .longDash
+        case .longDashDot: return .longDashDot
+        }
+    }
+}
+
+/// CLI-facing arrow-style names, lower-kebab, mapping to the API ``ArrowStyle``.
+enum ArrowStyleArgument: String, ExpressibleByArgument {
+    case none
+    case stealthArrow = "stealth-arrow"
+    case fillArrow = "fill-arrow"
+    case fillCircle = "fill-circle"
+    case fillSquare = "fill-square"
+    case fillDiamond = "fill-diamond"
+    case openArrow = "open-arrow"
+    case openCircle = "open-circle"
+    case openSquare = "open-square"
+    case openDiamond = "open-diamond"
+
+    /// The Slides API arrow style this argument maps to.
+    var arrowStyle: ArrowStyle {
+        switch self {
+        case .none: return .none
+        case .stealthArrow: return .stealthArrow
+        case .fillArrow: return .fillArrow
+        case .fillCircle: return .fillCircle
+        case .fillSquare: return .fillSquare
+        case .fillDiamond: return .fillDiamond
+        case .openArrow: return .openArrow
+        case .openCircle: return .openCircle
+        case .openSquare: return .openSquare
+        case .openDiamond: return .openDiamond
+        }
+    }
+}
+
+/// CLI-facing content-alignment names mapping to the API ``ContentAlignment``.
+enum ContentAlignmentArgument: String, ExpressibleByArgument {
+    case top
+    case middle
+    case bottom
+
+    /// The Slides API content alignment this argument maps to.
+    var contentAlignment: ContentAlignment {
+        switch self {
+        case .top: return .top
+        case .middle: return .middle
+        case .bottom: return .bottom
+        }
+    }
+}
+
+/// Rejects an alpha that is present but outside 0...1.
+private func validateAlpha(_ alpha: Double?, name: String) throws {
+    if let alpha, !(alpha >= 0 && alpha <= 1) {
+        throw ValidationError("\(name) must be between 0 and 1.")
+    }
+}
+
+/// Rejects a value that is present but not greater than zero.
+private func validatePositive(_ value: Double?, name: String) throws {
+    if let value, !(value > 0) {
+        throw ValidationError("\(name) must be greater than zero.")
     }
 }
