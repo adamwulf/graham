@@ -99,6 +99,76 @@ public struct SlidesClient: Sendable {
         return objectId
     }
 
+    /// Creates a text box on one slide, optionally inserts its initial text,
+    /// and returns the new element's object id.
+    ///
+    /// Geometry is measured in points. Shape creation and non-empty text
+    /// insertion are sent together in one atomic batch update.
+    public func createTextBox(
+        presentationId: String,
+        slideId: String,
+        text: String,
+        objectId: String? = nil,
+        x: Double = 50,
+        y: Double = 50,
+        width: Double = 300,
+        height: Double = 50
+    ) async throws -> String {
+        let sentObjectId = objectId ?? "graham-\(UUID().uuidString)"
+        let size = ElementSize(
+            width: ElementDimension(magnitude: width, unit: .pt),
+            height: ElementDimension(magnitude: height, unit: .pt)
+        )
+        let transform = ElementTransform(
+            translateX: x,
+            translateY: y,
+            unit: .pt
+        )
+        let createShape = CreateShapeRequest(
+            objectId: sentObjectId,
+            elementProperties: PageElementProperties(
+                pageObjectId: slideId,
+                size: size,
+                transform: transform
+            ),
+            shapeType: "TEXT_BOX"
+        )
+        var requests: [SlidesBatchUpdateRequest] = [.createShape(createShape)]
+        if !text.isEmpty {
+            requests.append(.insertText(InsertTextRequest(
+                objectId: sentObjectId,
+                text: text,
+                insertionIndex: 0
+            )))
+        }
+
+        let response = try await batchUpdate(
+            presentationId: presentationId,
+            requests: requests
+        )
+        return response.replies?.first?.createShape?.objectId ?? sentObjectId
+    }
+
+    /// Inserts text into a text-bearing page element.
+    ///
+    /// Empty text is a no-op and sends no network request.
+    public func insertText(
+        presentationId: String,
+        objectId: String,
+        text: String,
+        insertionIndex: Int = 0
+    ) async throws {
+        guard !text.isEmpty else { return }
+        _ = try await batchUpdate(
+            presentationId: presentationId,
+            requests: [.insertText(InsertTextRequest(
+                objectId: objectId,
+                text: text,
+                insertionIndex: insertionIndex
+            ))]
+        )
+    }
+
     /// Moves one slide so it ends at a one-based final position.
     ///
     /// The API's `updateSlidesPosition.insertionIndex` is zero-based and refers

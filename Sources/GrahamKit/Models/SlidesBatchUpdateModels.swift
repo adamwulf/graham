@@ -18,6 +18,10 @@ import Foundation
 public enum SlidesBatchUpdateRequest: Encodable, Sendable, Equatable {
     /// Creates a new slide.
     case createSlide(CreateSlideRequest)
+    /// Creates a shape page element.
+    case createShape(CreateShapeRequest)
+    /// Inserts text into a shape or other text-bearing page element.
+    case insertText(InsertTextRequest)
     /// Moves slides to a new position.
     case updateSlidesPosition(UpdateSlidesPositionRequest)
     /// Deletes a slide or a page element by its exact object id.
@@ -25,6 +29,8 @@ public enum SlidesBatchUpdateRequest: Encodable, Sendable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case createSlide
+        case createShape
+        case insertText
         case updateSlidesPosition
         case deleteObject
     }
@@ -34,6 +40,10 @@ public enum SlidesBatchUpdateRequest: Encodable, Sendable, Equatable {
         switch self {
         case .createSlide(let request):
             try container.encode(request, forKey: .createSlide)
+        case .createShape(let request):
+            try container.encode(request, forKey: .createShape)
+        case .insertText(let request):
+            try container.encode(request, forKey: .insertText)
         case .updateSlidesPosition(let request):
             try container.encode(request, forKey: .updateSlidesPosition)
         case .deleteObject(let request):
@@ -92,6 +102,120 @@ public struct SlideLayoutReference: Codable, Sendable, Equatable {
     }
 }
 
+/// The `createShape` operation. The shape type and target page are required by
+/// the API; size and transform are optional because Google supplies defaults.
+public struct CreateShapeRequest: Codable, Sendable, Equatable {
+    /// A user-supplied object id for the new shape. `nil` lets Google assign
+    /// one, which the reply then reports.
+    public let objectId: String?
+    /// The page and optional geometry for the new shape.
+    public let elementProperties: PageElementProperties
+    /// A Slides shape type, for example `TEXT_BOX`.
+    public let shapeType: String
+
+    public init(
+        objectId: String? = nil,
+        elementProperties: PageElementProperties,
+        shapeType: String
+    ) {
+        self.objectId = objectId
+        self.elementProperties = elementProperties
+        self.shapeType = shapeType
+    }
+}
+
+/// The target page and optional geometry of a newly created page element.
+public struct PageElementProperties: Codable, Sendable, Equatable {
+    public let pageObjectId: String
+    public let size: ElementSize?
+    public let transform: ElementTransform?
+
+    public init(
+        pageObjectId: String,
+        size: ElementSize? = nil,
+        transform: ElementTransform? = nil
+    ) {
+        self.pageObjectId = pageObjectId
+        self.size = size
+        self.transform = transform
+    }
+}
+
+/// The required width and height of a write-side page element.
+public struct ElementSize: Codable, Sendable, Equatable {
+    public let width: ElementDimension
+    public let height: ElementDimension
+
+    public init(width: ElementDimension, height: ElementDimension) {
+        self.width = width
+        self.height = height
+    }
+}
+
+/// One write-side geometry dimension.
+public struct ElementDimension: Codable, Sendable, Equatable {
+    public let magnitude: Double
+    public let unit: ElementUnit
+
+    public init(magnitude: Double, unit: ElementUnit) {
+        self.magnitude = magnitude
+        self.unit = unit
+    }
+}
+
+/// Units accepted by the Slides API for page-element geometry.
+public enum ElementUnit: String, Codable, Sendable {
+    case emu = "EMU"
+    case pt = "PT"
+}
+
+/// The affine transform of a write-side page element.
+///
+/// A transform field omitted on the wire defaults to zero, so an omitted
+/// scale makes a degenerate, invisible element. Requiring both scale values
+/// prevents such an invalid partial transform from compiling.
+public struct ElementTransform: Codable, Sendable, Equatable {
+    public let scaleX: Double
+    public let scaleY: Double
+    public let shearX: Double?
+    public let shearY: Double?
+    public let translateX: Double
+    public let translateY: Double
+    public let unit: ElementUnit
+
+    public init(
+        scaleX: Double = 1,
+        scaleY: Double = 1,
+        shearX: Double? = nil,
+        shearY: Double? = nil,
+        translateX: Double,
+        translateY: Double,
+        unit: ElementUnit
+    ) {
+        self.scaleX = scaleX
+        self.scaleY = scaleY
+        self.shearX = shearX
+        self.shearY = shearY
+        self.translateX = translateX
+        self.translateY = translateY
+        self.unit = unit
+    }
+}
+
+/// The `insertText` operation. The insertion index is required by the API and
+/// defaults to the start of the element's text.
+public struct InsertTextRequest: Codable, Sendable, Equatable {
+    public let objectId: String
+    public let text: String
+    public let insertionIndex: Int
+
+    public init(objectId: String, text: String, insertionIndex: Int = 0) {
+        self.objectId = objectId
+        self.text = text
+        self.insertionIndex = insertionIndex
+    }
+}
+
 /// The `updateSlidesPosition` operation. Both fields are required by the API.
 ///
 /// `insertionIndex` is zero-based and refers to the slide order **before** the
@@ -134,10 +258,17 @@ public struct SlidesBatchUpdateResponse: Codable, Sendable {
 /// with the same name; an operation with nothing to report sets none of them.
 public struct SlidesBatchUpdateReply: Codable, Sendable {
     public let createSlide: CreateSlideReply?
+    public let createShape: CreateShapeReply?
 }
 
 /// The reply of a `createSlide` operation.
 public struct CreateSlideReply: Codable, Sendable {
     /// The object id of the new slide.
+    public let objectId: String?
+}
+
+/// The reply of a `createShape` operation.
+public struct CreateShapeReply: Codable, Sendable {
+    /// The object id of the new shape.
     public let objectId: String?
 }

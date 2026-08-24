@@ -2,10 +2,10 @@ import XCTest
 @testable import GrahamKit
 
 /// Tests for the Slides write path: the `presentations.batchUpdate` executor,
-/// the typed request union, and the high-level `createSlide`, `moveSlide`, and
-/// `deleteObject` methods. Every fixture is static JSON; no test touches the
-/// network, and the JSON bodies are asserted exactly (the shared encoder sorts
-/// keys, so the strings are deterministic).
+/// the typed request union, and the high-level slide and text-box write
+/// methods. Every fixture is static JSON; no test touches the network, and the
+/// JSON bodies are asserted exactly (the shared encoder sorts keys, so the
+/// strings are deterministic).
 final class SlidesWriteTests: XCTestCase {
     private func makeClient(transport: StubTransport) -> SlidesClient {
         transport.stubTokenEndpoint()
@@ -62,6 +62,54 @@ final class SlidesWriteTests: XCTestCase {
         XCTAssertEqual(
             try encode(.deleteObject(DeleteObjectRequest(objectId: "slide-2"))),
             #"{"deleteObject":{"objectId":"slide-2"}}"#
+        )
+    }
+
+    func testCreateShapeRequestEncodesFullGeometry() throws {
+        let request = SlidesBatchUpdateRequest.createShape(CreateShapeRequest(
+            objectId: "textbox-1",
+            elementProperties: PageElementProperties(
+                pageObjectId: "slide-1",
+                size: ElementSize(
+                    width: ElementDimension(magnitude: 300, unit: .pt),
+                    height: ElementDimension(magnitude: 50, unit: .pt)
+                ),
+                transform: ElementTransform(
+                    scaleX: 1.5,
+                    scaleY: 2,
+                    shearX: 0.1,
+                    shearY: 0.2,
+                    translateX: 25,
+                    translateY: 75,
+                    unit: .pt
+                )
+            ),
+            shapeType: "TEXT_BOX"
+        ))
+
+        XCTAssertEqual(
+            try encode(request),
+            #"{"createShape":{"elementProperties":{"pageObjectId":"slide-1","size":{"height":{"magnitude":50,"unit":"PT"},"width":{"magnitude":300,"unit":"PT"}},"transform":{"scaleX":1.5,"scaleY":2,"shearX":0.1,"shearY":0.2,"translateX":25,"translateY":75,"unit":"PT"}},"objectId":"textbox-1","shapeType":"TEXT_BOX"}}"#
+        )
+    }
+
+    func testCreateShapeRequestWithoutObjectIdOmitsTheKey() throws {
+        let request = SlidesBatchUpdateRequest.createShape(CreateShapeRequest(
+            elementProperties: PageElementProperties(pageObjectId: "slide-1"),
+            shapeType: "TEXT_BOX"
+        ))
+
+        XCTAssertEqual(
+            try encode(request),
+            #"{"createShape":{"elementProperties":{"pageObjectId":"slide-1"},"shapeType":"TEXT_BOX"}}"#
+        )
+    }
+
+    func testInsertTextRequestEncodesAllRequiredFields() throws {
+        XCTAssertEqual(
+            try encode(.insertText(InsertTextRequest(
+                objectId: "textbox-1", text: "Hello", insertionIndex: 3))),
+            #"{"insertText":{"insertionIndex":3,"objectId":"textbox-1","text":"Hello"}}"#
         )
     }
 
@@ -242,6 +290,168 @@ final class SlidesWriteTests: XCTestCase {
         XCTAssertEqual(SlidesClient.normalizeLayout("Title-And-Body"), "TITLE_AND_BODY")
         XCTAssertEqual(SlidesClient.normalizeLayout(" section header "), "SECTION_HEADER")
         XCTAssertEqual(SlidesClient.normalizeLayout("TITLE_ONLY"), "TITLE_ONLY")
+    }
+
+    // MARK: - createTextBox and insertText
+
+    func testCreateTextBoxPostsCreateThenInsertAtomicallyAndReturnsReplyId() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"replies":[{"createShape":{"objectId":"reply-id"}},{}]}"#
+        )
+
+        let objectId = try await client.createTextBox(
+            presentationId: "p-1",
+            slideId: "slide-1",
+            text: "Hello",
+            objectId: "textbox-1",
+            x: 25,
+            y: 75,
+            width: 300,
+            height: 50
+        )
+
+        XCTAssertEqual(objectId, "reply-id")
+        let requests = transport.requests(urlContains: ":batchUpdate")
+        XCTAssertEqual(requests.count, 1)
+        let request = try XCTUnwrap(requests.first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-1:batchUpdate")
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"createShape":{"elementProperties":{"pageObjectId":"slide-1","size":{"height":{"magnitude":50,"unit":"PT"},"width":{"magnitude":300,"unit":"PT"}},"transform":{"scaleX":1,"scaleY":1,"translateX":25,"translateY":75,"unit":"PT"}},"objectId":"textbox-1","shapeType":"TEXT_BOX"}},{"insertText":{"insertionIndex":0,"objectId":"textbox-1","text":"Hello"}}]}"#
+        )
+    }
+
+    func testCreateTextBoxFallsBackToTheSentIdForAnEmptyReply() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
+
+        let objectId = try await client.createTextBox(
+            presentationId: "p-1",
+            slideId: "slide-1",
+            text: "",
+            objectId: "sent-id"
+        )
+
+        XCTAssertEqual(objectId, "sent-id")
+    }
+
+    func testCreateTextBoxWithEmptyTextSendsOnlyCreateShape() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.createTextBox(
+            presentationId: "p-1",
+            slideId: "slide-1",
+            text: "",
+            objectId: "textbox-1"
+        )
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"createShape":{"elementProperties":{"pageObjectId":"slide-1","size":{"height":{"magnitude":50,"unit":"PT"},"width":{"magnitude":300,"unit":"PT"}},"transform":{"scaleX":1,"scaleY":1,"translateX":50,"translateY":50,"unit":"PT"}},"objectId":"textbox-1","shapeType":"TEXT_BOX"}}]}"#
+        )
+    }
+
+    func testCreateTextBoxGeneratesAValidObjectId() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
+
+        let objectId = try await client.createTextBox(
+            presentationId: "p-1", slideId: "slide-1", text: "Hello")
+
+        XCTAssertNotNil(
+            objectId.range(
+                of: #"^[a-zA-Z0-9_][a-zA-Z0-9_:-]{4,49}$"#,
+                options: .regularExpression
+            )
+        )
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        let body = Self.bodyString(request)
+        XCTAssertEqual(body.components(separatedBy: objectId).count - 1, 2)
+    }
+
+    func testCreateTextBoxEscapesThePresentationIdInThePath() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
+
+        _ = try await client.createTextBox(
+            presentationId: "p 1/x",
+            slideId: "slide-1",
+            text: "",
+            objectId: "textbox-1"
+        )
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertTrue(
+            request.url.absoluteString.hasSuffix("/v1/presentations/p%201%2Fx:batchUpdate"),
+            "unexpected URL: \(request.url.absoluteString)"
+        )
+    }
+
+    func testInsertTextPostsTheRequestedIndex() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        try await client.insertText(
+            presentationId: "p-1",
+            objectId: "textbox-1",
+            text: " world",
+            insertionIndex: 5
+        )
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-1:batchUpdate")
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"insertText":{"insertionIndex":5,"objectId":"textbox-1","text":" world"}}]}"#
+        )
+    }
+
+    func testInsertTextWithEmptyTextSendsNoRequest() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        try await client.insertText(
+            presentationId: "p-1", objectId: "textbox-1", text: "")
+
+        XCTAssertTrue(transport.requests.isEmpty)
+    }
+
+    func testCreateTextBoxPropagatesAGoogleError() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"error":{"code":400,"message":"Invalid requests[0]","status":"INVALID_ARGUMENT"}}"#,
+            status: 400
+        )
+
+        do {
+            _ = try await client.createTextBox(
+                presentationId: "p-1",
+                slideId: "missing",
+                text: "",
+                objectId: "textbox-1"
+            )
+            XCTFail("Expected an error")
+        } catch {
+            guard case GrahamError.googleAPIError(let code, let status, _) = error else {
+                return XCTFail("Wrong error: \(error)")
+            }
+            XCTAssertEqual(code, 400)
+            XCTAssertEqual(status, "INVALID_ARGUMENT")
+        }
     }
 
     // MARK: - moveSlide
