@@ -116,7 +116,7 @@ graham slides ungroup <presentation-id> <group-object-id>
 graham slides element move <presentation-id> <object-id> --to-x 100 --to-y 75
 graham slides element scale <presentation-id> <object-id> --by 1.5
 graham slides element rotate <presentation-id> <object-id> --by 90
-graham slides element transform <presentation-id> <object-id> --translate-x 10 --unit pt --relative
+graham slides element transform <presentation-id> <object-id> --translate-x 10 --unit pt
 graham slides element reorder <presentation-id> <object-id> --to front
 # Move one slide to a one-based final position (as shown by cat and list).
 graham slides move <presentation-id> <slide-id> --to 1
