@@ -401,4 +401,272 @@ final class SlidesParsingTests: XCTestCase {
     func testSlidesUngroupRequiresAtLeastOneGroupId() {
         XCTAssertThrowsError(try Slides.Ungroup.parse(["deck-id"]))
     }
+
+    // MARK: - element registry
+
+    func testSlidesListsElementAfterCreate() {
+        let names = Slides.configuration.subcommands.compactMap {
+            $0.configuration.commandName ?? "\($0)".lowercased()
+        }
+        XCTAssertTrue(names.contains("element"))
+        // Element is registered immediately after create.
+        guard let create = names.firstIndex(of: "create"),
+            let element = names.firstIndex(of: "element")
+        else {
+            return XCTFail("expected both create and element subcommands")
+        }
+        XCTAssertEqual(element, create + 1)
+    }
+
+    func testSlidesElementListsEverySubcommand() {
+        let names = Slides.Element.configuration.subcommands.compactMap {
+            $0.configuration.commandName ?? "\($0)".lowercased()
+        }
+        XCTAssertEqual(names, ["move", "scale", "rotate", "transform", "reorder"])
+    }
+
+    // MARK: - element move
+
+    func testSlidesElementMoveParsesToStyle() throws {
+        let command = try Slides.Element.Move.parse([
+            "deck-id", "obj-1", "--to-x", "100", "--to-y", "200",
+        ])
+        XCTAssertEqual(command.presentationID, "deck-id")
+        XCTAssertEqual(command.objectID, "obj-1")
+        XCTAssertEqual(command.toX, 100)
+        XCTAssertEqual(command.toY, 200)
+        XCTAssertNil(command.byX)
+        XCTAssertNil(command.byY)
+    }
+
+    func testSlidesElementMoveParsesNegativeToStyle() throws {
+        // Unconditional parsing lets a leading - be a value, not a flag.
+        let command = try Slides.Element.Move.parse([
+            "deck-id", "obj-1", "--to-x", "-25.5", "--to-y", "-10.25",
+        ])
+        XCTAssertEqual(command.toX, -25.5)
+        XCTAssertEqual(command.toY, -10.25)
+    }
+
+    func testSlidesElementMoveParsesByStyleWithMissingAxis() throws {
+        // A missing axis stays nil so the command can treat it as 0.
+        let onlyX = try Slides.Element.Move.parse(["deck-id", "obj-1", "--by-x", "-5"])
+        XCTAssertEqual(onlyX.byX, -5)
+        XCTAssertNil(onlyX.byY)
+
+        let both = try Slides.Element.Move.parse([
+            "deck-id", "obj-1", "--by-x", "5", "--by-y", "-7.5",
+        ])
+        XCTAssertEqual(both.byX, 5)
+        XCTAssertEqual(both.byY, -7.5)
+    }
+
+    func testSlidesElementMoveRejectsBothStyles() {
+        XCTAssertThrowsError(try Slides.Element.Move.parse([
+            "deck-id", "obj-1", "--to-x", "1", "--to-y", "2", "--by-x", "3",
+        ]))
+    }
+
+    func testSlidesElementMoveRejectsNoFlags() {
+        XCTAssertThrowsError(try Slides.Element.Move.parse(["deck-id", "obj-1"]))
+    }
+
+    func testSlidesElementMoveRejectsASingleToAxis() {
+        // --to-x and --to-y must appear together.
+        XCTAssertThrowsError(try Slides.Element.Move.parse([
+            "deck-id", "obj-1", "--to-x", "100",
+        ]))
+        XCTAssertThrowsError(try Slides.Element.Move.parse([
+            "deck-id", "obj-1", "--to-y", "200",
+        ]))
+    }
+
+    func testSlidesElementMoveRequiresBothIds() {
+        XCTAssertThrowsError(try Slides.Element.Move.parse([]))
+        XCTAssertThrowsError(try Slides.Element.Move.parse(["deck-id"]))
+    }
+
+    // MARK: - element scale
+
+    func testSlidesElementScaleParsesUniformFactor() throws {
+        let command = try Slides.Element.Scale.parse(["deck-id", "obj-1", "--by", "2"])
+        XCTAssertEqual(command.presentationID, "deck-id")
+        XCTAssertEqual(command.objectID, "obj-1")
+        XCTAssertEqual(command.by, 2)
+        XCTAssertNil(command.byX)
+        XCTAssertNil(command.byY)
+    }
+
+    func testSlidesElementScaleParsesAxisFactors() throws {
+        let command = try Slides.Element.Scale.parse([
+            "deck-id", "obj-1", "--by-x", "1.5", "--by-y", "0.5",
+        ])
+        XCTAssertEqual(command.byX, 1.5)
+        XCTAssertEqual(command.byY, 0.5)
+        XCTAssertNil(command.by)
+    }
+
+    func testSlidesElementScaleRejectsMixingStyles() {
+        XCTAssertThrowsError(try Slides.Element.Scale.parse([
+            "deck-id", "obj-1", "--by", "2", "--by-x", "3",
+        ]))
+    }
+
+    func testSlidesElementScaleRejectsASingleAxis() {
+        XCTAssertThrowsError(try Slides.Element.Scale.parse([
+            "deck-id", "obj-1", "--by-x", "2",
+        ]))
+        XCTAssertThrowsError(try Slides.Element.Scale.parse([
+            "deck-id", "obj-1", "--by-y", "2",
+        ]))
+    }
+
+    func testSlidesElementScaleRejectsNoFlags() {
+        XCTAssertThrowsError(try Slides.Element.Scale.parse(["deck-id", "obj-1"]))
+    }
+
+    func testSlidesElementScaleRejectsNonPositiveFactors() {
+        // Factors must be greater than zero; the negative still parses first.
+        XCTAssertThrowsError(try Slides.Element.Scale.parse([
+            "deck-id", "obj-1", "--by", "0",
+        ]))
+        XCTAssertThrowsError(try Slides.Element.Scale.parse([
+            "deck-id", "obj-1", "--by", "-2",
+        ]))
+        XCTAssertThrowsError(try Slides.Element.Scale.parse([
+            "deck-id", "obj-1", "--by-x", "-1", "--by-y", "2",
+        ]))
+    }
+
+    // MARK: - element rotate
+
+    func testSlidesElementRotateParsesBy() throws {
+        let command = try Slides.Element.Rotate.parse(["deck-id", "obj-1", "--by", "90"])
+        XCTAssertEqual(command.presentationID, "deck-id")
+        XCTAssertEqual(command.objectID, "obj-1")
+        XCTAssertEqual(command.by, 90)
+        XCTAssertNil(command.to)
+    }
+
+    func testSlidesElementRotateParsesNegativeBy() throws {
+        let command = try Slides.Element.Rotate.parse(["deck-id", "obj-1", "--by", "-45.5"])
+        XCTAssertEqual(command.by, -45.5)
+    }
+
+    func testSlidesElementRotateParsesTo() throws {
+        let command = try Slides.Element.Rotate.parse(["deck-id", "obj-1", "--to", "-30"])
+        XCTAssertEqual(command.to, -30)
+        XCTAssertNil(command.by)
+    }
+
+    func testSlidesElementRotateRejectsBothOrNeither() {
+        XCTAssertThrowsError(try Slides.Element.Rotate.parse(["deck-id", "obj-1"]))
+        XCTAssertThrowsError(try Slides.Element.Rotate.parse([
+            "deck-id", "obj-1", "--by", "10", "--to", "20",
+        ]))
+    }
+
+    // MARK: - element transform
+
+    func testSlidesElementTransformDefaults() throws {
+        // Identity/zero, in points, absolute (not relative).
+        let command = try Slides.Element.Transform.parse(["deck-id", "obj-1"])
+        XCTAssertEqual(command.presentationID, "deck-id")
+        XCTAssertEqual(command.objectID, "obj-1")
+        XCTAssertEqual(command.scaleX, 1)
+        XCTAssertEqual(command.scaleY, 1)
+        XCTAssertEqual(command.shearX, 0)
+        XCTAssertEqual(command.shearY, 0)
+        XCTAssertEqual(command.translateX, 0)
+        XCTAssertEqual(command.translateY, 0)
+        XCTAssertEqual(command.unit, .pt)
+        XCTAssertFalse(command.relative)
+    }
+
+    func testSlidesElementTransformParsesEveryFlag() throws {
+        let command = try Slides.Element.Transform.parse([
+            "deck-id", "obj-1",
+            "--scale-x", "2",
+            "--scale-y", "-3",
+            "--shear-x", "0.5",
+            "--shear-y", "-0.25",
+            "--translate-x", "-100",
+            "--translate-y", "200",
+            "--unit", "emu",
+            "--relative",
+        ])
+        XCTAssertEqual(command.scaleX, 2)
+        XCTAssertEqual(command.scaleY, -3)
+        XCTAssertEqual(command.shearX, 0.5)
+        XCTAssertEqual(command.shearY, -0.25)
+        XCTAssertEqual(command.translateX, -100)
+        XCTAssertEqual(command.translateY, 200)
+        XCTAssertEqual(command.unit, .emu)
+        XCTAssertTrue(command.relative)
+    }
+
+    func testSlidesElementTransformParsesUnitCaseInsensitively() throws {
+        XCTAssertEqual(
+            try Slides.Element.Transform.parse(["deck-id", "obj-1", "--unit", "pt"]).unit,
+            .pt
+        )
+        XCTAssertEqual(
+            try Slides.Element.Transform.parse(["deck-id", "obj-1", "--unit", "EMU"]).unit,
+            .emu
+        )
+    }
+
+    func testSlidesElementTransformRejectsAnUnknownUnit() {
+        XCTAssertThrowsError(try Slides.Element.Transform.parse([
+            "deck-id", "obj-1", "--unit", "inches",
+        ]))
+    }
+
+    // MARK: - element reorder
+
+    func testSlidesElementReorderParsesOneId() throws {
+        let command = try Slides.Element.Reorder.parse([
+            "deck-id", "obj-1", "--to", "front",
+        ])
+        XCTAssertEqual(command.presentationID, "deck-id")
+        XCTAssertEqual(command.objectIDs, ["obj-1"])
+        XCTAssertEqual(command.to, .front)
+    }
+
+    func testSlidesElementReorderParsesManyIds() throws {
+        let command = try Slides.Element.Reorder.parse([
+            "deck-id", "a", "b", "c", "--to", "back",
+        ])
+        XCTAssertEqual(command.objectIDs, ["a", "b", "c"])
+        XCTAssertEqual(command.to, .back)
+    }
+
+    func testSlidesElementReorderMapsEachPositionToItsOperation() throws {
+        let cases: [(String, ReorderPosition, ZOrderOperation)] = [
+            ("front", .front, .bringToFront),
+            ("forward", .forward, .bringForward),
+            ("backward", .backward, .sendBackward),
+            ("back", .back, .sendToBack),
+        ]
+        for (name, position, operation) in cases {
+            let command = try Slides.Element.Reorder.parse(["deck-id", "obj", "--to", name])
+            XCTAssertEqual(command.to, position)
+            XCTAssertEqual(command.to.operation, operation)
+        }
+    }
+
+    func testSlidesElementReorderRequiresAnId() {
+        // --to is present but no object ids follow it.
+        XCTAssertThrowsError(try Slides.Element.Reorder.parse(["deck-id", "--to", "front"]))
+    }
+
+    func testSlidesElementReorderRequiresAPosition() {
+        XCTAssertThrowsError(try Slides.Element.Reorder.parse(["deck-id", "obj-1"]))
+    }
+
+    func testSlidesElementReorderRejectsABadPosition() {
+        XCTAssertThrowsError(try Slides.Element.Reorder.parse([
+            "deck-id", "obj-1", "--to", "middle",
+        ]))
+    }
 }
