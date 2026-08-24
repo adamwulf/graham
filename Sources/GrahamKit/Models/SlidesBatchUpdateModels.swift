@@ -72,6 +72,16 @@ public enum SlidesBatchUpdateRequest: Encodable, Sendable, Equatable {
     case updateTableBorderProperties(UpdateTableBorderPropertiesRequest)
     /// Refreshes a linked Sheets chart to its latest data.
     case refreshSheetsChart(RefreshSheetsChartRequest)
+    /// Deletes a range of text from a shape or table cell.
+    case deleteText(DeleteTextRequest)
+    /// Styles a range of text, including setting or clearing its link.
+    case updateTextStyle(UpdateTextStyleRequest)
+    /// Styles the paragraphs that a text range touches.
+    case updateParagraphStyle(UpdateParagraphStyleRequest)
+    /// Turns the paragraphs a text range touches into a bulleted list.
+    case createParagraphBullets(CreateParagraphBulletsRequest)
+    /// Removes bullets from the paragraphs a text range touches.
+    case deleteParagraphBullets(DeleteParagraphBulletsRequest)
     /// Deletes a slide or a page element by its exact object id.
     case deleteObject(DeleteObjectRequest)
 
@@ -104,6 +114,11 @@ public enum SlidesBatchUpdateRequest: Encodable, Sendable, Equatable {
         case updateTableColumnProperties
         case updateTableBorderProperties
         case refreshSheetsChart
+        case deleteText
+        case updateTextStyle
+        case updateParagraphStyle
+        case createParagraphBullets
+        case deleteParagraphBullets
         case deleteObject
     }
 
@@ -166,6 +181,16 @@ public enum SlidesBatchUpdateRequest: Encodable, Sendable, Equatable {
             try container.encode(request, forKey: .updateTableBorderProperties)
         case .refreshSheetsChart(let request):
             try container.encode(request, forKey: .refreshSheetsChart)
+        case .deleteText(let request):
+            try container.encode(request, forKey: .deleteText)
+        case .updateTextStyle(let request):
+            try container.encode(request, forKey: .updateTextStyle)
+        case .updateParagraphStyle(let request):
+            try container.encode(request, forKey: .updateParagraphStyle)
+        case .createParagraphBullets(let request):
+            try container.encode(request, forKey: .createParagraphBullets)
+        case .deleteParagraphBullets(let request):
+            try container.encode(request, forKey: .deleteParagraphBullets)
         case .deleteObject(let request):
             try container.encode(request, forKey: .deleteObject)
         }
@@ -613,13 +638,24 @@ extension ElementTransform {
 
 /// The `insertText` operation. The insertion index is required by the API and
 /// defaults to the start of the element's text.
+///
+/// When `objectId` names a table, `cellLocation` targets the cell to insert
+/// into; for a plain shape it stays `nil` and is omitted on the wire, so
+/// existing call sites and their exact-JSON tests are unchanged.
 public struct InsertTextRequest: Codable, Sendable, Equatable {
     public let objectId: String
+    public let cellLocation: TableCellLocation?
     public let text: String
     public let insertionIndex: Int
 
-    public init(objectId: String, text: String, insertionIndex: Int = 0) {
+    public init(
+        objectId: String,
+        text: String,
+        insertionIndex: Int = 0,
+        cellLocation: TableCellLocation? = nil
+    ) {
         self.objectId = objectId
+        self.cellLocation = cellLocation
         self.text = text
         self.insertionIndex = insertionIndex
     }
@@ -1431,6 +1467,394 @@ public struct UpdateTableBorderPropertiesRequest: Codable, Sendable, Equatable {
         self.borderPosition = borderPosition
         self.tableBorderStyle = tableBorderStyle
         self.fields = fields
+    }
+}
+
+// MARK: - Text ranges, styles, and operation requests
+//
+// These mirror the Slides v1 text schema used by the `deleteText`,
+// `updateTextStyle`, `updateParagraphStyle`, `createParagraphBullets`, and
+// `deleteParagraphBullets` requests. Text indices are zero-based, in UTF-16
+// code units, matching the existing `insertText.insertionIndex`. When an
+// operation targets a table cell, its `cellLocation` uses the shared
+// zero-based ``TableCellLocation``; the high-level client translates the
+// one-based row/column the CLI accepts.
+
+/// A range of text within a shape or table cell, in zero-based UTF-16 code
+/// units.
+///
+/// Modeled as an enum with associated values so an invalid range cannot
+/// compile: `ALL` carries no indices, `FROM_START_INDEX` carries only a start,
+/// and `FIXED_RANGE` carries both. Following the request union's own
+/// `encode(to:)` precedent, the custom `Encodable` writes the API's `type`
+/// discriminator alongside whichever indices the case provides.
+public enum TextRange: Encodable, Sendable, Equatable {
+    /// The whole text of the element or cell.
+    case all
+    /// Everything from `startIndex` to the end of the text.
+    case fromIndex(Int)
+    /// A half-open `[start, end)` range.
+    case fixed(start: Int, end: Int)
+
+    private enum CodingKeys: String, CodingKey {
+        case startIndex
+        case endIndex
+        case type
+    }
+
+    /// The API's `Range.type` discriminator.
+    private enum RangeType: String, Encodable {
+        case fixedRange = "FIXED_RANGE"
+        case fromStartIndex = "FROM_START_INDEX"
+        case all = "ALL"
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .all:
+            try container.encode(RangeType.all, forKey: .type)
+        case .fromIndex(let start):
+            try container.encode(start, forKey: .startIndex)
+            try container.encode(RangeType.fromStartIndex, forKey: .type)
+        case .fixed(let start, let end):
+            try container.encode(start, forKey: .startIndex)
+            try container.encode(end, forKey: .endIndex)
+            try container.encode(RangeType.fixedRange, forKey: .type)
+        }
+    }
+}
+
+/// A color that may be explicitly transparent.
+///
+/// An `OptionalColor` with no `opaqueColor` means the color is TRANSPARENT: it
+/// encodes as `{}`, which the Slides API reads as "clear this color". A set
+/// `opaqueColor` sets that solid color.
+public struct OptionalColor: Codable, Sendable, Equatable {
+    public let opaqueColor: OpaqueColor?
+
+    public init(opaqueColor: OpaqueColor? = nil) {
+        self.opaqueColor = opaqueColor
+    }
+}
+
+/// A relative slide link target, as accepted by ``Link``.
+public enum RelativeSlideLink: String, Codable, Sendable, Equatable {
+    case nextSlide = "NEXT_SLIDE"
+    case previousSlide = "PREVIOUS_SLIDE"
+    case firstSlide = "FIRST_SLIDE"
+    case lastSlide = "LAST_SLIDE"
+}
+
+/// A hyperlink on a text run. A strict one-of: exactly one target is set.
+///
+/// The one-of is enforced by the four inits, following the
+/// ``SlideLayoutReference`` precedent: whichever init a caller uses, the other
+/// fields stay `nil` and are omitted on the wire. `slideIndex` is the API's
+/// zero-based slide index; the high-level client translates a one-based slide
+/// position into it.
+public struct Link: Codable, Sendable, Equatable {
+    public let url: String?
+    public let relativeLink: RelativeSlideLink?
+    public let pageObjectId: String?
+    public let slideIndex: Int?
+
+    /// A link to a web page.
+    public init(url: String) {
+        self.url = url
+        self.relativeLink = nil
+        self.pageObjectId = nil
+        self.slideIndex = nil
+    }
+
+    /// A link to another slide by relation, for example the next slide.
+    public init(relativeLink: RelativeSlideLink) {
+        self.url = nil
+        self.relativeLink = relativeLink
+        self.pageObjectId = nil
+        self.slideIndex = nil
+    }
+
+    /// A link to a slide by its object id.
+    public init(pageObjectId: String) {
+        self.url = nil
+        self.relativeLink = nil
+        self.pageObjectId = pageObjectId
+        self.slideIndex = nil
+    }
+
+    /// A link to a slide by its zero-based index.
+    public init(slideIndex: Int) {
+        self.url = nil
+        self.relativeLink = nil
+        self.pageObjectId = nil
+        self.slideIndex = slideIndex
+    }
+}
+
+/// A font family with a numeric weight.
+///
+/// The `weight` is a multiple of 100 within 100...900. If `fontFamily` is also
+/// set on the containing ``TextStyleValue`` the two must match; the high-level
+/// client keeps them consistent.
+public struct WeightedFontFamily: Codable, Sendable, Equatable {
+    public let fontFamily: String
+    public let weight: Int
+
+    public init(fontFamily: String, weight: Int) {
+        self.fontFamily = fontFamily
+        self.weight = weight
+    }
+}
+
+/// The vertical offset of a text run from its normal baseline.
+public enum BaselineOffset: String, Codable, Sendable, Equatable {
+    case none = "NONE"
+    case superscript = "SUPERSCRIPT"
+    case `subscript` = "SUBSCRIPT"
+}
+
+/// The writable subset of a text run's style.
+///
+/// Every field is optional; the request's field mask, not this container,
+/// decides which properties the API applies. A ``foregroundColor`` or
+/// ``backgroundColor`` is an ``OptionalColor``, so an empty value clears the
+/// color to transparent.
+public struct TextStyleValue: Codable, Sendable, Equatable {
+    public let bold: Bool?
+    public let italic: Bool?
+    public let underline: Bool?
+    public let strikethrough: Bool?
+    public let smallCaps: Bool?
+    public let foregroundColor: OptionalColor?
+    public let backgroundColor: OptionalColor?
+    public let fontFamily: String?
+    public let weightedFontFamily: WeightedFontFamily?
+    public let fontSize: ElementDimension?
+    public let baselineOffset: BaselineOffset?
+    public let link: Link?
+
+    public init(
+        bold: Bool? = nil,
+        italic: Bool? = nil,
+        underline: Bool? = nil,
+        strikethrough: Bool? = nil,
+        smallCaps: Bool? = nil,
+        foregroundColor: OptionalColor? = nil,
+        backgroundColor: OptionalColor? = nil,
+        fontFamily: String? = nil,
+        weightedFontFamily: WeightedFontFamily? = nil,
+        fontSize: ElementDimension? = nil,
+        baselineOffset: BaselineOffset? = nil,
+        link: Link? = nil
+    ) {
+        self.bold = bold
+        self.italic = italic
+        self.underline = underline
+        self.strikethrough = strikethrough
+        self.smallCaps = smallCaps
+        self.foregroundColor = foregroundColor
+        self.backgroundColor = backgroundColor
+        self.fontFamily = fontFamily
+        self.weightedFontFamily = weightedFontFamily
+        self.fontSize = fontSize
+        self.baselineOffset = baselineOffset
+        self.link = link
+    }
+}
+
+/// The horizontal alignment of a paragraph.
+public enum ParagraphAlignment: String, Codable, Sendable, Equatable {
+    case start = "START"
+    case center = "CENTER"
+    case end = "END"
+    case justified = "JUSTIFIED"
+}
+
+/// The reading direction of a paragraph's text.
+public enum TextDirection: String, Codable, Sendable, Equatable {
+    case leftToRight = "LEFT_TO_RIGHT"
+    case rightToLeft = "RIGHT_TO_LEFT"
+}
+
+/// Whether paragraph spacing collapses between list items.
+public enum SpacingMode: String, Codable, Sendable, Equatable {
+    case neverCollapse = "NEVER_COLLAPSE"
+    case collapseLists = "COLLAPSE_LISTS"
+}
+
+/// The writable subset of a paragraph's style.
+///
+/// Every field is optional; the request's field mask, not this container,
+/// decides which properties the API applies. `lineSpacing` is a percent of
+/// normal (100 = normal); the spacing and indent dimensions are in points.
+public struct ParagraphStyleValue: Codable, Sendable, Equatable {
+    public let alignment: ParagraphAlignment?
+    public let lineSpacing: Double?
+    public let spaceAbove: ElementDimension?
+    public let spaceBelow: ElementDimension?
+    public let indentStart: ElementDimension?
+    public let indentEnd: ElementDimension?
+    public let indentFirstLine: ElementDimension?
+    public let direction: TextDirection?
+    public let spacingMode: SpacingMode?
+
+    public init(
+        alignment: ParagraphAlignment? = nil,
+        lineSpacing: Double? = nil,
+        spaceAbove: ElementDimension? = nil,
+        spaceBelow: ElementDimension? = nil,
+        indentStart: ElementDimension? = nil,
+        indentEnd: ElementDimension? = nil,
+        indentFirstLine: ElementDimension? = nil,
+        direction: TextDirection? = nil,
+        spacingMode: SpacingMode? = nil
+    ) {
+        self.alignment = alignment
+        self.lineSpacing = lineSpacing
+        self.spaceAbove = spaceAbove
+        self.spaceBelow = spaceBelow
+        self.indentStart = indentStart
+        self.indentEnd = indentEnd
+        self.indentFirstLine = indentFirstLine
+        self.direction = direction
+        self.spacingMode = spacingMode
+    }
+}
+
+/// A bullet glyph preset for ``CreateParagraphBulletsRequest``.
+///
+/// The fifteen values verified against the Slides v1 discovery document; the
+/// raw values are the exact wire spellings. The API default is
+/// ``bulletDiscCircleSquare``.
+public enum BulletPreset: String, Codable, Sendable, Equatable {
+    case bulletDiscCircleSquare = "BULLET_DISC_CIRCLE_SQUARE"
+    case bulletDiamondxArrow3dSquare = "BULLET_DIAMONDX_ARROW3D_SQUARE"
+    case bulletCheckbox = "BULLET_CHECKBOX"
+    case bulletArrowDiamondDisc = "BULLET_ARROW_DIAMOND_DISC"
+    case bulletStarCircleSquare = "BULLET_STAR_CIRCLE_SQUARE"
+    case bulletArrow3dCircleSquare = "BULLET_ARROW3D_CIRCLE_SQUARE"
+    case bulletLefttriangleDiamondDisc = "BULLET_LEFTTRIANGLE_DIAMOND_DISC"
+    case bulletDiamondxHollowdiamondSquare = "BULLET_DIAMONDX_HOLLOWDIAMOND_SQUARE"
+    case bulletDiamondCircleSquare = "BULLET_DIAMOND_CIRCLE_SQUARE"
+    case numberedDigitAlphaRoman = "NUMBERED_DIGIT_ALPHA_ROMAN"
+    case numberedDigitAlphaRomanParens = "NUMBERED_DIGIT_ALPHA_ROMAN_PARENS"
+    case numberedDigitNested = "NUMBERED_DIGIT_NESTED"
+    case numberedUpperalphaAlphaRoman = "NUMBERED_UPPERALPHA_ALPHA_ROMAN"
+    case numberedUpperromanUpperalphaDigit = "NUMBERED_UPPERROMAN_UPPERALPHA_DIGIT"
+    case numberedZerodigitAlphaRoman = "NUMBERED_ZERODIGIT_ALPHA_ROMAN"
+}
+
+// These five request models are `Encodable`-only, not `Codable`: each holds a
+// ``TextRange``, whose custom encoding makes an invalid range impossible to
+// build, and which therefore has no `Decodable` conformance. Requests are only
+// ever encoded and sent, so decodability is never needed. Their sibling request
+// models are `Codable` merely by convention, not because anything decodes them.
+
+/// The `deleteText` operation. Omitting `cellLocation` targets a shape; a set
+/// `cellLocation` targets a table cell.
+public struct DeleteTextRequest: Encodable, Sendable, Equatable {
+    public let objectId: String
+    public let cellLocation: TableCellLocation?
+    public let textRange: TextRange
+
+    public init(
+        objectId: String,
+        cellLocation: TableCellLocation? = nil,
+        textRange: TextRange
+    ) {
+        self.objectId = objectId
+        self.cellLocation = cellLocation
+        self.textRange = textRange
+    }
+}
+
+/// The `updateTextStyle` operation. `fields` is a comma-separated field mask of
+/// the ``TextStyleValue`` paths to apply; at least one path is required. When
+/// `objectId` is a table the API requires `cellLocation`; otherwise it must be
+/// absent.
+public struct UpdateTextStyleRequest: Encodable, Sendable, Equatable {
+    public let objectId: String
+    public let cellLocation: TableCellLocation?
+    public let style: TextStyleValue
+    public let textRange: TextRange
+    public let fields: String
+
+    public init(
+        objectId: String,
+        cellLocation: TableCellLocation? = nil,
+        style: TextStyleValue,
+        textRange: TextRange,
+        fields: String
+    ) {
+        self.objectId = objectId
+        self.cellLocation = cellLocation
+        self.style = style
+        self.textRange = textRange
+        self.fields = fields
+    }
+}
+
+/// The `updateParagraphStyle` operation. `fields` is a comma-separated field
+/// mask of the ``ParagraphStyleValue`` paths to apply; at least one path is
+/// required.
+public struct UpdateParagraphStyleRequest: Encodable, Sendable, Equatable {
+    public let objectId: String
+    public let cellLocation: TableCellLocation?
+    public let style: ParagraphStyleValue
+    public let textRange: TextRange
+    public let fields: String
+
+    public init(
+        objectId: String,
+        cellLocation: TableCellLocation? = nil,
+        style: ParagraphStyleValue,
+        textRange: TextRange,
+        fields: String
+    ) {
+        self.objectId = objectId
+        self.cellLocation = cellLocation
+        self.style = style
+        self.textRange = textRange
+        self.fields = fields
+    }
+}
+
+/// The `createParagraphBullets` operation. Omitting `bulletPreset` uses the API
+/// default, `BULLET_DISC_CIRCLE_SQUARE`.
+public struct CreateParagraphBulletsRequest: Encodable, Sendable, Equatable {
+    public let objectId: String
+    public let cellLocation: TableCellLocation?
+    public let textRange: TextRange
+    public let bulletPreset: BulletPreset?
+
+    public init(
+        objectId: String,
+        cellLocation: TableCellLocation? = nil,
+        textRange: TextRange,
+        bulletPreset: BulletPreset? = nil
+    ) {
+        self.objectId = objectId
+        self.cellLocation = cellLocation
+        self.textRange = textRange
+        self.bulletPreset = bulletPreset
+    }
+}
+
+/// The `deleteParagraphBullets` operation.
+public struct DeleteParagraphBulletsRequest: Encodable, Sendable, Equatable {
+    public let objectId: String
+    public let cellLocation: TableCellLocation?
+    public let textRange: TextRange
+
+    public init(
+        objectId: String,
+        cellLocation: TableCellLocation? = nil,
+        textRange: TextRange
+    ) {
+        self.objectId = objectId
+        self.cellLocation = cellLocation
+        self.textRange = textRange
     }
 }
 
