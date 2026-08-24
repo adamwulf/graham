@@ -15,14 +15,14 @@ transformed directly, and reordered front-to-back.
 
 ## Next milestone: edit appearance
 
-- **Image recolor and adjustments** (`updateImageProperties`): opacity,
-  brightness, contrast, crop, outline, and drop shadow.
-- **Other element styles:** shape fill, outline, and drop shadow
-  (`updateShapeProperties`); line properties (`updateLineProperties`); video
-  properties (`updateVideoProperties`).
+Only table styling remains in this milestone.
+
 - **Tables:** insert/delete rows and columns, merge/unmerge cells, and edit
   cell, row, column, and border properties (the `*Table*` requests).
-- **Charts:** refresh a linked Sheets chart (`refreshSheetsChart`).
+
+The Slides API exposes image brightness, contrast, transparency, crop, recolor,
+and shadow as read-only, so graham cannot offer them; image outline is writable
+and is already supported.
 
 ## Slides: edit text and links
 

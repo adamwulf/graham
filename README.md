@@ -17,7 +17,8 @@ Named after Graham's number — a contrast to the googol that named Google.
   images nested in groups; add, move, and delete slides through the shared
   `presentations.batchUpdate` write path; create text boxes, images, videos,
   lines, tables, and Sheets charts; group and ungroup elements; move, scale,
-  rotate, transform, and reorder elements.
+  rotate, transform, and reorder elements; style shape fills, outlines, and
+  shadows; style lines and videos; refresh linked charts.
 
 See `ROADMAP.md` for the remaining Slides editing work. The next milestone is
 editing element appearance.
@@ -118,6 +119,17 @@ graham slides element scale <presentation-id> <object-id> --by 1.5
 graham slides element rotate <presentation-id> <object-id> --by 90
 graham slides element transform <presentation-id> <object-id> --translate-x 10 --unit pt
 graham slides element reorder <presentation-id> <object-id> --to front
+# Style a shape's fill, outline, and drop shadow (colors are hex like #FF0000 or theme names like accent1).
+graham slides style shape <presentation-id> <object-id> --fill "#FFCC00" --outline accent1 --outline-weight 2
+graham slides style shape <presentation-id> <object-id> --no-fill --shadow-color "#000000" --shadow-blur 4 --align middle
+# Style an image's outline (brightness, contrast, transparency, crop, recolor, and shadow are read-only in the Slides API).
+graham slides style image <presentation-id> <object-id> --outline "#333333" --outline-weight 1
+# Style a line's color, weight, dash, and arrow ends.
+graham slides style line <presentation-id> <object-id> --color accent2 --weight 3 --dash dash-dot --end-arrow open-arrow
+# Style a video's playback and outline.
+graham slides style video <presentation-id> <object-id> --autoplay --mute --start 5 --end 30
+# Refresh a linked Sheets chart embedded on a slide.
+graham slides chart refresh <presentation-id> <object-id>
 # Move one slide to a one-based final position (as shown by cat and list).
 graham slides move <presentation-id> <slide-id> --to 1
 # Delete one slide by its exact object id.
