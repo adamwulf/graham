@@ -50,6 +50,26 @@ public enum SlidesBatchUpdateRequest: Encodable, Sendable, Equatable {
     case updateLineProperties(UpdateLinePropertiesRequest)
     /// Sets a video's playback options and outline.
     case updateVideoProperties(UpdateVideoPropertiesRequest)
+    /// Inserts rows relative to a reference table cell.
+    case insertTableRows(InsertTableRowsRequest)
+    /// Inserts columns relative to a reference table cell.
+    case insertTableColumns(InsertTableColumnsRequest)
+    /// Deletes the row spanned by a reference table cell.
+    case deleteTableRow(DeleteTableRowRequest)
+    /// Deletes the column spanned by a reference table cell.
+    case deleteTableColumn(DeleteTableColumnRequest)
+    /// Merges the cells in a table range.
+    case mergeTableCells(MergeTableCellsRequest)
+    /// Unmerges every merged cell in a table range.
+    case unmergeTableCells(UnmergeTableCellsRequest)
+    /// Sets a table cell range's fill and content alignment.
+    case updateTableCellProperties(UpdateTableCellPropertiesRequest)
+    /// Sets the minimum height of selected table rows.
+    case updateTableRowProperties(UpdateTableRowPropertiesRequest)
+    /// Sets the width of selected table columns.
+    case updateTableColumnProperties(UpdateTableColumnPropertiesRequest)
+    /// Sets borders for a table or table range.
+    case updateTableBorderProperties(UpdateTableBorderPropertiesRequest)
     /// Refreshes a linked Sheets chart to its latest data.
     case refreshSheetsChart(RefreshSheetsChartRequest)
     /// Deletes a slide or a page element by its exact object id.
@@ -73,6 +93,16 @@ public enum SlidesBatchUpdateRequest: Encodable, Sendable, Equatable {
         case updateImageProperties
         case updateLineProperties
         case updateVideoProperties
+        case insertTableRows
+        case insertTableColumns
+        case deleteTableRow
+        case deleteTableColumn
+        case mergeTableCells
+        case unmergeTableCells
+        case updateTableCellProperties
+        case updateTableRowProperties
+        case updateTableColumnProperties
+        case updateTableBorderProperties
         case refreshSheetsChart
         case deleteObject
     }
@@ -114,6 +144,26 @@ public enum SlidesBatchUpdateRequest: Encodable, Sendable, Equatable {
             try container.encode(request, forKey: .updateLineProperties)
         case .updateVideoProperties(let request):
             try container.encode(request, forKey: .updateVideoProperties)
+        case .insertTableRows(let request):
+            try container.encode(request, forKey: .insertTableRows)
+        case .insertTableColumns(let request):
+            try container.encode(request, forKey: .insertTableColumns)
+        case .deleteTableRow(let request):
+            try container.encode(request, forKey: .deleteTableRow)
+        case .deleteTableColumn(let request):
+            try container.encode(request, forKey: .deleteTableColumn)
+        case .mergeTableCells(let request):
+            try container.encode(request, forKey: .mergeTableCells)
+        case .unmergeTableCells(let request):
+            try container.encode(request, forKey: .unmergeTableCells)
+        case .updateTableCellProperties(let request):
+            try container.encode(request, forKey: .updateTableCellProperties)
+        case .updateTableRowProperties(let request):
+            try container.encode(request, forKey: .updateTableRowProperties)
+        case .updateTableColumnProperties(let request):
+            try container.encode(request, forKey: .updateTableColumnProperties)
+        case .updateTableBorderProperties(let request):
+            try container.encode(request, forKey: .updateTableBorderProperties)
         case .refreshSheetsChart(let request):
             try container.encode(request, forKey: .refreshSheetsChart)
         case .deleteObject(let request):
@@ -1067,6 +1117,320 @@ public struct RefreshSheetsChartRequest: Codable, Sendable, Equatable {
 
     public init(objectId: String) {
         self.objectId = objectId
+    }
+}
+
+// MARK: - Table operation requests and styles
+
+/// A zero-based cell coordinate on the Slides API wire.
+///
+/// High-level client methods accept one-based user coordinates and translate
+/// them before constructing this model. Either coordinate may be omitted when
+/// the operation identifies only a row or only a column.
+public struct TableCellLocation: Codable, Sendable, Equatable {
+    public let rowIndex: Int?
+    public let columnIndex: Int?
+
+    public init(rowIndex: Int? = nil, columnIndex: Int? = nil) {
+        self.rowIndex = rowIndex
+        self.columnIndex = columnIndex
+    }
+}
+
+/// A rectangular table range, using a zero-based wire location.
+public struct TableRange: Codable, Sendable, Equatable {
+    public let location: TableCellLocation
+    public let rowSpan: Int
+    public let columnSpan: Int
+
+    public init(location: TableCellLocation, rowSpan: Int, columnSpan: Int) {
+        self.location = location
+        self.rowSpan = rowSpan
+        self.columnSpan = columnSpan
+    }
+}
+
+/// The `insertTableRows` operation.
+public struct InsertTableRowsRequest: Codable, Sendable, Equatable {
+    public let tableObjectId: String
+    public let cellLocation: TableCellLocation
+    public let number: Int
+    public let insertBelow: Bool
+
+    public init(
+        tableObjectId: String,
+        cellLocation: TableCellLocation,
+        number: Int,
+        insertBelow: Bool
+    ) {
+        self.tableObjectId = tableObjectId
+        self.cellLocation = cellLocation
+        self.number = number
+        self.insertBelow = insertBelow
+    }
+}
+
+/// The `insertTableColumns` operation.
+public struct InsertTableColumnsRequest: Codable, Sendable, Equatable {
+    public let tableObjectId: String
+    public let cellLocation: TableCellLocation
+    public let number: Int
+    public let insertRight: Bool
+
+    public init(
+        tableObjectId: String,
+        cellLocation: TableCellLocation,
+        number: Int,
+        insertRight: Bool
+    ) {
+        self.tableObjectId = tableObjectId
+        self.cellLocation = cellLocation
+        self.number = number
+        self.insertRight = insertRight
+    }
+}
+
+/// The `deleteTableRow` operation. A merged reference cell deletes every row
+/// that cell spans.
+public struct DeleteTableRowRequest: Codable, Sendable, Equatable {
+    public let tableObjectId: String
+    public let cellLocation: TableCellLocation
+
+    public init(tableObjectId: String, cellLocation: TableCellLocation) {
+        self.tableObjectId = tableObjectId
+        self.cellLocation = cellLocation
+    }
+}
+
+/// The `deleteTableColumn` operation. A merged reference cell deletes every
+/// column that cell spans.
+public struct DeleteTableColumnRequest: Codable, Sendable, Equatable {
+    public let tableObjectId: String
+    public let cellLocation: TableCellLocation
+
+    public init(tableObjectId: String, cellLocation: TableCellLocation) {
+        self.tableObjectId = tableObjectId
+        self.cellLocation = cellLocation
+    }
+}
+
+/// The `mergeTableCells` operation.
+public struct MergeTableCellsRequest: Codable, Sendable, Equatable {
+    public let objectId: String
+    public let tableRange: TableRange
+
+    public init(objectId: String, tableRange: TableRange) {
+        self.objectId = objectId
+        self.tableRange = tableRange
+    }
+}
+
+/// The `unmergeTableCells` operation.
+public struct UnmergeTableCellsRequest: Codable, Sendable, Equatable {
+    public let objectId: String
+    public let tableRange: TableRange
+
+    public init(objectId: String, tableRange: TableRange) {
+        self.objectId = objectId
+        self.tableRange = tableRange
+    }
+}
+
+/// A table cell's background fill.
+public struct TableCellBackgroundFill: Codable, Sendable, Equatable {
+    public let propertyState: PropertyState?
+    public let solidFill: SolidFill?
+
+    public init(propertyState: PropertyState? = nil, solidFill: SolidFill? = nil) {
+        self.propertyState = propertyState
+        self.solidFill = solidFill
+    }
+}
+
+/// The writable subset of table-cell properties.
+public struct TableCellStyle: Codable, Sendable, Equatable {
+    public let tableCellBackgroundFill: TableCellBackgroundFill?
+    public let contentAlignment: ContentAlignment?
+
+    public init(
+        tableCellBackgroundFill: TableCellBackgroundFill? = nil,
+        contentAlignment: ContentAlignment? = nil
+    ) {
+        self.tableCellBackgroundFill = tableCellBackgroundFill
+        self.contentAlignment = contentAlignment
+    }
+}
+
+/// The writable subset of table-row properties.
+public struct TableRowStyle: Codable, Sendable, Equatable {
+    public let minRowHeight: ElementDimension?
+
+    public init(minRowHeight: ElementDimension? = nil) {
+        self.minRowHeight = minRowHeight
+    }
+}
+
+/// The writable subset of table-column properties.
+public struct TableColumnStyle: Codable, Sendable, Equatable {
+    public let columnWidth: ElementDimension?
+
+    public init(columnWidth: ElementDimension? = nil) {
+        self.columnWidth = columnWidth
+    }
+}
+
+/// The solid fill of a table border.
+public struct TableBorderFill: Codable, Sendable, Equatable {
+    public let solidFill: SolidFill
+
+    public init(solidFill: SolidFill) {
+        self.solidFill = solidFill
+    }
+}
+
+/// The writable subset of table-border properties.
+public struct TableBorderStyle: Codable, Sendable, Equatable {
+    public let tableBorderFill: TableBorderFill?
+    public let weight: ElementDimension?
+    public let dashStyle: DashStyle?
+
+    public init(
+        tableBorderFill: TableBorderFill? = nil,
+        weight: ElementDimension? = nil,
+        dashStyle: DashStyle? = nil
+    ) {
+        self.tableBorderFill = tableBorderFill
+        self.weight = weight
+        self.dashStyle = dashStyle
+    }
+}
+
+/// Which borders an `updateTableBorderProperties` operation changes.
+public enum TableBorderPosition: String, Codable, Sendable {
+    case all = "ALL"
+    case bottom = "BOTTOM"
+    case inner = "INNER"
+    case innerHorizontal = "INNER_HORIZONTAL"
+    case innerVertical = "INNER_VERTICAL"
+    case left = "LEFT"
+    case outer = "OUTER"
+    case right = "RIGHT"
+    case top = "TOP"
+}
+
+/// The `updateTableCellProperties` operation. Omitting `tableRange` applies
+/// the update to the whole table.
+public struct UpdateTableCellPropertiesRequest: Codable, Sendable, Equatable {
+    public let objectId: String
+    public let tableRange: TableRange?
+    public let tableCellStyle: TableCellStyle
+    public let fields: String
+
+    private enum CodingKeys: String, CodingKey {
+        case objectId
+        case tableRange
+        case tableCellStyle = "tableCellProperties"
+        case fields
+    }
+
+    public init(
+        objectId: String,
+        tableRange: TableRange? = nil,
+        tableCellStyle: TableCellStyle,
+        fields: String
+    ) {
+        self.objectId = objectId
+        self.tableRange = tableRange
+        self.tableCellStyle = tableCellStyle
+        self.fields = fields
+    }
+}
+
+/// The `updateTableRowProperties` operation. An empty `rowIndices` array
+/// applies the update to every row.
+public struct UpdateTableRowPropertiesRequest: Codable, Sendable, Equatable {
+    public let objectId: String
+    public let rowIndices: [Int]
+    public let tableRowStyle: TableRowStyle
+    public let fields: String
+
+    private enum CodingKeys: String, CodingKey {
+        case objectId
+        case rowIndices
+        case tableRowStyle = "tableRowProperties"
+        case fields
+    }
+
+    public init(
+        objectId: String,
+        rowIndices: [Int],
+        tableRowStyle: TableRowStyle,
+        fields: String
+    ) {
+        self.objectId = objectId
+        self.rowIndices = rowIndices
+        self.tableRowStyle = tableRowStyle
+        self.fields = fields
+    }
+}
+
+/// The `updateTableColumnProperties` operation. An empty `columnIndices`
+/// array applies the update to every column.
+public struct UpdateTableColumnPropertiesRequest: Codable, Sendable, Equatable {
+    public let objectId: String
+    public let columnIndices: [Int]
+    public let tableColumnStyle: TableColumnStyle
+    public let fields: String
+
+    private enum CodingKeys: String, CodingKey {
+        case objectId
+        case columnIndices
+        case tableColumnStyle = "tableColumnProperties"
+        case fields
+    }
+
+    public init(
+        objectId: String,
+        columnIndices: [Int],
+        tableColumnStyle: TableColumnStyle,
+        fields: String
+    ) {
+        self.objectId = objectId
+        self.columnIndices = columnIndices
+        self.tableColumnStyle = tableColumnStyle
+        self.fields = fields
+    }
+}
+
+/// The `updateTableBorderProperties` operation. Omitting `tableRange` applies
+/// the update to the whole table.
+public struct UpdateTableBorderPropertiesRequest: Codable, Sendable, Equatable {
+    public let objectId: String
+    public let tableRange: TableRange?
+    public let borderPosition: TableBorderPosition
+    public let tableBorderStyle: TableBorderStyle
+    public let fields: String
+
+    private enum CodingKeys: String, CodingKey {
+        case objectId
+        case tableRange
+        case borderPosition
+        case tableBorderStyle = "tableBorderProperties"
+        case fields
+    }
+
+    public init(
+        objectId: String,
+        tableRange: TableRange? = nil,
+        borderPosition: TableBorderPosition,
+        tableBorderStyle: TableBorderStyle,
+        fields: String
+    ) {
+        self.objectId = objectId
+        self.tableRange = tableRange
+        self.borderPosition = borderPosition
+        self.tableBorderStyle = tableBorderStyle
+        self.fields = fields
     }
 }
 

@@ -990,6 +990,299 @@ public struct SlidesClient: Sendable {
         )
     }
 
+    // MARK: - Tables
+
+    /// Inserts `count` rows above or below a one-based reference row.
+    /// Google permits at most 20 rows per request.
+    public func insertTableRows(
+        presentationId: String,
+        tableId: String,
+        row: Int,
+        below: Bool = true,
+        count: Int = 1
+    ) async throws {
+        try Self.validateOneBased(row, label: "table row")
+        guard (1...20).contains(count) else {
+            throw GrahamError.invalidArgument(
+                "table row count must be between 1 and 20, got \(count)")
+        }
+        let request = InsertTableRowsRequest(
+            tableObjectId: tableId,
+            cellLocation: TableCellLocation(rowIndex: row - 1),
+            number: count,
+            insertBelow: below
+        )
+        _ = try await batchUpdate(
+            presentationId: presentationId,
+            requests: [.insertTableRows(request)]
+        )
+    }
+
+    /// Inserts `count` columns to the left or right of a one-based reference
+    /// column. Google permits at most 20 columns per request.
+    public func insertTableColumns(
+        presentationId: String,
+        tableId: String,
+        column: Int,
+        right: Bool = true,
+        count: Int = 1
+    ) async throws {
+        try Self.validateOneBased(column, label: "table column")
+        guard (1...20).contains(count) else {
+            throw GrahamError.invalidArgument(
+                "table column count must be between 1 and 20, got \(count)")
+        }
+        let request = InsertTableColumnsRequest(
+            tableObjectId: tableId,
+            cellLocation: TableCellLocation(columnIndex: column - 1),
+            number: count,
+            insertRight: right
+        )
+        _ = try await batchUpdate(
+            presentationId: presentationId,
+            requests: [.insertTableColumns(request)]
+        )
+    }
+
+    /// Deletes the row containing a one-based reference cell. If the cell is
+    /// merged across rows, Google deletes every row that it spans.
+    public func deleteTableRow(
+        presentationId: String,
+        tableId: String,
+        row: Int
+    ) async throws {
+        try Self.validateOneBased(row, label: "table row")
+        _ = try await batchUpdate(
+            presentationId: presentationId,
+            requests: [.deleteTableRow(DeleteTableRowRequest(
+                tableObjectId: tableId,
+                cellLocation: TableCellLocation(rowIndex: row - 1)
+            ))]
+        )
+    }
+
+    /// Deletes the column containing a one-based reference cell. If the cell
+    /// is merged across columns, Google deletes every column that it spans.
+    public func deleteTableColumn(
+        presentationId: String,
+        tableId: String,
+        column: Int
+    ) async throws {
+        try Self.validateOneBased(column, label: "table column")
+        _ = try await batchUpdate(
+            presentationId: presentationId,
+            requests: [.deleteTableColumn(DeleteTableColumnRequest(
+                tableObjectId: tableId,
+                cellLocation: TableCellLocation(columnIndex: column - 1)
+            ))]
+        )
+    }
+
+    /// Merges a one-based table range. Text from every merged cell is
+    /// concatenated into the range's upper-left cell.
+    public func mergeTableCells(
+        presentationId: String,
+        tableId: String,
+        row: Int,
+        column: Int,
+        rowSpan: Int,
+        columnSpan: Int
+    ) async throws {
+        let range = try Self.buildTableRange(
+            row: row, column: column, rowSpan: rowSpan, columnSpan: columnSpan)
+        _ = try await batchUpdate(
+            presentationId: presentationId,
+            requests: [.mergeTableCells(MergeTableCellsRequest(
+                objectId: tableId,
+                tableRange: range
+            ))]
+        )
+    }
+
+    /// Unmerges every merged cell in a one-based table range.
+    public func unmergeTableCells(
+        presentationId: String,
+        tableId: String,
+        row: Int,
+        column: Int,
+        rowSpan: Int,
+        columnSpan: Int
+    ) async throws {
+        let range = try Self.buildTableRange(
+            row: row, column: column, rowSpan: rowSpan, columnSpan: columnSpan)
+        _ = try await batchUpdate(
+            presentationId: presentationId,
+            requests: [.unmergeTableCells(UnmergeTableCellsRequest(
+                objectId: tableId,
+                tableRange: range
+            ))]
+        )
+    }
+
+    /// Styles cells in a one-based range, or the whole table when all four
+    /// range parameters are omitted. If a range is started, `row` and
+    /// `column` are required and each omitted span defaults to 1.
+    public func styleTableCells(
+        presentationId: String,
+        tableId: String,
+        row: Int? = nil,
+        column: Int? = nil,
+        rowSpan: Int? = nil,
+        columnSpan: Int? = nil,
+        fillColor: OpaqueColor? = nil,
+        fillAlpha: Double? = nil,
+        noFill: Bool = false,
+        alignment: ContentAlignment? = nil
+    ) async throws {
+        let range = try Self.buildOptionalTableRange(
+            row: row, column: column, rowSpan: rowSpan, columnSpan: columnSpan)
+        let hasFill = fillColor != nil || fillAlpha != nil
+        if noFill && hasFill {
+            throw GrahamError.invalidArgument(
+                "no-fill cannot be combined with a fill color or alpha")
+        }
+        if let fillAlpha { try Self.validateAlpha(fillAlpha, label: "table cell fill alpha") }
+
+        var mask: [String] = []
+        var backgroundFill: TableCellBackgroundFill?
+        if hasFill {
+            backgroundFill = TableCellBackgroundFill(
+                solidFill: SolidFill(color: fillColor, alpha: fillAlpha))
+            if fillColor != nil {
+                mask.append("tableCellBackgroundFill.solidFill.color")
+            }
+            if fillAlpha != nil {
+                mask.append("tableCellBackgroundFill.solidFill.alpha")
+            }
+        } else if noFill {
+            backgroundFill = TableCellBackgroundFill(propertyState: .notRendered)
+            mask.append("tableCellBackgroundFill.propertyState")
+        }
+        if alignment != nil { mask.append("contentAlignment") }
+        guard !mask.isEmpty else {
+            throw GrahamError.invalidArgument(
+                "style table cells requires at least one style option")
+        }
+
+        _ = try await batchUpdate(
+            presentationId: presentationId,
+            requests: [.updateTableCellProperties(UpdateTableCellPropertiesRequest(
+                objectId: tableId,
+                tableRange: range,
+                tableCellStyle: TableCellStyle(
+                    tableCellBackgroundFill: backgroundFill,
+                    contentAlignment: alignment
+                ),
+                fields: mask.joined(separator: ",")
+            ))]
+        )
+    }
+
+    /// Sets a positive minimum row height in points. `rows` contains
+    /// one-based row numbers; an empty array updates every row.
+    public func setTableRowHeight(
+        presentationId: String,
+        tableId: String,
+        rows: [Int],
+        minHeight: Double
+    ) async throws {
+        for row in rows { try Self.validateOneBased(row, label: "table row") }
+        try Self.validatePositive(minHeight, label: "table minimum row height")
+        _ = try await batchUpdate(
+            presentationId: presentationId,
+            requests: [.updateTableRowProperties(UpdateTableRowPropertiesRequest(
+                objectId: tableId,
+                rowIndices: rows.map { $0 - 1 },
+                tableRowStyle: TableRowStyle(
+                    minRowHeight: ElementDimension(magnitude: minHeight, unit: .pt)),
+                fields: "minRowHeight"
+            ))]
+        )
+    }
+
+    /// Sets a table column width in points. `columns` contains one-based
+    /// column numbers; an empty array updates every column. The Slides API
+    /// rejects widths below 32 points (406400 EMU).
+    public func setTableColumnWidth(
+        presentationId: String,
+        tableId: String,
+        columns: [Int],
+        width: Double
+    ) async throws {
+        for column in columns {
+            try Self.validateOneBased(column, label: "table column")
+        }
+        try Self.validatePositive(width, label: "table column width")
+        guard width >= 32 else {
+            throw GrahamError.invalidArgument(
+                "table column width must be at least 32 points (406400 EMU), got \(width)")
+        }
+        _ = try await batchUpdate(
+            presentationId: presentationId,
+            requests: [.updateTableColumnProperties(UpdateTableColumnPropertiesRequest(
+                objectId: tableId,
+                columnIndices: columns.map { $0 - 1 },
+                tableColumnStyle: TableColumnStyle(
+                    columnWidth: ElementDimension(magnitude: width, unit: .pt)),
+                fields: "columnWidth"
+            ))]
+        )
+    }
+
+    /// Styles borders in a one-based range, or the whole table when all four
+    /// range parameters are omitted. If a range is started, `row` and
+    /// `column` are required and each omitted span defaults to 1. Weight is in
+    /// points and must be positive; alpha must be within 0...1.
+    public func styleTableBorders(
+        presentationId: String,
+        tableId: String,
+        row: Int? = nil,
+        column: Int? = nil,
+        rowSpan: Int? = nil,
+        columnSpan: Int? = nil,
+        position: TableBorderPosition = .all,
+        color: OpaqueColor? = nil,
+        alpha: Double? = nil,
+        weight: Double? = nil,
+        dash: DashStyle? = nil
+    ) async throws {
+        let range = try Self.buildOptionalTableRange(
+            row: row, column: column, rowSpan: rowSpan, columnSpan: columnSpan)
+        if let alpha { try Self.validateAlpha(alpha, label: "table border alpha") }
+        if let weight { try Self.validatePositive(weight, label: "table border weight") }
+
+        var mask: [String] = []
+        if color != nil { mask.append("tableBorderFill.solidFill.color") }
+        if alpha != nil { mask.append("tableBorderFill.solidFill.alpha") }
+        if weight != nil { mask.append("weight") }
+        if dash != nil { mask.append("dashStyle") }
+        guard !mask.isEmpty else {
+            throw GrahamError.invalidArgument(
+                "style table borders requires at least one style option")
+        }
+
+        let borderFill: TableBorderFill?
+        if color != nil || alpha != nil {
+            borderFill = TableBorderFill(solidFill: SolidFill(color: color, alpha: alpha))
+        } else {
+            borderFill = nil
+        }
+        _ = try await batchUpdate(
+            presentationId: presentationId,
+            requests: [.updateTableBorderProperties(UpdateTableBorderPropertiesRequest(
+                objectId: tableId,
+                tableRange: range,
+                borderPosition: position,
+                tableBorderStyle: TableBorderStyle(
+                    tableBorderFill: borderFill,
+                    weight: weight.map { ElementDimension(magnitude: $0, unit: .pt) },
+                    dashStyle: dash
+                ),
+                fields: mask.joined(separator: ",")
+            ))]
+        )
+    }
+
     /// Refreshes a linked Sheets chart to its latest spreadsheet data.
     ///
     /// This works only on a chart embedded with `LINKED` linking mode; Google
@@ -1098,6 +1391,64 @@ public struct SlidesClient: Sendable {
             transform: transform
         )
         return (shadow, mask)
+    }
+
+    /// Builds a required one-based range and translates its location to the
+    /// API's zero-based wire convention.
+    private static func buildTableRange(
+        row: Int,
+        column: Int,
+        rowSpan: Int,
+        columnSpan: Int
+    ) throws -> TableRange {
+        guard let range = try buildOptionalTableRange(
+            row: row,
+            column: column,
+            rowSpan: rowSpan,
+            columnSpan: columnSpan
+        ) else {
+            throw GrahamError.invalidArgument("a table range is required")
+        }
+        return range
+    }
+
+    /// Builds the optional range group shared by table-cell and table-border
+    /// styling. All four omitted means the whole table; otherwise row and
+    /// column are required and omitted spans default to one.
+    private static func buildOptionalTableRange(
+        row: Int?,
+        column: Int?,
+        rowSpan: Int?,
+        columnSpan: Int?
+    ) throws -> TableRange? {
+        let hasAny = row != nil || column != nil || rowSpan != nil || columnSpan != nil
+        guard hasAny else { return nil }
+        guard let row, let column else {
+            throw GrahamError.invalidArgument(
+                "table range requires both a one-based row and column")
+        }
+        let resolvedRowSpan = rowSpan ?? 1
+        let resolvedColumnSpan = columnSpan ?? 1
+        try validateOneBased(row, label: "table row")
+        try validateOneBased(column, label: "table column")
+        try validateOneBased(resolvedRowSpan, label: "table row span")
+        try validateOneBased(resolvedColumnSpan, label: "table column span")
+        return TableRange(
+            location: TableCellLocation(
+                rowIndex: row - 1,
+                columnIndex: column - 1
+            ),
+            rowSpan: resolvedRowSpan,
+            columnSpan: resolvedColumnSpan
+        )
+    }
+
+    /// Throws unless an index or span is at least one.
+    private static func validateOneBased(_ value: Int, label: String) throws {
+        guard value >= 1 else {
+            throw GrahamError.invalidArgument(
+                "\(label) must be one-based (1 or greater), got \(value)")
+        }
     }
 
     /// Throws ``GrahamError/invalidArgument(_:)`` unless `alpha` is within
