@@ -92,3 +92,4 @@ List commands support `--format table|json|jsonl|id`.
 - `GrahamKit` is the library with all logic; `graham` is a thin CLI on top.
 - `swift test` runs the full offline test suite; no test touches the network.
 - See `CLAUDE.md` for the architecture and the extension recipes.
+- See `ROADMAP.md` for the status and the planned next steps.
