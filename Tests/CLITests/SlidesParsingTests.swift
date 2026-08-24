@@ -669,4 +669,401 @@ final class SlidesParsingTests: XCTestCase {
             "deck-id", "obj-1", "--to", "middle",
         ]))
     }
+
+    // MARK: - style / chart registry
+
+    func testSlidesListsStyleAndChart() {
+        let names = Slides.configuration.subcommands.compactMap {
+            $0.configuration.commandName ?? "\($0)".lowercased()
+        }
+        XCTAssertTrue(names.contains("style"))
+        XCTAssertTrue(names.contains("chart"))
+    }
+
+    func testSlidesStyleListsEverySubcommand() {
+        let names = Slides.Style.configuration.subcommands.compactMap {
+            $0.configuration.commandName ?? "\($0)".lowercased()
+        }
+        XCTAssertEqual(names, ["shape", "image", "line", "video"])
+    }
+
+    func testSlidesChartListsRefresh() {
+        let names = Slides.Chart.configuration.subcommands.compactMap {
+            $0.configuration.commandName ?? "\($0)".lowercased()
+        }
+        XCTAssertEqual(names, ["refresh"])
+    }
+
+    // MARK: - style shape
+
+    func testSlidesStyleShapeParsesFillOutlineShadowAndAlign() throws {
+        let command = try Slides.Style.Shape.parse([
+            "deck-id", "obj-1",
+            "--fill", "#FF0000",
+            "--fill-alpha", "0.5",
+            "--outline", "accent1",
+            "--outline-alpha", "0.8",
+            "--outline-weight", "2",
+            "--outline-dash", "dash-dot",
+            "--shadow-color", "#000000",
+            "--shadow-alpha", "0.4",
+            "--shadow-blur", "3",
+            "--shadow-offset-x", "-5",
+            "--shadow-offset-y", "10",
+            "--align", "middle",
+        ])
+        XCTAssertEqual(command.presentationID, "deck-id")
+        XCTAssertEqual(command.objectID, "obj-1")
+        XCTAssertEqual(command.fill, "#FF0000")
+        XCTAssertEqual(command.fillAlpha, 0.5)
+        XCTAssertFalse(command.noFill)
+        XCTAssertEqual(command.outlineOptions.outline, "accent1")
+        XCTAssertEqual(command.outlineOptions.outlineAlpha, 0.8)
+        XCTAssertEqual(command.outlineOptions.outlineWeight, 2)
+        XCTAssertEqual(command.outlineOptions.outlineDash, .dashDot)
+        XCTAssertEqual(command.outlineOptions.outlineDash?.dashStyle, .dashDot)
+        XCTAssertFalse(command.outlineOptions.noOutline)
+        XCTAssertEqual(command.shadowColor, "#000000")
+        XCTAssertEqual(command.shadowAlpha, 0.4)
+        XCTAssertEqual(command.shadowBlur, 3)
+        XCTAssertEqual(command.shadowOffsetX, -5)
+        XCTAssertEqual(command.shadowOffsetY, 10)
+        XCTAssertFalse(command.noShadow)
+        XCTAssertEqual(command.align, .middle)
+        XCTAssertEqual(command.align?.contentAlignment, .middle)
+    }
+
+    func testSlidesStyleShapeParsesTheNoFlags() throws {
+        // The three removal flags belong to different groups, so they combine.
+        let command = try Slides.Style.Shape.parse([
+            "deck-id", "obj-1", "--no-fill", "--no-outline", "--no-shadow",
+        ])
+        XCTAssertTrue(command.noFill)
+        XCTAssertTrue(command.outlineOptions.noOutline)
+        XCTAssertTrue(command.noShadow)
+    }
+
+    func testSlidesStyleShapeParsesNegativeShadowOffsets() throws {
+        // Unconditional parsing lets a leading - be a value; offsets may be negative.
+        let command = try Slides.Style.Shape.parse([
+            "deck-id", "obj-1", "--shadow-offset-x", "-5.5", "--shadow-offset-y", "-10.25",
+        ])
+        XCTAssertEqual(command.shadowOffsetX, -5.5)
+        XCTAssertEqual(command.shadowOffsetY, -10.25)
+    }
+
+    func testSlidesStyleShapeRejectsNoStyleFlags() {
+        XCTAssertThrowsError(try Slides.Style.Shape.parse(["deck-id", "obj-1"]))
+    }
+
+    func testSlidesStyleShapeRejectsNoFillWithFillFlags() {
+        XCTAssertThrowsError(try Slides.Style.Shape.parse([
+            "deck-id", "obj-1", "--no-fill", "--fill", "#FF0000",
+        ]))
+        XCTAssertThrowsError(try Slides.Style.Shape.parse([
+            "deck-id", "obj-1", "--no-fill", "--fill-alpha", "0.5",
+        ]))
+    }
+
+    func testSlidesStyleShapeRejectsNoOutlineWithOutlineFlags() {
+        XCTAssertThrowsError(try Slides.Style.Shape.parse([
+            "deck-id", "obj-1", "--no-outline", "--outline", "accent1",
+        ]))
+    }
+
+    func testSlidesStyleShapeRejectsNoShadowWithShadowFlags() {
+        XCTAssertThrowsError(try Slides.Style.Shape.parse([
+            "deck-id", "obj-1", "--no-shadow", "--shadow-color", "#000000",
+        ]))
+        XCTAssertThrowsError(try Slides.Style.Shape.parse([
+            "deck-id", "obj-1", "--no-shadow", "--shadow-offset-x", "5",
+        ]))
+    }
+
+    func testSlidesStyleShapeRejectsAlphaOutOfRange() {
+        XCTAssertThrowsError(try Slides.Style.Shape.parse([
+            "deck-id", "obj-1", "--fill-alpha", "1.5",
+        ]))
+        XCTAssertThrowsError(try Slides.Style.Shape.parse([
+            "deck-id", "obj-1", "--fill-alpha", "-0.5",
+        ]))
+        XCTAssertThrowsError(try Slides.Style.Shape.parse([
+            "deck-id", "obj-1", "--shadow-alpha", "2",
+        ]))
+    }
+
+    func testSlidesStyleShapeRejectsNonPositiveWeightOrBlur() {
+        XCTAssertThrowsError(try Slides.Style.Shape.parse([
+            "deck-id", "obj-1", "--outline-weight", "0",
+        ]))
+        XCTAssertThrowsError(try Slides.Style.Shape.parse([
+            "deck-id", "obj-1", "--shadow-blur", "-1",
+        ]))
+    }
+
+    func testSlidesStyleShapeRejectsAnUnknownDash() {
+        XCTAssertThrowsError(try Slides.Style.Shape.parse([
+            "deck-id", "obj-1", "--outline-dash", "zigzag",
+        ]))
+    }
+
+    func testSlidesStyleShapeRejectsAnUnknownAlign() {
+        XCTAssertThrowsError(try Slides.Style.Shape.parse([
+            "deck-id", "obj-1", "--align", "center",
+        ]))
+    }
+
+    func testSlidesStyleShapeRejectsScreamingDashSpelling() {
+        // The CLI surface is lower-kebab only; the wire spelling must not parse.
+        XCTAssertThrowsError(try Slides.Style.Shape.parse([
+            "deck-id", "obj-1", "--outline-dash", "DASH_DOT",
+        ]))
+    }
+
+    func testSlidesStyleShapeRequiresBothIds() {
+        XCTAssertThrowsError(try Slides.Style.Shape.parse([]))
+        XCTAssertThrowsError(try Slides.Style.Shape.parse(["deck-id"]))
+    }
+
+    // MARK: - style image
+
+    func testSlidesStyleImageParsesEveryOutlineFlag() throws {
+        let command = try Slides.Style.Image.parse([
+            "deck-id", "obj-1",
+            "--outline", "#00FF00",
+            "--outline-alpha", "0.5",
+            "--outline-weight", "1.5",
+            "--outline-dash", "long-dash",
+        ])
+        XCTAssertEqual(command.presentationID, "deck-id")
+        XCTAssertEqual(command.objectID, "obj-1")
+        XCTAssertEqual(command.outlineOptions.outline, "#00FF00")
+        XCTAssertEqual(command.outlineOptions.outlineAlpha, 0.5)
+        XCTAssertEqual(command.outlineOptions.outlineWeight, 1.5)
+        XCTAssertEqual(command.outlineOptions.outlineDash, .longDash)
+        XCTAssertFalse(command.outlineOptions.noOutline)
+    }
+
+    func testSlidesStyleImageParsesNoOutline() throws {
+        let command = try Slides.Style.Image.parse(["deck-id", "obj-1", "--no-outline"])
+        XCTAssertTrue(command.outlineOptions.noOutline)
+    }
+
+    func testSlidesStyleImageRejectsNoFlags() {
+        XCTAssertThrowsError(try Slides.Style.Image.parse(["deck-id", "obj-1"]))
+    }
+
+    func testSlidesStyleImageRejectsNoOutlineWithOutlineFlags() {
+        XCTAssertThrowsError(try Slides.Style.Image.parse([
+            "deck-id", "obj-1", "--no-outline", "--outline", "#00FF00",
+        ]))
+    }
+
+    func testSlidesStyleImageRejectsAlphaOutOfRange() {
+        XCTAssertThrowsError(try Slides.Style.Image.parse([
+            "deck-id", "obj-1", "--outline-alpha", "2",
+        ]))
+    }
+
+    func testSlidesStyleImageRejectsNonPositiveWeight() {
+        XCTAssertThrowsError(try Slides.Style.Image.parse([
+            "deck-id", "obj-1", "--outline-weight", "0",
+        ]))
+    }
+
+    // MARK: - style line
+
+    func testSlidesStyleLineParsesEveryFlag() throws {
+        let command = try Slides.Style.Line.parse([
+            "deck-id", "obj-1",
+            "--color", "#0000FF",
+            "--alpha", "0.5",
+            "--weight", "1.5",
+            "--dash", "dot",
+            "--start-arrow", "open-arrow",
+            "--end-arrow", "fill-circle",
+        ])
+        XCTAssertEqual(command.presentationID, "deck-id")
+        XCTAssertEqual(command.objectID, "obj-1")
+        XCTAssertEqual(command.color, "#0000FF")
+        XCTAssertEqual(command.alpha, 0.5)
+        XCTAssertEqual(command.weight, 1.5)
+        XCTAssertEqual(command.dash, .dot)
+        XCTAssertEqual(command.dash?.dashStyle, .dot)
+        XCTAssertEqual(command.startArrow, .openArrow)
+        XCTAssertEqual(command.startArrow?.arrowStyle, .openArrow)
+        XCTAssertEqual(command.endArrow, .fillCircle)
+        XCTAssertEqual(command.endArrow?.arrowStyle, .fillCircle)
+    }
+
+    func testSlidesStyleLineRejectsNoFlags() {
+        XCTAssertThrowsError(try Slides.Style.Line.parse(["deck-id", "obj-1"]))
+    }
+
+    func testSlidesStyleLineRejectsAlphaOutOfRange() {
+        XCTAssertThrowsError(try Slides.Style.Line.parse([
+            "deck-id", "obj-1", "--alpha", "2",
+        ]))
+    }
+
+    func testSlidesStyleLineRejectsNonPositiveWeight() {
+        XCTAssertThrowsError(try Slides.Style.Line.parse([
+            "deck-id", "obj-1", "--weight", "0",
+        ]))
+    }
+
+    func testSlidesStyleLineRejectsAnUnknownDash() {
+        XCTAssertThrowsError(try Slides.Style.Line.parse([
+            "deck-id", "obj-1", "--dash", "zigzag",
+        ]))
+    }
+
+    func testSlidesStyleLineRejectsAnUnknownArrow() {
+        XCTAssertThrowsError(try Slides.Style.Line.parse([
+            "deck-id", "obj-1", "--start-arrow", "triangle",
+        ]))
+    }
+
+    // MARK: - style video
+
+    func testSlidesStyleVideoParsesEveryFlag() throws {
+        let command = try Slides.Style.Video.parse([
+            "deck-id", "obj-1",
+            "--autoplay",
+            "--mute",
+            "--start", "5",
+            "--end", "30",
+            "--outline", "accent2",
+            "--outline-alpha", "0.5",
+            "--outline-weight", "2",
+            "--outline-dash", "solid",
+        ])
+        XCTAssertEqual(command.presentationID, "deck-id")
+        XCTAssertEqual(command.objectID, "obj-1")
+        XCTAssertEqual(command.autoplay, true)
+        XCTAssertEqual(command.mute, true)
+        XCTAssertEqual(command.start, 5)
+        XCTAssertEqual(command.end, 30)
+        XCTAssertEqual(command.outlineOptions.outline, "accent2")
+        XCTAssertEqual(command.outlineOptions.outlineAlpha, 0.5)
+        XCTAssertEqual(command.outlineOptions.outlineWeight, 2)
+        XCTAssertEqual(command.outlineOptions.outlineDash, .solid)
+    }
+
+    func testSlidesStyleVideoParsesAutoplayAndMuteInversion() throws {
+        let on = try Slides.Style.Video.parse(["deck-id", "obj-1", "--autoplay", "--mute"])
+        XCTAssertEqual(on.autoplay, true)
+        XCTAssertEqual(on.mute, true)
+
+        let off = try Slides.Style.Video.parse([
+            "deck-id", "obj-1", "--no-autoplay", "--no-mute",
+        ])
+        XCTAssertEqual(off.autoplay, false)
+        XCTAssertEqual(off.mute, false)
+
+        // Omitting them leaves each unchanged (nil), so another flag still parses.
+        let unset = try Slides.Style.Video.parse(["deck-id", "obj-1", "--start", "1"])
+        XCTAssertNil(unset.autoplay)
+        XCTAssertNil(unset.mute)
+    }
+
+    func testSlidesStyleVideoRejectsNoFlags() {
+        XCTAssertThrowsError(try Slides.Style.Video.parse(["deck-id", "obj-1"]))
+    }
+
+    func testSlidesStyleVideoRejectsNoOutlineWithOutlineFlags() {
+        XCTAssertThrowsError(try Slides.Style.Video.parse([
+            "deck-id", "obj-1", "--no-outline", "--outline", "accent2",
+        ]))
+    }
+
+    func testSlidesStyleVideoRejectsOutlineAlphaOutOfRange() {
+        XCTAssertThrowsError(try Slides.Style.Video.parse([
+            "deck-id", "obj-1", "--outline-alpha", "2",
+        ]))
+    }
+
+    func testSlidesStyleVideoRejectsNegativeStartOrEnd() {
+        XCTAssertThrowsError(try Slides.Style.Video.parse([
+            "deck-id", "obj-1", "--start", "-1",
+        ]))
+        XCTAssertThrowsError(try Slides.Style.Video.parse([
+            "deck-id", "obj-1", "--end", "-1",
+        ]))
+    }
+
+    func testSlidesStyleVideoRejectsEndNotAfterStart() {
+        XCTAssertThrowsError(try Slides.Style.Video.parse([
+            "deck-id", "obj-1", "--start", "30", "--end", "10",
+        ]))
+        XCTAssertThrowsError(try Slides.Style.Video.parse([
+            "deck-id", "obj-1", "--start", "10", "--end", "10",
+        ]))
+    }
+
+    // MARK: - chart refresh
+
+    func testSlidesChartRefreshParsesArguments() throws {
+        let command = try Slides.Chart.Refresh.parse(["deck-id", "chart-1"])
+        XCTAssertEqual(command.presentationID, "deck-id")
+        XCTAssertEqual(command.objectID, "chart-1")
+    }
+
+    func testSlidesChartRefreshRequiresBothIds() {
+        XCTAssertThrowsError(try Slides.Chart.Refresh.parse([]))
+        XCTAssertThrowsError(try Slides.Chart.Refresh.parse(["deck-id"]))
+    }
+
+    // MARK: - CLI enum mapping
+
+    func testDashStyleArgumentMapsEveryCase() throws {
+        let cases: [(String, DashStyleArgument, DashStyle)] = [
+            ("solid", .solid, .solid),
+            ("dot", .dot, .dot),
+            ("dash", .dash, .dash),
+            ("dash-dot", .dashDot, .dashDot),
+            ("long-dash", .longDash, .longDash),
+            ("long-dash-dot", .longDashDot, .longDashDot),
+        ]
+        for (name, argument, dashStyle) in cases {
+            let command = try Slides.Style.Line.parse(["deck-id", "obj-1", "--dash", name])
+            XCTAssertEqual(command.dash, argument)
+            XCTAssertEqual(command.dash?.dashStyle, dashStyle)
+        }
+    }
+
+    func testArrowStyleArgumentMapsEveryCase() throws {
+        let cases: [(String, ArrowStyleArgument, ArrowStyle)] = [
+            ("none", .none, .none),
+            ("stealth-arrow", .stealthArrow, .stealthArrow),
+            ("fill-arrow", .fillArrow, .fillArrow),
+            ("fill-circle", .fillCircle, .fillCircle),
+            ("fill-square", .fillSquare, .fillSquare),
+            ("fill-diamond", .fillDiamond, .fillDiamond),
+            ("open-arrow", .openArrow, .openArrow),
+            ("open-circle", .openCircle, .openCircle),
+            ("open-square", .openSquare, .openSquare),
+            ("open-diamond", .openDiamond, .openDiamond),
+        ]
+        for (name, argument, arrowStyle) in cases {
+            let command = try Slides.Style.Line.parse([
+                "deck-id", "obj-1", "--start-arrow", name,
+            ])
+            XCTAssertEqual(command.startArrow, argument)
+            XCTAssertEqual(command.startArrow?.arrowStyle, arrowStyle)
+        }
+    }
+
+    func testContentAlignmentArgumentMapsEveryCase() throws {
+        let cases: [(String, ContentAlignmentArgument, ContentAlignment)] = [
+            ("top", .top, .top),
+            ("middle", .middle, .middle),
+            ("bottom", .bottom, .bottom),
+        ]
+        for (name, argument, alignment) in cases {
+            let command = try Slides.Style.Shape.parse(["deck-id", "obj-1", "--align", name])
+            XCTAssertEqual(command.align, argument)
+            XCTAssertEqual(command.align?.contentAlignment, alignment)
+        }
+    }
 }
