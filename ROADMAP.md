@@ -3,19 +3,6 @@
 What is still to do. For completed features and commands, see `README.md`. For
 architecture and implementation conventions, see `CLAUDE.md`.
 
-The remaining focus is comprehensive Google Slides write support. Slides
-writes use `presentations.batchUpdate` with typed request bodies. File
-creation, the complete nine-type page-element model, detailed element reading,
-image listing/download, and the slide lifecycle (the shared batch-update
-foundation plus `slides add`, `slides move`, and `slides delete`) are complete.
-Shape/text-box creation and basic text insertion are also complete, as is
-creating images, videos, lines, tables, and Sheets charts and grouping and
-ungrouping elements. Element geometry can be moved, scaled, rotated,
-transformed directly, and reordered front-to-back. Appearance editing is
-complete for the writable element properties, including table structure,
-cells, dimensions, and borders. Text editing is also complete: deleting text,
-styling runs and paragraphs, list bullets, and text-run links.
-
 ## Next milestone: alt text and presenter notes
 
 - **Alt text:** add, edit, or clear alt text on any page element through
