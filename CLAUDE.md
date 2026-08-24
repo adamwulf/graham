@@ -129,10 +129,12 @@ this; add request-body models under `Models/` when the time comes.
   `corpora=allDrives`. `DriveClient.list` sets all three, so it spans shared
   drives for both contents and global-search calls. `DriveClient.drives` lists
   the shared drives themselves (the `/drives` endpoint), and `DriveClient.root`
-  fetches "My Drive" via `files.get` on the id `root`. The CLI's top-level
-  `drive list` renders My Drive plus the shared drives together by mapping each
-  `SharedDrive` to a `DriveFile` row with a synthetic
-  `application/vnd.google-apps.drive` MIME (`SharedDrive.asDriveFile`).
+  fetches "My Drive" via `files.get` on the id `root`. `DriveClient.roots`
+  combines My Drive plus the shared drives into one `[DriveFile]`, mapping each
+  `SharedDrive` to a row with a synthetic `application/vnd.google-apps.drive`
+  MIME (`SharedDrive.asDriveFile`). `DriveClient.browse` holds the `drive list`
+  routing (id → contents, no id + no query + all/folders → roots, else global
+  search); the CLI just calls `browse` so all the routing is unit-tested.
 - `DriveFileType` lives in `GrahamKit` (no ArgumentParser import). Its
   `ExpressibleByArgument` conformance lives in the CLI target next to
   `OutputFormat`'s. Building a Drive `q` goes through `DriveClient.buildQuery`,

@@ -96,6 +96,45 @@ public struct DriveClient: Sendable {
         return try await api.getJSON(DriveFile.self, from: url)
     }
 
+    /// The top-level roots as one list: "My Drive" first, then every shared
+    /// drive, each mapped to a ``DriveFile`` row (with the synthetic drive MIME)
+    /// so the two render together. The `limit` counts My Drive, so the shared
+    /// drives fill the remaining slots.
+    public func roots(limit: Int = 100) async throws -> [DriveFile] {
+        guard limit > 0 else { return [] }
+        var rows: [DriveFile] = [try await root()]
+        if rows.count < limit {
+            let drives = try await drives(limit: limit - rows.count)
+            rows.append(contentsOf: drives.map { $0.asDriveFile() })
+        }
+        return rows
+    }
+
+    /// Backs the `drive list` command. The routing:
+    /// - `id` given: the contents of that folder or shared drive.
+    /// - no `id`, no `query`, and `type` is `.all` or `.folders`: the top-level
+    ///   roots (My Drive plus the shared drives).
+    /// - otherwise: a global search across all drives.
+    ///
+    /// An empty `query` string is treated as no query.
+    public func browse(
+        id: String? = nil,
+        type: DriveFileType = .all,
+        query: String? = nil,
+        orderBy: String? = nil,
+        limit: Int = 100
+    ) async throws -> [DriveFile] {
+        let query = (query?.isEmpty ?? true) ? nil : query
+        if let id {
+            return try await list(
+                parentID: id, type: type, query: query, orderBy: orderBy, limit: limit)
+        }
+        if query == nil, type == .all || type == .folders {
+            return try await roots(limit: limit)
+        }
+        return try await list(type: type, query: query, orderBy: orderBy, limit: limit)
+    }
+
     /// Builds the Drive `q` string. `trashed = false` is always present, so a
     /// non-empty query is always returned.
     ///

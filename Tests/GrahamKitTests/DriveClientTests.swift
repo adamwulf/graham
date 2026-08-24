@@ -202,6 +202,149 @@ final class DriveClientTests: XCTestCase {
         XCTAssertTrue(url.contains("fields=id,name,mimeType"))
     }
 
+    func testListEscapesBackslashesInTheParentID() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: "/drive/v3/files?", json: #"{"files":[]}"#)
+
+        _ = try await client.list(parentID: #"a\b"#)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: "/drive/v3/files?").first)
+        // The backslash is doubled, then the value stays inside single quotes.
+        XCTAssertEqual(Self.queryValue(request.url), #"'a\\b' in parents and trashed = false"#)
+    }
+
+    func testRootsReturnsMyDriveThenTheSharedDrives() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: "/drive/v3/files/root",
+            json: #"{"id":"root-id","name":"My Drive","mimeType":"application/vnd.google-apps.folder"}"#
+        )
+        transport.stub(urlContains: "/drive/v3/drives?", json: #"""
+        {"drives":[{"id":"d1","name":"Team A"},{"id":"d2","name":"Team B"}]}
+        """#)
+
+        let rows = try await client.roots()
+
+        XCTAssertEqual(rows.map(\.id), ["root-id", "d1", "d2"])
+        XCTAssertEqual(rows.map(\.shortType), ["folder", "drive", "drive"])
+    }
+
+    func testRootsWithLimitOneReturnsOnlyMyDriveAndSkipsTheDrivesCall() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: "/drive/v3/files/root",
+            json: #"{"id":"root-id","name":"My Drive","mimeType":"application/vnd.google-apps.folder"}"#
+        )
+
+        let rows = try await client.roots(limit: 1)
+
+        XCTAssertEqual(rows.map(\.id), ["root-id"])
+        // My Drive already fills the limit, so the shared-drive endpoint is not hit.
+        XCTAssertTrue(transport.requests(urlContains: "/drive/v3/drives?").isEmpty)
+    }
+
+    func testRootsWithZeroLimitReturnsNothing() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        let rows = try await client.roots(limit: 0)
+
+        XCTAssertTrue(rows.isEmpty)
+        XCTAssertTrue(transport.requests.isEmpty)
+    }
+
+    func testBrowseWithIDListsFolderContents() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: "/drive/v3/files?", json: #"{"files":[{"id":"c1","name":"child"}]}"#)
+
+        let rows = try await client.browse(id: "f1")
+
+        XCTAssertEqual(rows.map(\.id), ["c1"])
+        let request = try XCTUnwrap(transport.requests(urlContains: "/drive/v3/files?").first)
+        XCTAssertEqual(Self.queryValue(request.url), "'f1' in parents and trashed = false")
+        XCTAssertTrue(transport.requests(urlContains: "/drive/v3/files/root").isEmpty)
+    }
+
+    func testBrowseWithNoArgumentsReturnsTheTopLevelRoots() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: "/drive/v3/files/root",
+            json: #"{"id":"root-id","name":"My Drive","mimeType":"application/vnd.google-apps.folder"}"#
+        )
+        transport.stub(urlContains: "/drive/v3/drives?", json: #"{"drives":[{"id":"d1","name":"Team A"}]}"#)
+
+        let rows = try await client.browse()
+
+        XCTAssertEqual(rows.map(\.id), ["root-id", "d1"])
+        // The top-level path never runs a files search.
+        XCTAssertTrue(transport.requests(urlContains: "/drive/v3/files?").isEmpty)
+    }
+
+    func testBrowseWithFoldersTypeAndNoIDStillReturnsTheRoots() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: "/drive/v3/files/root",
+            json: #"{"id":"root-id","name":"My Drive","mimeType":"application/vnd.google-apps.folder"}"#
+        )
+        transport.stub(urlContains: "/drive/v3/drives?", json: #"{"drives":[]}"#)
+
+        let rows = try await client.browse(type: .folders)
+
+        XCTAssertEqual(rows.map(\.id), ["root-id"])
+        XCTAssertTrue(transport.requests(urlContains: "/drive/v3/files?").isEmpty)
+    }
+
+    func testBrowseWithQueryAndNoIDRunsAGlobalSearch() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: "/drive/v3/files?", json: #"{"files":[{"id":"g1","name":"hit"}]}"#)
+
+        let rows = try await client.browse(query: "name contains 'x'")
+
+        XCTAssertEqual(rows.map(\.id), ["g1"])
+        let request = try XCTUnwrap(transport.requests(urlContains: "/drive/v3/files?").first)
+        XCTAssertEqual(Self.queryValue(request.url), "(name contains 'x') and trashed = false")
+        // A global search does not fetch the roots.
+        XCTAssertTrue(transport.requests(urlContains: "/drive/v3/files/root").isEmpty)
+    }
+
+    func testBrowseWithDocsTypeAndNoIDRunsAGlobalSearch() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: "/drive/v3/files?", json: #"{"files":[]}"#)
+
+        _ = try await client.browse(type: .docs)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: "/drive/v3/files?").first)
+        XCTAssertEqual(
+            Self.queryValue(request.url),
+            "mimeType='application/vnd.google-apps.document' and trashed = false"
+        )
+        XCTAssertTrue(transport.requests(urlContains: "/drive/v3/files/root").isEmpty)
+    }
+
+    func testBrowseTreatsAnEmptyQueryAsNoQuery() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: "/drive/v3/files/root",
+            json: #"{"id":"root-id","name":"My Drive","mimeType":"application/vnd.google-apps.folder"}"#
+        )
+        transport.stub(urlContains: "/drive/v3/drives?", json: #"{"drives":[]}"#)
+
+        let rows = try await client.browse(query: "")
+
+        // An empty query behaves like no query, so this returns the roots.
+        XCTAssertEqual(rows.map(\.id), ["root-id"])
+        XCTAssertTrue(transport.requests(urlContains: "/drive/v3/files?").isEmpty)
+    }
+
     /// Reads the decoded `q` query item from a request URL.
     private static func queryValue(_ url: URL) -> String? {
         URLComponents(url: url, resolvingAgainstBaseURL: false)?

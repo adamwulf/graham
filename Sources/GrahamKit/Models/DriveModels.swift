@@ -92,13 +92,3 @@ extension DriveFile: GrahamRow {
 
     public var idValue: String { id }
 }
-
-extension SharedDrive: GrahamRow {
-    public static var tableColumns: [String] { ["ID", "TYPE", "NAME"] }
-
-    public var tableValues: [String] {
-        [id, "drive", name ?? ""]
-    }
-
-    public var idValue: String { id }
-}

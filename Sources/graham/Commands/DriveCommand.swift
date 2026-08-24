@@ -33,35 +33,10 @@ struct Drive: AsyncParsableCommand {
 
         func run() async throws {
             let client = DriveClient(api: try CLI.makeAPI())
-            let files: [DriveFile]
-            if let id {
-                // List the contents of one folder or shared drive.
-                files = try await client.list(
-                    parentID: id, type: type, query: query, orderBy: orderBy, limit: limit
-                )
-            } else if query == nil, type == .all || type == .folders {
-                // The top-level roots: My Drive plus every shared drive.
-                files = try await topLevel(client: client, limit: limit)
-            } else {
-                // A global search across all drives.
-                files = try await client.list(
-                    type: type, query: query, orderBy: orderBy, limit: limit
-                )
-            }
+            let files = try await client.browse(
+                id: id, type: type, query: query, orderBy: orderBy, limit: limit
+            )
             print(try OutputFormatter.render(files, format: format))
-        }
-
-        /// Fetches "My Drive" and the shared drives as one list of rows. Each
-        /// shared drive is mapped to a ``DriveFile`` row with a synthetic drive
-        /// MIME, so the table shows a sensible type.
-        private func topLevel(client: DriveClient, limit: Int) async throws -> [DriveFile] {
-            guard limit > 0 else { return [] }
-            var rows: [DriveFile] = [try await client.root()]
-            if rows.count < limit {
-                let drives = try await client.drives(limit: limit - rows.count)
-                rows.append(contentsOf: drives.map { $0.asDriveFile() })
-            }
-            return rows
         }
     }
 
