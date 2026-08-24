@@ -176,4 +176,229 @@ final class SlidesParsingTests: XCTestCase {
         XCTAssertThrowsError(try Slides.Delete.parse([]))
         XCTAssertThrowsError(try Slides.Delete.parse(["deck-id"]))
     }
+
+    // MARK: - create subcommand registry
+
+    func testSlidesCreateListsEveryElementSubcommand() {
+        let names = Slides.Create.configuration.subcommands.compactMap {
+            $0.configuration.commandName ?? "\($0)".lowercased()
+        }
+        XCTAssertTrue(names.contains("textbox"))
+        XCTAssertTrue(names.contains("image"))
+        XCTAssertTrue(names.contains("video"))
+        XCTAssertTrue(names.contains("line"))
+        XCTAssertTrue(names.contains("table"))
+        XCTAssertTrue(names.contains("chart"))
+    }
+
+    func testSlidesListsGroupAndUngroup() {
+        let names = Slides.configuration.subcommands.compactMap {
+            $0.configuration.commandName ?? "\($0)".lowercased()
+        }
+        XCTAssertTrue(names.contains("group"))
+        XCTAssertTrue(names.contains("ungroup"))
+    }
+
+    // MARK: - create image
+
+    func testSlidesCreateImageParsesDefaults() throws {
+        let command = try Slides.Create.Image.parse([
+            "deck-id", "slide-9", "--url", "https://example.com/pic.png",
+        ])
+        XCTAssertEqual(command.presentationID, "deck-id")
+        XCTAssertEqual(command.slideID, "slide-9")
+        XCTAssertEqual(command.url, "https://example.com/pic.png")
+        // Geometry is optional; with no flags every dimension is nil so Google
+        // chooses the default placement.
+        XCTAssertNil(command.geometry.x)
+        XCTAssertNil(command.geometry.y)
+        XCTAssertNil(command.geometry.width)
+        XCTAssertNil(command.geometry.height)
+    }
+
+    func testSlidesCreateImageParsesEveryGeometryFlag() throws {
+        let command = try Slides.Create.Image.parse([
+            "deck-id", "slide-9",
+            "--url", "u",
+            "--x", "-25.5",
+            "--y", "10.25",
+            "--width", "400.5",
+            "--height", "80.75",
+        ])
+        XCTAssertEqual(command.geometry.x, -25.5)
+        XCTAssertEqual(command.geometry.y, 10.25)
+        XCTAssertEqual(command.geometry.width, 400.5)
+        XCTAssertEqual(command.geometry.height, 80.75)
+    }
+
+    func testSlidesCreateImageRequiresAUrl() {
+        XCTAssertThrowsError(try Slides.Create.Image.parse(["deck-id", "slide-9"]))
+    }
+
+    func testSlidesCreateImageRejectsASingleGeometryDimension() {
+        // width and height must be given together.
+        XCTAssertThrowsError(try Slides.Create.Image.parse([
+            "deck-id", "slide-9", "--url", "u", "--width", "100",
+        ]))
+        XCTAssertThrowsError(try Slides.Create.Image.parse([
+            "deck-id", "slide-9", "--url", "u", "--height", "50",
+        ]))
+    }
+
+    func testSlidesCreateImageRejectsNonPositiveDimensions() {
+        XCTAssertThrowsError(try Slides.Create.Image.parse([
+            "deck-id", "slide-9", "--url", "u", "--width", "0", "--height", "50",
+        ]))
+        XCTAssertThrowsError(try Slides.Create.Image.parse([
+            "deck-id", "slide-9", "--url", "u", "--width", "50", "--height", "-1",
+        ]))
+    }
+
+    // MARK: - create video
+
+    func testSlidesCreateVideoParsesDefaults() throws {
+        let command = try Slides.Create.Video.parse(["deck-id", "slide-9", "--id", "abc123"])
+        XCTAssertEqual(command.presentationID, "deck-id")
+        XCTAssertEqual(command.slideID, "slide-9")
+        XCTAssertEqual(command.id, "abc123")
+        XCTAssertEqual(command.source, .youtube)
+    }
+
+    func testSlidesCreateVideoParsesEachSourceLowerCase() throws {
+        XCTAssertEqual(
+            try Slides.Create.Video.parse(
+                ["deck-id", "slide-9", "--id", "abc", "--source", "youtube"]).source,
+            .youtube
+        )
+        XCTAssertEqual(
+            try Slides.Create.Video.parse(
+                ["deck-id", "slide-9", "--id", "file-1", "--source", "drive"]).source,
+            .drive
+        )
+    }
+
+    func testSlidesCreateVideoRequiresAnId() {
+        XCTAssertThrowsError(try Slides.Create.Video.parse(["deck-id", "slide-9"]))
+    }
+
+    func testSlidesCreateVideoRejectsAnUnknownSource() {
+        XCTAssertThrowsError(try Slides.Create.Video.parse([
+            "deck-id", "slide-9", "--id", "abc", "--source", "vimeo",
+        ]))
+    }
+
+    // MARK: - create line
+
+    func testSlidesCreateLineParsesDefaults() throws {
+        let command = try Slides.Create.Line.parse(["deck-id", "slide-9"])
+        XCTAssertEqual(command.presentationID, "deck-id")
+        XCTAssertEqual(command.slideID, "slide-9")
+        XCTAssertEqual(command.category, .straight)
+    }
+
+    func testSlidesCreateLineParsesEachCategoryLowerCase() throws {
+        XCTAssertEqual(
+            try Slides.Create.Line.parse(
+                ["deck-id", "slide-9", "--category", "straight"]).category,
+            .straight
+        )
+        XCTAssertEqual(
+            try Slides.Create.Line.parse(
+                ["deck-id", "slide-9", "--category", "bent"]).category,
+            .bent
+        )
+        XCTAssertEqual(
+            try Slides.Create.Line.parse(
+                ["deck-id", "slide-9", "--category", "curved"]).category,
+            .curved
+        )
+    }
+
+    func testSlidesCreateLineRejectsAnUnknownCategory() {
+        XCTAssertThrowsError(try Slides.Create.Line.parse([
+            "deck-id", "slide-9", "--category", "diagonal",
+        ]))
+    }
+
+    // MARK: - create table
+
+    func testSlidesCreateTableParsesRowsAndColumns() throws {
+        let command = try Slides.Create.Table.parse([
+            "deck-id", "slide-9", "--rows", "3", "--columns", "4",
+        ])
+        XCTAssertEqual(command.presentationID, "deck-id")
+        XCTAssertEqual(command.slideID, "slide-9")
+        XCTAssertEqual(command.rows, 3)
+        XCTAssertEqual(command.columns, 4)
+    }
+
+    func testSlidesCreateTableRequiresRowsAndColumns() {
+        XCTAssertThrowsError(try Slides.Create.Table.parse(["deck-id", "slide-9"]))
+        XCTAssertThrowsError(try Slides.Create.Table.parse(["deck-id", "slide-9", "--rows", "3"]))
+        XCTAssertThrowsError(try Slides.Create.Table.parse(["deck-id", "slide-9", "--columns", "4"]))
+    }
+
+    func testSlidesCreateTableRejectsNonPositiveRowsOrColumns() {
+        XCTAssertThrowsError(try Slides.Create.Table.parse([
+            "deck-id", "slide-9", "--rows", "0", "--columns", "4",
+        ]))
+        XCTAssertThrowsError(try Slides.Create.Table.parse([
+            "deck-id", "slide-9", "--rows", "3", "--columns", "0",
+        ]))
+    }
+
+    // MARK: - create chart
+
+    func testSlidesCreateChartParsesDefaults() throws {
+        let command = try Slides.Create.Chart.parse([
+            "deck-id", "slide-9", "--spreadsheet", "sheet-1", "--chart-id", "42",
+        ])
+        XCTAssertEqual(command.presentationID, "deck-id")
+        XCTAssertEqual(command.slideID, "slide-9")
+        XCTAssertEqual(command.spreadsheet, "sheet-1")
+        XCTAssertEqual(command.chartId, 42)
+        XCTAssertFalse(command.linked)
+    }
+
+    func testSlidesCreateChartParsesTheLinkedFlag() throws {
+        let command = try Slides.Create.Chart.parse([
+            "deck-id", "slide-9", "--spreadsheet", "sheet-1", "--chart-id", "7", "--linked",
+        ])
+        XCTAssertTrue(command.linked)
+    }
+
+    func testSlidesCreateChartRequiresSpreadsheetAndChartId() {
+        XCTAssertThrowsError(try Slides.Create.Chart.parse(["deck-id", "slide-9"]))
+        XCTAssertThrowsError(try Slides.Create.Chart.parse([
+            "deck-id", "slide-9", "--spreadsheet", "sheet-1",
+        ]))
+        XCTAssertThrowsError(try Slides.Create.Chart.parse([
+            "deck-id", "slide-9", "--chart-id", "42",
+        ]))
+    }
+
+    // MARK: - group
+
+    func testSlidesGroupParsesChildIds() throws {
+        let command = try Slides.Group.parse(["deck-id", "a", "b", "c"])
+        XCTAssertEqual(command.presentationID, "deck-id")
+        XCTAssertEqual(command.childIDs, ["a", "b", "c"])
+    }
+
+    func testSlidesGroupRequiresAtLeastTwoChildren() {
+        XCTAssertThrowsError(try Slides.Group.parse(["deck-id"]))
+        XCTAssertThrowsError(try Slides.Group.parse(["deck-id", "only-one"]))
+    }
+
+    // MARK: - ungroup
+
+    func testSlidesUngroupParsesGroupIds() throws {
+        let command = try Slides.Ungroup.parse(["deck-id", "g1", "g2"])
+        XCTAssertEqual(command.presentationID, "deck-id")
+        XCTAssertEqual(command.objectIDs, ["g1", "g2"])
+    }
+
+    func testSlidesUngroupRequiresAtLeastOneGroupId() {
+        XCTAssertThrowsError(try Slides.Ungroup.parse(["deck-id"]))
+    }
 }

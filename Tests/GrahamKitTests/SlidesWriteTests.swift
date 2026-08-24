@@ -648,6 +648,788 @@ final class SlidesWriteTests: XCTestCase {
         try await client.deleteObject(presentationId: "p-1", objectId: "slide-2")
     }
 
+    // MARK: - Element-creation request encoding
+
+    func testCreateImageRequestEncodesFullGeometryAndUrl() throws {
+        let request = SlidesBatchUpdateRequest.createImage(CreateImageRequest(
+            objectId: "image-1",
+            elementProperties: PageElementProperties(
+                pageObjectId: "slide-1",
+                size: ElementSize(
+                    width: ElementDimension(magnitude: 300, unit: .pt),
+                    height: ElementDimension(magnitude: 50, unit: .pt)
+                ),
+                transform: ElementTransform(translateX: 25, translateY: 75, unit: .pt)
+            ),
+            url: "https://example.com/pic.png"
+        ))
+        XCTAssertEqual(
+            try encode(request),
+            #"{"createImage":{"elementProperties":{"pageObjectId":"slide-1","size":{"height":{"magnitude":50,"unit":"PT"},"width":{"magnitude":300,"unit":"PT"}},"transform":{"scaleX":1,"scaleY":1,"translateX":25,"translateY":75,"unit":"PT"}},"objectId":"image-1","url":"https://example.com/pic.png"}}"#
+        )
+    }
+
+    func testCreateImageRequestWithoutObjectIdOmitsTheKey() throws {
+        let request = SlidesBatchUpdateRequest.createImage(CreateImageRequest(
+            elementProperties: PageElementProperties(pageObjectId: "slide-1"),
+            url: "https://example.com/pic.png"
+        ))
+        XCTAssertEqual(
+            try encode(request),
+            #"{"createImage":{"elementProperties":{"pageObjectId":"slide-1"},"url":"https://example.com/pic.png"}}"#
+        )
+    }
+
+    func testCreateVideoRequestEncodesSourceAndId() throws {
+        let request = SlidesBatchUpdateRequest.createVideo(CreateVideoRequest(
+            objectId: "video-1",
+            elementProperties: PageElementProperties(pageObjectId: "slide-1"),
+            source: .youtube,
+            id: "abc123"
+        ))
+        XCTAssertEqual(
+            try encode(request),
+            #"{"createVideo":{"elementProperties":{"pageObjectId":"slide-1"},"id":"abc123","objectId":"video-1","source":"YOUTUBE"}}"#
+        )
+    }
+
+    func testCreateVideoRequestEncodesTheDriveSourceAndOmitsObjectId() throws {
+        let request = SlidesBatchUpdateRequest.createVideo(CreateVideoRequest(
+            elementProperties: PageElementProperties(pageObjectId: "slide-1"),
+            source: .drive,
+            id: "drive-file-id"
+        ))
+        XCTAssertEqual(
+            try encode(request),
+            #"{"createVideo":{"elementProperties":{"pageObjectId":"slide-1"},"id":"drive-file-id","source":"DRIVE"}}"#
+        )
+    }
+
+    func testCreateLineRequestEncodesCategoryAndNeverLineCategory() throws {
+        let request = SlidesBatchUpdateRequest.createLine(CreateLineRequest(
+            objectId: "line-1",
+            elementProperties: PageElementProperties(pageObjectId: "slide-1"),
+            category: .curved
+        ))
+        let json = try encode(request)
+        XCTAssertEqual(
+            json,
+            #"{"createLine":{"category":"CURVED","elementProperties":{"pageObjectId":"slide-1"},"objectId":"line-1"}}"#
+        )
+        // The live field is `category`; the deprecated `lineCategory` alias must
+        // never be sent.
+        XCTAssertTrue(json.contains(#""category":"CURVED""#))
+        XCTAssertFalse(json.contains("lineCategory"))
+    }
+
+    func testCreateTableRequestEncodesRowsAndColumns() throws {
+        let request = SlidesBatchUpdateRequest.createTable(CreateTableRequest(
+            objectId: "table-1",
+            elementProperties: PageElementProperties(pageObjectId: "slide-1"),
+            rows: 3,
+            columns: 4
+        ))
+        XCTAssertEqual(
+            try encode(request),
+            #"{"createTable":{"columns":4,"elementProperties":{"pageObjectId":"slide-1"},"objectId":"table-1","rows":3}}"#
+        )
+    }
+
+    func testCreateSheetsChartRequestOmitsLinkingModeWhenNil() throws {
+        let request = SlidesBatchUpdateRequest.createSheetsChart(CreateSheetsChartRequest(
+            objectId: "chart-1",
+            elementProperties: PageElementProperties(pageObjectId: "slide-1"),
+            spreadsheetId: "sheet-1",
+            chartId: 42,
+            linkingMode: nil
+        ))
+        XCTAssertEqual(
+            try encode(request),
+            #"{"createSheetsChart":{"chartId":42,"elementProperties":{"pageObjectId":"slide-1"},"objectId":"chart-1","spreadsheetId":"sheet-1"}}"#
+        )
+    }
+
+    func testCreateSheetsChartRequestIncludesLinkingModeWhenLinked() throws {
+        let request = SlidesBatchUpdateRequest.createSheetsChart(CreateSheetsChartRequest(
+            objectId: "chart-1",
+            elementProperties: PageElementProperties(pageObjectId: "slide-1"),
+            spreadsheetId: "sheet-1",
+            chartId: 42,
+            linkingMode: .linked
+        ))
+        XCTAssertEqual(
+            try encode(request),
+            #"{"createSheetsChart":{"chartId":42,"elementProperties":{"pageObjectId":"slide-1"},"linkingMode":"LINKED","objectId":"chart-1","spreadsheetId":"sheet-1"}}"#
+        )
+    }
+
+    func testGroupObjectsRequestEncodesChildrenAndGroupId() throws {
+        let request = SlidesBatchUpdateRequest.groupObjects(GroupObjectsRequest(
+            groupObjectId: "group-1",
+            childrenObjectIds: ["a", "b"]
+        ))
+        XCTAssertEqual(
+            try encode(request),
+            #"{"groupObjects":{"childrenObjectIds":["a","b"],"groupObjectId":"group-1"}}"#
+        )
+    }
+
+    func testGroupObjectsRequestWithoutGroupIdOmitsTheKey() throws {
+        let request = SlidesBatchUpdateRequest.groupObjects(GroupObjectsRequest(
+            childrenObjectIds: ["a", "b"]
+        ))
+        XCTAssertEqual(
+            try encode(request),
+            #"{"groupObjects":{"childrenObjectIds":["a","b"]}}"#
+        )
+    }
+
+    func testUngroupObjectsRequestEncodesObjectIds() throws {
+        let request = SlidesBatchUpdateRequest.ungroupObjects(UngroupObjectsRequest(
+            objectIds: ["g1", "g2"]
+        ))
+        XCTAssertEqual(
+            try encode(request),
+            #"{"ungroupObjects":{"objectIds":["g1","g2"]}}"#
+        )
+    }
+
+    // MARK: - Geometry helper behavior (exercised through createImage)
+
+    func testCreateImageWithNoGeometryOmitsSizeAndTransform() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"replies":[{"createImage":{"objectId":"img"}}]}"#
+        )
+
+        _ = try await client.createImage(
+            presentationId: "p-1", slideId: "s1", url: "u", objectId: "img")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        // With no geometry arguments the element carries only its page; Google
+        // then chooses the default placement and the image keeps its native size.
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"createImage":{"elementProperties":{"pageObjectId":"s1"},"objectId":"img","url":"u"}}]}"#
+        )
+        let body = Self.bodyString(request)
+        XCTAssertFalse(body.contains("\"size\""))
+        XCTAssertFalse(body.contains("\"transform\""))
+    }
+
+    func testCreateImageWithPositionOnlySendsTransformNotSize() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"replies":[{"createImage":{"objectId":"img"}}]}"#
+        )
+
+        _ = try await client.createImage(
+            presentationId: "p-1", slideId: "s1", url: "u", objectId: "img",
+            x: 25, y: 75)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"createImage":{"elementProperties":{"pageObjectId":"s1","transform":{"scaleX":1,"scaleY":1,"translateX":25,"translateY":75,"unit":"PT"}},"objectId":"img","url":"u"}}]}"#
+        )
+    }
+
+    func testCreateImageWithXOnlyTranslatesYToZero() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"replies":[{"createImage":{"objectId":"img"}}]}"#
+        )
+
+        // Only x is given: the transform still appears, with y defaulted to 0.
+        _ = try await client.createImage(
+            presentationId: "p-1", slideId: "s1", url: "u", objectId: "img", x: 25)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"createImage":{"elementProperties":{"pageObjectId":"s1","transform":{"scaleX":1,"scaleY":1,"translateX":25,"translateY":0,"unit":"PT"}},"objectId":"img","url":"u"}}]}"#
+        )
+    }
+
+    func testCreateImageRejectsWidthWithoutHeight() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        do {
+            _ = try await client.createImage(
+                presentationId: "p-1", slideId: "s1", url: "u", width: 300)
+            XCTFail("Expected an error")
+        } catch {
+            guard case GrahamError.invalidArgument = error else {
+                return XCTFail("Wrong error: \(error)")
+            }
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testCreateImageRejectsHeightWithoutWidth() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        do {
+            _ = try await client.createImage(
+                presentationId: "p-1", slideId: "s1", url: "u", height: 50)
+            XCTFail("Expected an error")
+        } catch {
+            guard case GrahamError.invalidArgument = error else {
+                return XCTFail("Wrong error: \(error)")
+            }
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testCreateImageRejectsAZeroWidth() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        do {
+            _ = try await client.createImage(
+                presentationId: "p-1", slideId: "s1", url: "u", width: 0, height: 50)
+            XCTFail("Expected an error")
+        } catch {
+            guard case GrahamError.invalidArgument = error else {
+                return XCTFail("Wrong error: \(error)")
+            }
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testCreateImageRejectsANegativeHeight() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        do {
+            _ = try await client.createImage(
+                presentationId: "p-1", slideId: "s1", url: "u", width: 50, height: -1)
+            XCTFail("Expected an error")
+        } catch {
+            guard case GrahamError.invalidArgument = error else {
+                return XCTFail("Wrong error: \(error)")
+            }
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    // MARK: - createImage
+
+    func testCreateImagePostsFullGeometryAndReturnsReplyId() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"replies":[{"createImage":{"objectId":"reply-image"}}]}"#
+        )
+
+        let objectId = try await client.createImage(
+            presentationId: "p-1",
+            slideId: "s1",
+            url: "https://example.com/pic.png",
+            objectId: "image-1",
+            x: 25, y: 75, width: 300, height: 50
+        )
+
+        XCTAssertEqual(objectId, "reply-image")
+        let requests = transport.requests(urlContains: ":batchUpdate")
+        XCTAssertEqual(requests.count, 1)
+        let request = try XCTUnwrap(requests.first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-1:batchUpdate")
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"createImage":{"elementProperties":{"pageObjectId":"s1","size":{"height":{"magnitude":50,"unit":"PT"},"width":{"magnitude":300,"unit":"PT"}},"transform":{"scaleX":1,"scaleY":1,"translateX":25,"translateY":75,"unit":"PT"}},"objectId":"image-1","url":"https://example.com/pic.png"}}]}"#
+        )
+    }
+
+    func testCreateImageFallsBackToTheSentIdForAnEmptyReply() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
+
+        let objectId = try await client.createImage(
+            presentationId: "p-1", slideId: "s1", url: "u", objectId: "sent-image")
+
+        XCTAssertEqual(objectId, "sent-image")
+    }
+
+    func testCreateImageGeneratesAValidObjectId() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
+
+        let objectId = try await client.createImage(
+            presentationId: "p-1", slideId: "s1", url: "u")
+
+        XCTAssertNotNil(
+            objectId.range(
+                of: #"^[a-zA-Z0-9_][a-zA-Z0-9_:-]{4,49}$"#,
+                options: .regularExpression
+            )
+        )
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        let body = Self.bodyString(request)
+        XCTAssertEqual(body.components(separatedBy: objectId).count - 1, 1)
+    }
+
+    func testCreateImageRejectsAnEmptyUrl() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        do {
+            _ = try await client.createImage(presentationId: "p-1", slideId: "s1", url: "")
+            XCTFail("Expected an error")
+        } catch {
+            guard case GrahamError.invalidArgument = error else {
+                return XCTFail("Wrong error: \(error)")
+            }
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testCreateImagePropagatesAGoogleError() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"error":{"code":400,"message":"Invalid requests[0]","status":"INVALID_ARGUMENT"}}"#,
+            status: 400
+        )
+
+        do {
+            _ = try await client.createImage(
+                presentationId: "p-1", slideId: "s1", url: "u", objectId: "image-1")
+            XCTFail("Expected an error")
+        } catch {
+            guard case GrahamError.googleAPIError(let code, let status, _) = error else {
+                return XCTFail("Wrong error: \(error)")
+            }
+            XCTAssertEqual(code, 400)
+            XCTAssertEqual(status, "INVALID_ARGUMENT")
+        }
+    }
+
+    // MARK: - createVideo
+
+    func testCreateVideoPostsSourceAndIdAndReturnsReplyId() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"replies":[{"createVideo":{"objectId":"reply-video"}}]}"#
+        )
+
+        let objectId = try await client.createVideo(
+            presentationId: "p-1",
+            slideId: "s1",
+            source: .youtube,
+            videoId: "abc123",
+            objectId: "video-1",
+            x: 10, y: 20, width: 200, height: 150
+        )
+
+        XCTAssertEqual(objectId, "reply-video")
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-1:batchUpdate")
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"createVideo":{"elementProperties":{"pageObjectId":"s1","size":{"height":{"magnitude":150,"unit":"PT"},"width":{"magnitude":200,"unit":"PT"}},"transform":{"scaleX":1,"scaleY":1,"translateX":10,"translateY":20,"unit":"PT"}},"id":"abc123","objectId":"video-1","source":"YOUTUBE"}}]}"#
+        )
+    }
+
+    func testCreateVideoDefaultsToTheYouTubeSource() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"replies":[{"createVideo":{"objectId":"v"}}]}"#
+        )
+
+        // Source is omitted, so the default (.youtube) must be sent.
+        _ = try await client.createVideo(
+            presentationId: "p-1", slideId: "s1", videoId: "abc", objectId: "video-1")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"createVideo":{"elementProperties":{"pageObjectId":"s1"},"id":"abc","objectId":"video-1","source":"YOUTUBE"}}]}"#
+        )
+    }
+
+    func testCreateVideoSendsTheDriveSource() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"replies":[{"createVideo":{"objectId":"v"}}]}"#
+        )
+
+        _ = try await client.createVideo(
+            presentationId: "p-1", slideId: "s1", source: .drive,
+            videoId: "file-1", objectId: "video-1")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"createVideo":{"elementProperties":{"pageObjectId":"s1"},"id":"file-1","objectId":"video-1","source":"DRIVE"}}]}"#
+        )
+    }
+
+    func testCreateVideoFallsBackToTheSentIdForAnEmptyReply() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
+
+        let objectId = try await client.createVideo(
+            presentationId: "p-1", slideId: "s1", videoId: "abc", objectId: "sent-video")
+
+        XCTAssertEqual(objectId, "sent-video")
+    }
+
+    func testCreateVideoRejectsAnEmptyVideoId() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        do {
+            _ = try await client.createVideo(
+                presentationId: "p-1", slideId: "s1", videoId: "")
+            XCTFail("Expected an error")
+        } catch {
+            guard case GrahamError.invalidArgument = error else {
+                return XCTFail("Wrong error: \(error)")
+            }
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    // MARK: - createLine
+
+    func testCreateLinePostsCategoryAndReturnsReplyId() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"replies":[{"createLine":{"objectId":"reply-line"}}]}"#
+        )
+
+        let objectId = try await client.createLine(
+            presentationId: "p-1",
+            slideId: "s1",
+            category: .bent,
+            objectId: "line-1",
+            x: 5, y: 6, width: 100, height: 2
+        )
+
+        XCTAssertEqual(objectId, "reply-line")
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-1:batchUpdate")
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"createLine":{"category":"BENT","elementProperties":{"pageObjectId":"s1","size":{"height":{"magnitude":2,"unit":"PT"},"width":{"magnitude":100,"unit":"PT"}},"transform":{"scaleX":1,"scaleY":1,"translateX":5,"translateY":6,"unit":"PT"}},"objectId":"line-1"}}]}"#
+        )
+    }
+
+    func testCreateLineDefaultsToTheStraightCategory() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"replies":[{"createLine":{"objectId":"l"}}]}"#
+        )
+
+        _ = try await client.createLine(
+            presentationId: "p-1", slideId: "s1", objectId: "line-1")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"createLine":{"category":"STRAIGHT","elementProperties":{"pageObjectId":"s1"},"objectId":"line-1"}}]}"#
+        )
+    }
+
+    func testCreateLineFallsBackToTheSentIdForAnEmptyReply() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
+
+        let objectId = try await client.createLine(
+            presentationId: "p-1", slideId: "s1", objectId: "sent-line")
+
+        XCTAssertEqual(objectId, "sent-line")
+    }
+
+    // MARK: - createTable
+
+    func testCreateTablePostsRowsAndColumnsAndReturnsReplyId() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"replies":[{"createTable":{"objectId":"reply-table"}}]}"#
+        )
+
+        let objectId = try await client.createTable(
+            presentationId: "p-1",
+            slideId: "s1",
+            rows: 3,
+            columns: 4,
+            objectId: "table-1",
+            x: 10, y: 20, width: 400, height: 200
+        )
+
+        XCTAssertEqual(objectId, "reply-table")
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-1:batchUpdate")
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"createTable":{"columns":4,"elementProperties":{"pageObjectId":"s1","size":{"height":{"magnitude":200,"unit":"PT"},"width":{"magnitude":400,"unit":"PT"}},"transform":{"scaleX":1,"scaleY":1,"translateX":10,"translateY":20,"unit":"PT"}},"objectId":"table-1","rows":3}}]}"#
+        )
+    }
+
+    func testCreateTableFallsBackToTheSentIdForAnEmptyReply() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
+
+        let objectId = try await client.createTable(
+            presentationId: "p-1", slideId: "s1", rows: 2, columns: 2, objectId: "sent-table")
+
+        XCTAssertEqual(objectId, "sent-table")
+    }
+
+    func testCreateTableRejectsNonPositiveRows() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        do {
+            _ = try await client.createTable(
+                presentationId: "p-1", slideId: "s1", rows: 0, columns: 4)
+            XCTFail("Expected an error")
+        } catch {
+            guard case GrahamError.invalidArgument = error else {
+                return XCTFail("Wrong error: \(error)")
+            }
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testCreateTableRejectsNonPositiveColumns() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        do {
+            _ = try await client.createTable(
+                presentationId: "p-1", slideId: "s1", rows: 3, columns: 0)
+            XCTFail("Expected an error")
+        } catch {
+            guard case GrahamError.invalidArgument = error else {
+                return XCTFail("Wrong error: \(error)")
+            }
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    // MARK: - createSheetsChart
+
+    func testCreateSheetsChartUnlinkedByDefaultPostsAndReturnsReplyId() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"replies":[{"createSheetsChart":{"objectId":"reply-chart"}}]}"#
+        )
+
+        let objectId = try await client.createSheetsChart(
+            presentationId: "p-1",
+            slideId: "s1",
+            spreadsheetId: "sheet-1",
+            chartId: 42,
+            linked: false,
+            objectId: "chart-1",
+            x: 10, y: 20, width: 400, height: 300
+        )
+
+        XCTAssertEqual(objectId, "reply-chart")
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-1:batchUpdate")
+        // linked:false omits the linkingMode key; the API default is NOT_LINKED_IMAGE.
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"createSheetsChart":{"chartId":42,"elementProperties":{"pageObjectId":"s1","size":{"height":{"magnitude":300,"unit":"PT"},"width":{"magnitude":400,"unit":"PT"}},"transform":{"scaleX":1,"scaleY":1,"translateX":10,"translateY":20,"unit":"PT"}},"objectId":"chart-1","spreadsheetId":"sheet-1"}}]}"#
+        )
+    }
+
+    func testCreateSheetsChartLinkedIncludesTheLinkingMode() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"replies":[{"createSheetsChart":{"objectId":"c"}}]}"#
+        )
+
+        _ = try await client.createSheetsChart(
+            presentationId: "p-1", slideId: "s1", spreadsheetId: "sheet-1",
+            chartId: 7, linked: true, objectId: "chart-1")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"createSheetsChart":{"chartId":7,"elementProperties":{"pageObjectId":"s1"},"linkingMode":"LINKED","objectId":"chart-1","spreadsheetId":"sheet-1"}}]}"#
+        )
+    }
+
+    func testCreateSheetsChartFallsBackToTheSentIdForAnEmptyReply() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
+
+        let objectId = try await client.createSheetsChart(
+            presentationId: "p-1", slideId: "s1", spreadsheetId: "sheet-1",
+            chartId: 1, objectId: "sent-chart")
+
+        XCTAssertEqual(objectId, "sent-chart")
+    }
+
+    func testCreateSheetsChartRejectsAnEmptySpreadsheetId() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        do {
+            _ = try await client.createSheetsChart(
+                presentationId: "p-1", slideId: "s1", spreadsheetId: "", chartId: 1)
+            XCTFail("Expected an error")
+        } catch {
+            guard case GrahamError.invalidArgument = error else {
+                return XCTFail("Wrong error: \(error)")
+            }
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    // MARK: - groupElements
+
+    func testGroupElementsPostsChildrenAndReturnsReplyId() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"replies":[{"groupObjects":{"objectId":"reply-group"}}]}"#
+        )
+
+        let objectId = try await client.groupElements(
+            presentationId: "p-1", childIds: ["a", "b", "c"], groupObjectId: "group-1")
+
+        XCTAssertEqual(objectId, "reply-group")
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-1:batchUpdate")
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"groupObjects":{"childrenObjectIds":["a","b","c"],"groupObjectId":"group-1"}}]}"#
+        )
+    }
+
+    func testGroupElementsFallsBackToTheSentGroupIdForAnEmptyReply() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
+
+        let objectId = try await client.groupElements(
+            presentationId: "p-1", childIds: ["a", "b"], groupObjectId: "sent-group")
+
+        XCTAssertEqual(objectId, "sent-group")
+    }
+
+    func testGroupElementsGeneratesAValidGroupId() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
+
+        let objectId = try await client.groupElements(
+            presentationId: "p-1", childIds: ["a", "b"])
+
+        XCTAssertNotNil(
+            objectId.range(
+                of: #"^[a-zA-Z0-9_][a-zA-Z0-9_:-]{4,49}$"#,
+                options: .regularExpression
+            )
+        )
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        let body = Self.bodyString(request)
+        XCTAssertEqual(body.components(separatedBy: objectId).count - 1, 1)
+    }
+
+    func testGroupElementsRejectsFewerThanTwoChildren() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        do {
+            _ = try await client.groupElements(
+                presentationId: "p-1", childIds: ["only-one"])
+            XCTFail("Expected an error")
+        } catch {
+            guard case GrahamError.invalidArgument = error else {
+                return XCTFail("Wrong error: \(error)")
+            }
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    // MARK: - ungroupElements
+
+    func testUngroupElementsPostsTheObjectIds() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        try await client.ungroupElements(presentationId: "p-1", objectIds: ["g1", "g2"])
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-1:batchUpdate")
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"ungroupObjects":{"objectIds":["g1","g2"]}}]}"#
+        )
+    }
+
+    func testUngroupElementsToleratesAnEmptyResponseBody() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
+
+        // ungroupObjects returns an empty reply; this must not throw.
+        try await client.ungroupElements(presentationId: "p-1", objectIds: ["g1"])
+    }
+
+    func testUngroupElementsRejectsAnEmptyList() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        do {
+            try await client.ungroupElements(presentationId: "p-1", objectIds: [])
+            XCTFail("Expected an error")
+        } catch {
+            guard case GrahamError.invalidArgument = error else {
+                return XCTFail("Wrong error: \(error)")
+            }
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
     // MARK: - Helpers
 
     /// Encodes one union request with the shared encoder (sorted keys).
