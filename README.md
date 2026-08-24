@@ -16,7 +16,9 @@ Named after Graham's number — a contrast to the googol that named Google.
   geometry, text, links, and alt text; list or download every image, including
   images nested in groups.
 
-See `ROADMAP.md` for the remaining Slides editing work.
+See `ROADMAP.md` for the remaining Slides editing work. The next milestone is a
+shared `presentations.batchUpdate` foundation plus commands to add, reorder,
+and delete slides.
 
 ## Install
 
