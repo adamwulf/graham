@@ -77,8 +77,9 @@ public struct PageElement: Codable, Sendable {
     }
 
     /// The text this element adds to ``SlidePage/plainText``. Empty if the
-    /// element has no text.
-    public var plainText: String {
+    /// element has no text. Internal, like the other per-element text helpers;
+    /// callers read the public ``SlidePage/plainText``.
+    var plainText: String {
         if let shape { return shape.text?.plainText ?? "" }
         if let table { return table.plainText }
         if let wordArt { return wordArt.renderedText ?? "" }
@@ -235,6 +236,8 @@ public struct SlideImage: Codable, Sendable {
     /// The URL the image came from, if Google keeps it.
     public let sourceUrl: String?
     public let imageProperties: SlideImageProperties?
+    /// Set when the image fills a picture placeholder from a layout or a
+    /// master. The image then inherits from that parent placeholder.
     public let placeholder: SlidePlaceholder?
 }
 

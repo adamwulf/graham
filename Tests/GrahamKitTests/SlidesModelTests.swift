@@ -146,6 +146,10 @@ final class SlidesModelTests: XCTestCase {
     // MARK: - Image
 
     func testImageDecodesUrlsLinkAndAltText() throws {
+        // A placeholder image: the Slides v1 Image object carries a
+        // `placeholder` when the image fills a picture placeholder that a
+        // layout or master defines. See the Image field `placeholder`:
+        // https://developers.google.com/slides/api/reference/rest/v1/presentations.pages/images
         let json = #"""
         {
             "objectId": "img-1",
@@ -154,7 +158,8 @@ final class SlidesModelTests: XCTestCase {
             "image": {
                 "contentUrl": "https://lh3.googleusercontent.com/abc",
                 "sourceUrl": "https://example.com/cat.png",
-                "imageProperties": {"link": {"url": "https://example.com/more"}}
+                "imageProperties": {"link": {"url": "https://example.com/more"}},
+                "placeholder": {"type": "PICTURE", "index": 1, "parentObjectId": "layout-pic"}
             }
         }
         """#
@@ -164,6 +169,11 @@ final class SlidesModelTests: XCTestCase {
         XCTAssertEqual(element.image?.contentUrl, "https://lh3.googleusercontent.com/abc")
         XCTAssertEqual(element.image?.sourceUrl, "https://example.com/cat.png")
         XCTAssertEqual(element.image?.imageProperties?.link?.url, "https://example.com/more")
+
+        // A placeholder image inherits from a layout/master placeholder.
+        XCTAssertEqual(element.image?.placeholder?.type, "PICTURE")
+        XCTAssertEqual(element.image?.placeholder?.index, 1)
+        XCTAssertEqual(element.image?.placeholder?.parentObjectId, "layout-pic")
 
         // Alt text is on the page element, not on the image.
         XCTAssertEqual(element.title, "A cat")
