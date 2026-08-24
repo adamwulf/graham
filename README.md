@@ -15,11 +15,10 @@ Named after Graham's number — a contrast to the googol that named Google.
 - **Slides** — read presentation text; list every page element with its type,
   geometry, text, links, and alt text; list or download every image, including
   images nested in groups; add, move, and delete slides through the shared
-  `presentations.batchUpdate` write path.
+  `presentations.batchUpdate` write path; create text boxes with optional text.
 
 See `ROADMAP.md` for the remaining Slides editing work. The next milestone is
-element creation: a text box with inserted text first, then the other
-page-element types.
+the remaining page-element types.
 
 ## Install
 
@@ -100,6 +99,8 @@ graham slides images <presentation-id> --download ./images
 # Add a slide (a BLANK slide at the end by default) and print its object id.
 graham slides add <presentation-id>
 graham slides add <presentation-id> --at 2 --layout TITLE_AND_BODY
+# Create a text box (empty by default) and print its object id.
+graham slides create textbox <presentation-id> <slide-id> --text "Hello"
 # Move one slide to a one-based final position (as shown by cat and list).
 graham slides move <presentation-id> <slide-id> --to 1
 # Delete one slide by its exact object id.

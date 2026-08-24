@@ -8,20 +8,19 @@ writes use `presentations.batchUpdate` with typed request bodies. File
 creation, the complete nine-type page-element model, detailed element reading,
 image listing/download, and the slide lifecycle (the shared batch-update
 foundation plus `slides add`, `slides move`, and `slides delete`) are complete.
+Shape/text-box creation and basic text insertion are also complete.
 
 ## Next milestone: create elements
 
-Add every element type that the Slides batch-update API can create. New
-operations join the existing `SlidesBatchUpdateRequest` union, so they share
-the tested batch-update path; keep the client owning the request bodies and
-the CLI thin.
+Add every remaining element type that the Slides batch-update API can create.
+New operations join the existing `SlidesBatchUpdateRequest` union, so they
+share the tested batch-update path; keep the client owning the request bodies
+and the CLI thin.
 
-- **Shape / text box** (`createShape`), **image** (`createImage`), **video**
-  (`createVideo`, from YouTube or Drive), **line / connector** (`createLine`),
-  **table** (`createTable`), and **chart from Sheets** (`createSheetsChart`).
+- **Image** (`createImage`), **video** (`createVideo`, from YouTube or Drive),
+  **line / connector** (`createLine`), **table** (`createTable`), and **chart
+  from Sheets** (`createSheetsChart`).
 - **Group / ungroup** elements (`groupObjects`, `ungroupObjects`).
-- Start with a vertical slice that creates a text box and inserts text,
-  returning every new object ID needed by later edits.
 
 ## Slides: edit geometry
 
@@ -44,8 +43,8 @@ the CLI thin.
 
 ## Slides: edit text and links
 
-- **Text blocks:** insert/delete text and style runs and paragraphs
-  (`insertText`, `deleteText`, `updateTextStyle`, `updateParagraphStyle`).
+- **Text blocks:** delete text and style runs and paragraphs
+  (`deleteText`, `updateTextStyle`, `updateParagraphStyle`).
 - **Bullets / lists:** add/remove list formatting (`createParagraphBullets`,
   `deleteParagraphBullets`).
 - **Links:** set or clear a text-run link through `updateTextStyle`.
@@ -91,8 +90,7 @@ list (`layouts[]` on `presentations.get`); graham does not decode it yet.
 
 ## Suggested order
 
-1. **Create elements** — the next milestone defined above, beginning with a
-   text box plus inserted text.
+1. **Create elements** — the remaining element types in the milestone above.
 2. **Layouts read facade, `slides add --layout-id`, and `drive copy`** —
    small and independent of the element work; they can land alongside any
    milestone.
