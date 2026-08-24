@@ -124,6 +124,13 @@ this; add request-body models under `Models/` when the time comes.
   practice, extend `GoogleAPI.send` to inspect the envelope status.
 - Output is deterministic: JSON encoders sort keys, tables pad all but the
   last column (no trailing whitespace).
+- The default OAuth scopes (`GoogleScope.all`) include the full `drive` scope,
+  which Google classes as a **restricted** scope. Two consequences: an External
+  OAuth app cannot publish to Production without Google's verification review,
+  and an External app left in **Testing** mode issues refresh tokens that
+  expire 7 days after issue (so `graham auth login` must be re-run about
+  weekly). If a write feature only needs files graham creates or opens, adding
+  a `drive.file` scope (not restricted) to `GoogleScope` avoids both problems.
 
 ## Commands
 
