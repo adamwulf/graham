@@ -4,6 +4,18 @@ A command-line tool for Google Drive, Docs, Sheets, and Slides.
 
 Named after Graham's number — a contrast to the googol that named Google.
 
+## What works today
+
+- **Auth** — OAuth login that saves the refresh token to `.env`, and a status
+  check.
+- **Drive** — navigate the top-level drives, list a folder or shared drive,
+  search across all drives, and filter by type; get metadata; export and
+  download files.
+- **Sheets, Docs, Slides** — read a spreadsheet and its values; read a document;
+  read a presentation.
+
+These are read-only for now. See `ROADMAP.md` for what is planned next.
+
 ## Install
 
 ```bash
