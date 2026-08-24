@@ -2146,6 +2146,17 @@ final class SlidesWriteTests: XCTestCase {
         XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
     }
 
+    func testStyleShapeRejectsANonPositiveShadowBlur() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            try await client.styleShape(
+                presentationId: "p-1", objectId: "shape-1", shadowBlur: 0)
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
     func testStyleShapePropagatesAGoogleError() async throws {
         let transport = StubTransport()
         let client = makeClient(transport: transport)
@@ -2326,6 +2337,16 @@ final class SlidesWriteTests: XCTestCase {
 
         await assertInvalidArgument {
             try await client.styleVideo(presentationId: "p-1", objectId: "video-1", start: -1)
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testStyleVideoRejectsANegativeEndWithoutARequest() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            try await client.styleVideo(presentationId: "p-1", objectId: "video-1", end: -1)
         }
         XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
     }

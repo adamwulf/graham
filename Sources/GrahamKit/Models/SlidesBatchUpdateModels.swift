@@ -682,7 +682,7 @@ public struct DeleteObjectRequest: Codable, Sendable, Equatable {
 ///
 /// The cases are the sixteen values verified against the Slides v1 discovery
 /// document; the raw values are the exact wire spellings.
-public enum ThemeColorName: String, Codable, Sendable {
+public enum ThemeColorName: String, Codable, Sendable, Equatable {
     case dark1 = "DARK1"
     case light1 = "LIGHT1"
     case dark2 = "DARK2"
@@ -798,7 +798,7 @@ public struct SolidFill: Codable, Sendable, Equatable {
 }
 
 /// The render state of a fill, outline, or shadow.
-public enum PropertyState: String, Codable, Sendable {
+public enum PropertyState: String, Codable, Sendable, Equatable {
     case rendered = "RENDERED"
     case notRendered = "NOT_RENDERED"
     case inherit = "INHERIT"
@@ -819,7 +819,7 @@ public struct ShapeBackgroundFill: Codable, Sendable, Equatable {
 }
 
 /// The dash style of an outline or a line.
-public enum DashStyle: String, Codable, Sendable {
+public enum DashStyle: String, Codable, Sendable, Equatable {
     case solid = "SOLID"
     case dot = "DOT"
     case dash = "DASH"
@@ -895,7 +895,7 @@ public struct LineFill: Codable, Sendable, Equatable {
 }
 
 /// The arrow style at a line's start or end.
-public enum ArrowStyle: String, Codable, Sendable {
+public enum ArrowStyle: String, Codable, Sendable, Equatable {
     case none = "NONE"
     case stealthArrow = "STEALTH_ARROW"
     case fillArrow = "FILL_ARROW"
@@ -909,7 +909,7 @@ public enum ArrowStyle: String, Codable, Sendable {
 }
 
 /// The vertical alignment of a shape's text.
-public enum ContentAlignment: String, Codable, Sendable {
+public enum ContentAlignment: String, Codable, Sendable, Equatable {
     case top = "TOP"
     case middle = "MIDDLE"
     case bottom = "BOTTOM"
