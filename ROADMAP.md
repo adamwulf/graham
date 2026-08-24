@@ -8,21 +8,11 @@ writes use `presentations.batchUpdate` with typed request bodies. File
 creation, the complete nine-type page-element model, detailed element reading,
 image listing/download, and the slide lifecycle (the shared batch-update
 foundation plus `slides add`, `slides move`, and `slides delete`) are complete.
-Shape/text-box creation and basic text insertion are also complete.
+Shape/text-box creation and basic text insertion are also complete, as is
+creating images, videos, lines, tables, and Sheets charts and grouping and
+ungrouping elements.
 
-## Next milestone: create elements
-
-Add every remaining element type that the Slides batch-update API can create.
-New operations join the existing `SlidesBatchUpdateRequest` union, so they
-share the tested batch-update path; keep the client owning the request bodies
-and the CLI thin.
-
-- **Image** (`createImage`), **video** (`createVideo`, from YouTube or Drive),
-  **line / connector** (`createLine`), **table** (`createTable`), and **chart
-  from Sheets** (`createSheetsChart`).
-- **Group / ungroup** elements (`groupObjects`, `ungroupObjects`).
-
-## Slides: edit geometry
+## Next milestone: edit geometry
 
 - **Move, resize, scale, and rotate** any element
   (`updatePageElementTransform`).
@@ -90,10 +80,8 @@ list (`layouts[]` on `presentations.get`); graham does not decode it yet.
 
 ## Suggested order
 
-1. **Create elements** — the remaining element types in the milestone above.
+1. **Geometry**, then **appearance**.
 2. **Layouts read facade, `slides add --layout-id`, and `drive copy`** —
-   small and independent of the element work; they can land alongside any
-   milestone.
-3. **Geometry**, then **appearance**.
-4. **Text and links**, **alt text**, and **presenter notes**.
-5. **General element deletion** and whole-presentation deletion or trash.
+   small and independent; they can land alongside any milestone.
+3. **Text and links**, **alt text**, and **presenter notes**.
+4. **General element deletion** and whole-presentation deletion or trash.

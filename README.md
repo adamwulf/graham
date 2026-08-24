@@ -15,10 +15,11 @@ Named after Graham's number — a contrast to the googol that named Google.
 - **Slides** — read presentation text; list every page element with its type,
   geometry, text, links, and alt text; list or download every image, including
   images nested in groups; add, move, and delete slides through the shared
-  `presentations.batchUpdate` write path; create text boxes with optional text.
+  `presentations.batchUpdate` write path; create text boxes, images, videos,
+  lines, tables, and Sheets charts; group and ungroup elements.
 
 See `ROADMAP.md` for the remaining Slides editing work. The next milestone is
-the remaining page-element types.
+editing element geometry.
 
 ## Install
 
@@ -101,6 +102,15 @@ graham slides add <presentation-id>
 graham slides add <presentation-id> --at 2 --layout TITLE_AND_BODY
 # Create a text box (empty by default) and print its object id.
 graham slides create textbox <presentation-id> <slide-id> --text "Hello"
+# Create other elements on a slide (geometry is in points; slide ids come from `slides list --format json`).
+graham slides create image <presentation-id> <slide-id> --url https://example.com/pic.png
+graham slides create video <presentation-id> <slide-id> --id dQw4w9WgXcQ --source youtube
+graham slides create line <presentation-id> <slide-id> --category straight
+graham slides create table <presentation-id> <slide-id> --rows 3 --columns 4
+graham slides create chart <presentation-id> <slide-id> --spreadsheet <spreadsheet-id> --chart-id 12345 --linked
+# Group two or more elements (prints the new group id), or ungroup one or more groups.
+graham slides group <presentation-id> <child-object-id> <child-object-id>
+graham slides ungroup <presentation-id> <group-object-id>
 # Move one slide to a one-based final position (as shown by cat and list).
 graham slides move <presentation-id> <slide-id> --to 1
 # Delete one slide by its exact object id.
