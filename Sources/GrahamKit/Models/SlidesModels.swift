@@ -61,6 +61,7 @@ public struct PageElement: Codable, Sendable {
     public let table: SlideTable?
     public let sheetsChart: SlideSheetsChart?
     public let wordArt: SlideWordArt?
+    public let speakerSpotlight: SlideSpeakerSpotlight?
 
     /// The type of this element. `.unknown` if no known type is set, for
     /// example when Google adds a new type.
@@ -73,6 +74,7 @@ public struct PageElement: Codable, Sendable {
         if table != nil { return .table }
         if sheetsChart != nil { return .sheetsChart }
         if wordArt != nil { return .wordArt }
+        if speakerSpotlight != nil { return .speakerSpotlight }
         return .unknown
     }
 
@@ -82,7 +84,11 @@ public struct PageElement: Codable, Sendable {
     var plainText: String {
         if let shape { return shape.text?.plainText ?? "" }
         if let table { return table.plainText }
-        if let wordArt { return wordArt.renderedText ?? "" }
+        if let wordArt {
+            // Trim like shape and table text, so all sources are consistent.
+            return (wordArt.renderedText ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         if let elementGroup {
             return (elementGroup.children ?? [])
                 .map(\.plainText)
@@ -103,6 +109,7 @@ public enum PageElementKind: String, Sendable, Equatable {
     case table
     case sheetsChart
     case wordArt
+    case speakerSpotlight
     case unknown
 }
 
@@ -122,10 +129,16 @@ public struct SlideDimension: Codable, Sendable {
 
 /// The position, scale, and rotation of an element.
 ///
-/// This is an affine transform. It maps the element to the page. The position
-/// is `translateX` and `translateY`. The scale is `scaleX` and `scaleY`. The
-/// rotation and any skew come from `shearX` and `shearY` together with the
-/// scale. A reader computes the rotation angle from these fields.
+/// This is an affine transform. The position is `translateX` and
+/// `translateY`. The scale is `scaleX` and `scaleY`. The rotation and any
+/// skew come from `shearX` and `shearY` together with the scale. A reader
+/// computes the rotation angle from these fields.
+///
+/// The coordinate space depends on the parent. For an element that is not in
+/// a group, the transform maps the element to the page. For a child of a
+/// group, the transform maps the child into the group coordinate space; the
+/// group transform then maps the group to the page. To get the child position
+/// on the page, combine the two transforms.
 public struct SlideTransform: Codable, Sendable {
     public let scaleX: Double?
     public let scaleY: Double?
@@ -341,4 +354,73 @@ public struct SlideSheetsChart: Codable, Sendable {
 /// Word art, a shape that shows styled text.
 public struct SlideWordArt: Codable, Sendable {
     public let renderedText: String?
+}
+
+// MARK: - Speaker spotlight
+
+/// A speaker spotlight. It shows the presenter's camera feed on the slide.
+/// It has no text, no link, and no source URL. graham reports its type,
+/// geometry, and alt text like any other element.
+public struct SlideSpeakerSpotlight: Codable, Sendable {
+    public let speakerSpotlightProperties: SlideSpeakerSpotlightProperties?
+}
+
+/// The properties of a speaker spotlight: its outline and its shadow.
+public struct SlideSpeakerSpotlightProperties: Codable, Sendable {
+    public let outline: SlideOutline?
+    public let shadow: SlideShadow?
+}
+
+// MARK: - Shared outline, shadow, fill, and color
+
+/// The outline (the border) of an element.
+public struct SlideOutline: Codable, Sendable {
+    public let outlineFill: SlideOutlineFill?
+    public let weight: SlideDimension?
+    /// The dash style, for example `SOLID` or `DASH`.
+    public let dashStyle: String?
+    /// The state of the property, for example `RENDERED` or `NOT_RENDERED`.
+    public let propertyState: String?
+}
+
+/// The fill of an outline.
+public struct SlideOutlineFill: Codable, Sendable {
+    public let solidFill: SlideSolidFill?
+}
+
+/// A solid color fill with an opacity.
+public struct SlideSolidFill: Codable, Sendable {
+    public let color: SlideOpaqueColor?
+    /// The opacity, from 0 to 1.
+    public let alpha: Double?
+}
+
+/// A color. It is a theme color or an explicit RGB color.
+public struct SlideOpaqueColor: Codable, Sendable {
+    /// A theme color name, for example `DARK1` or `ACCENT1`.
+    public let themeColor: String?
+    public let rgbColor: SlideRgbColor?
+}
+
+/// An RGB color. Each channel is from 0 to 1.
+public struct SlideRgbColor: Codable, Sendable {
+    public let red: Double?
+    public let green: Double?
+    public let blue: Double?
+}
+
+/// A drop shadow on an element.
+public struct SlideShadow: Codable, Sendable {
+    /// The shadow type, for example `OUTER`.
+    public let type: String?
+    public let transform: SlideTransform?
+    /// Where the shadow aligns, for example `BOTTOM_RIGHT`.
+    public let alignment: String?
+    public let blurRadius: SlideDimension?
+    public let color: SlideOpaqueColor?
+    /// The opacity of the shadow, from 0 to 1.
+    public let alpha: Double?
+    public let rotateWithShape: Bool?
+    /// The state of the property, for example `RENDERED`.
+    public let propertyState: String?
 }

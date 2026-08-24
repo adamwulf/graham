@@ -331,6 +331,84 @@ final class SlidesModelTests: XCTestCase {
         XCTAssertEqual(element.plainText, "SALE")
     }
 
+    func testWordArtPlainTextTrimsWhitespace() throws {
+        // Word art text is trimmed like shape and table text, so the sources
+        // are consistent. The raw renderedText keeps its whitespace.
+        let json = #"""
+        {"wordArt": {"renderedText": "  SALE \n"}}
+        """#
+        let element = try decode(json)
+
+        XCTAssertEqual(element.wordArt?.renderedText, "  SALE \n")
+        XCTAssertEqual(element.plainText, "SALE")
+    }
+
+    // MARK: - Speaker spotlight
+
+    func testSpeakerSpotlightDecodesPropertiesAndAddsNoText() throws {
+        let json = #"""
+        {
+            "objectId": "spot-1",
+            "title": "Presenter",
+            "description": "The speaker camera feed",
+            "speakerSpotlight": {
+                "speakerSpotlightProperties": {
+                    "outline": {
+                        "outlineFill": {"solidFill": {
+                            "color": {"rgbColor": {"red": 0.2, "green": 0.4, "blue": 0.6}},
+                            "alpha": 1.0
+                        }},
+                        "weight": {"magnitude": 9525, "unit": "EMU"},
+                        "dashStyle": "SOLID",
+                        "propertyState": "RENDERED"
+                    },
+                    "shadow": {
+                        "type": "OUTER",
+                        "alignment": "BOTTOM_RIGHT",
+                        "blurRadius": {"magnitude": 127000, "unit": "EMU"},
+                        "color": {"themeColor": "DARK1"},
+                        "alpha": 0.4,
+                        "rotateWithShape": false,
+                        "propertyState": "RENDERED"
+                    }
+                }
+            }
+        }
+        """#
+        let element = try decode(json)
+
+        XCTAssertEqual(element.kind, .speakerSpotlight)
+
+        let props = element.speakerSpotlight?.speakerSpotlightProperties
+        let outline = props?.outline
+        XCTAssertEqual(outline?.weight?.magnitude, 9525)
+        XCTAssertEqual(outline?.weight?.unit, "EMU")
+        XCTAssertEqual(outline?.dashStyle, "SOLID")
+        XCTAssertEqual(outline?.propertyState, "RENDERED")
+
+        let rgb = outline?.outlineFill?.solidFill?.color?.rgbColor
+        XCTAssertEqual(rgb?.red, 0.2)
+        XCTAssertEqual(rgb?.green, 0.4)
+        XCTAssertEqual(rgb?.blue, 0.6)
+        XCTAssertEqual(outline?.outlineFill?.solidFill?.alpha, 1.0)
+
+        let shadow = props?.shadow
+        XCTAssertEqual(shadow?.type, "OUTER")
+        XCTAssertEqual(shadow?.alignment, "BOTTOM_RIGHT")
+        XCTAssertEqual(shadow?.blurRadius?.magnitude, 127000)
+        XCTAssertEqual(shadow?.color?.themeColor, "DARK1")
+        XCTAssertEqual(shadow?.alpha, 0.4)
+        XCTAssertEqual(shadow?.rotateWithShape, false)
+        XCTAssertEqual(shadow?.propertyState, "RENDERED")
+
+        // Alt text is on the page element.
+        XCTAssertEqual(element.title, "Presenter")
+        XCTAssertEqual(element.description, "The speaker camera feed")
+
+        // A speaker spotlight has no text.
+        XCTAssertEqual(element.plainText, "")
+    }
+
     // MARK: - Group (recursive)
 
     func testElementGroupDecodesAndNests() throws {
@@ -378,6 +456,7 @@ final class SlidesModelTests: XCTestCase {
             (#"{"table": {}}"#, .table),
             (#"{"sheetsChart": {}}"#, .sheetsChart),
             (#"{"wordArt": {}}"#, .wordArt),
+            (#"{"speakerSpotlight": {}}"#, .speakerSpotlight),
             (#"{"elementGroup": {}}"#, .group),
             (#"{"objectId": "x"}"#, .unknown),
         ]
