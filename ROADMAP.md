@@ -13,26 +13,16 @@ creating images, videos, lines, tables, and Sheets charts and grouping and
 ungrouping elements. Element geometry can be moved, scaled, rotated,
 transformed directly, and reordered front-to-back. Appearance editing is
 complete for the writable element properties, including table structure,
-cells, dimensions, and borders.
+cells, dimensions, and borders. Text editing is also complete: deleting text,
+styling runs and paragraphs, list bullets, and text-run links.
 
-## Next milestone: edit text and links
+## Next milestone: alt text and presenter notes
 
-- **Text blocks:** delete text and style runs and paragraphs
-  (`deleteText`, `updateTextStyle`, `updateParagraphStyle`).
-- **Bullets / lists:** add/remove list formatting (`createParagraphBullets`,
-  `deleteParagraphBullets`).
-- **Links:** set or clear a text-run link through `updateTextStyle`.
-
-## Slides: alt text
-
-- **Add, edit, or clear alt text** on any page element through
+- **Alt text:** add, edit, or clear alt text on any page element through
   `updatePageElementAltText`. Clearing both `title` and `description` is the API
   equivalent of deleting alt text.
-
-## Slides: presenter notes
-
-- **Add, update, or delete presenter notes** by editing the notes-page text
-  through `presentations.batchUpdate`.
+- **Presenter notes:** add, update, or delete presenter notes by editing the
+  notes-page text through `presentations.batchUpdate`.
 
 ## Slides: layouts
 
@@ -64,8 +54,7 @@ list (`layouts[]` on `presentations.get`); graham does not decode it yet.
 
 ## Suggested order
 
-1. **Text and links**.
+1. **Alt text** and **presenter notes**.
 2. **Layouts read facade, `slides add --layout-id`, and `drive copy`** —
    small and independent; they can land alongside any milestone.
-3. **Alt text** and **presenter notes**.
-4. **General element deletion** and whole-presentation deletion or trash.
+3. **General element deletion** and whole-presentation deletion or trash.

@@ -19,10 +19,11 @@ Named after Graham's number — a contrast to the googol that named Google.
   lines, tables, and Sheets charts; group and ungroup elements; move, scale,
   rotate, transform, and reorder elements; style shape fills, outlines, and
   shadows; style lines and videos; edit table rows, columns, merged cells, and
-  borders; refresh linked charts.
+  borders; refresh linked charts; and insert, delete, and style text and
+  paragraphs, manage bullets, and set links.
 
-See `ROADMAP.md` for the remaining Slides editing work. The next milestone is
-editing text and links.
+See `ROADMAP.md` for the remaining Slides editing work. The next milestones are
+element alt text and presenter notes.
 
 ## Install
 
@@ -138,6 +139,16 @@ graham slides table style-cells <presentation-id> <table-id> --fill accent1 --al
 graham slides table row-height <presentation-id> <table-id> --min-height 24 --rows 1 3
 graham slides table column-width <presentation-id> <table-id> --width 72
 graham slides table borders <presentation-id> <table-id> --position inner-horizontal --weight 1 --dash solid
+# Edit the text in a shape or table cell (text ranges are zero-based; --row/--column are one-based).
+graham slides text insert <presentation-id> <object-id> --text "Hello" --at 0
+graham slides text delete <presentation-id> <object-id> --from 0 --to 5
+# Style a text run's weight, color, font, size, baseline, and link.
+graham slides text style <presentation-id> <object-id> --bold --color "#FF0000" --link https://example.com
+# Style paragraphs: alignment, line spacing, spacing, indents, and direction.
+graham slides text paragraph <presentation-id> <object-id> --align center --line-spacing 150
+# Add or remove list bullets over a range (omit the range to cover the whole text).
+graham slides text bullets <presentation-id> <object-id> --preset disc-circle-square
+graham slides text unbullet <presentation-id> <object-id>
 # Refresh a linked Sheets chart embedded on a slide.
 graham slides chart refresh <presentation-id> <object-id>
 # Move one slide to a one-based final position (as shown by cat and list).
