@@ -142,6 +142,23 @@ final class SlidesTableWriteTests: XCTestCase {
         XCTAssertEqual(Self.body(requests[9]), #"{"requests":[{"updateTableBorderProperties":{"borderPosition":"INNER_HORIZONTAL","fields":"tableBorderFill.solidFill.color,tableBorderFill.solidFill.alpha,weight,dashStyle","objectId":"table","tableBorderProperties":{"dashStyle":"DASH","tableBorderFill":{"solidFill":{"alpha":0.5,"color":{"themeColor":"ACCENT1"}}},"weight":{"magnitude":1.5,"unit":"PT"}},"tableRange":{"columnSpan":4,"location":{"columnIndex":2,"rowIndex":1},"rowSpan":2}}}]}"#)
     }
 
+    func testStyleTableCellsNoFillAndDefaultedRangeSpansEncodeExactly() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
+        transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
+
+        try await client.styleTableCells(
+            presentationId: "deck", tableId: "table", noFill: true)
+        try await client.styleTableCells(
+            presentationId: "deck", tableId: "table", row: 2, column: 3,
+            alignment: .top)
+
+        let requests = transport.requests(urlContains: ":batchUpdate")
+        XCTAssertEqual(Self.body(requests[0]), #"{"requests":[{"updateTableCellProperties":{"fields":"tableCellBackgroundFill.propertyState","objectId":"table","tableCellProperties":{"tableCellBackgroundFill":{"propertyState":"NOT_RENDERED"}}}}]}"#)
+        XCTAssertEqual(Self.body(requests[1]), #"{"requests":[{"updateTableCellProperties":{"fields":"contentAlignment","objectId":"table","tableCellProperties":{"contentAlignment":"TOP"},"tableRange":{"columnSpan":1,"location":{"columnIndex":2,"rowIndex":1},"rowSpan":1}}}]}"#)
+    }
+
     // MARK: - Validation and error behavior
 
     func testOneBasedCountSpanAndWidthValidationSendNothing() async {
@@ -182,6 +199,8 @@ final class SlidesTableWriteTests: XCTestCase {
             noFill: true) }
         await assertInvalid { try await client.styleTableBorders(
             presentationId: "deck", tableId: "table", alpha: 1.1) }
+        await assertInvalid { try await client.styleTableCells(
+            presentationId: "deck", tableId: "table", fillAlpha: -0.1) }
         await assertInvalid { try await client.styleTableBorders(
             presentationId: "deck", tableId: "table", weight: 0) }
 
