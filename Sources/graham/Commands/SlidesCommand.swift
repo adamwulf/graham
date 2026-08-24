@@ -259,7 +259,7 @@ struct Slides: AsyncParsableCommand {
             var slideID: String
 
             @Option(name: .customLong("id"), help: "The YouTube or Drive video ID.")
-            var videoID: String
+            var id: String
 
             @Option(help: "The video source: youtube or drive.")
             var source: VideoSource = .youtube
@@ -277,7 +277,7 @@ struct Slides: AsyncParsableCommand {
                     presentationId: presentationID,
                     slideId: slideID,
                     source: source,
-                    videoId: videoID,
+                    videoId: id,
                     x: geometry.x,
                     y: geometry.y,
                     width: geometry.width,
@@ -395,10 +395,10 @@ struct Slides: AsyncParsableCommand {
             var slideID: String
 
             @Option(name: .customLong("spreadsheet"), help: "The source spreadsheet ID.")
-            var spreadsheetID: String
+            var spreadsheet: String
 
             @Option(help: "The spreadsheet embedded-chart ID.")
-            var chartID: Int
+            var chartId: Int
 
             @Flag(help: "Keep the chart connected to its source sheet.")
             var linked = false
@@ -415,8 +415,8 @@ struct Slides: AsyncParsableCommand {
                 let objectId = try await client.createSheetsChart(
                     presentationId: presentationID,
                     slideId: slideID,
-                    spreadsheetId: spreadsheetID,
-                    chartId: chartID,
+                    spreadsheetId: spreadsheet,
+                    chartId: chartId,
                     linked: linked,
                     x: geometry.x,
                     y: geometry.y,
@@ -437,10 +437,10 @@ struct Slides: AsyncParsableCommand {
         var presentationID: String
 
         @Argument(help: "Two or more child page-element object ids.")
-        var childObjectIDs: [String]
+        var childIDs: [String]
 
         func validate() throws {
-            if childObjectIDs.count < 2 {
+            if childIDs.count < 2 {
                 throw ValidationError("group requires at least two child object ids.")
             }
         }
@@ -448,7 +448,7 @@ struct Slides: AsyncParsableCommand {
         func run() async throws {
             let client = SlidesClient(api: try CLI.makeAPI())
             let objectId = try await client.groupElements(
-                presentationId: presentationID, childIds: childObjectIDs)
+                presentationId: presentationID, childIds: childIDs)
             print(objectId)
         }
     }
@@ -462,10 +462,10 @@ struct Slides: AsyncParsableCommand {
         var presentationID: String
 
         @Argument(help: "One or more top-level group object ids.")
-        var groupObjectIDs: [String]
+        var objectIDs: [String]
 
         func validate() throws {
-            if groupObjectIDs.isEmpty {
+            if objectIDs.isEmpty {
                 throw ValidationError("ungroup requires at least one group object id.")
             }
         }
@@ -473,8 +473,8 @@ struct Slides: AsyncParsableCommand {
         func run() async throws {
             let client = SlidesClient(api: try CLI.makeAPI())
             try await client.ungroupElements(
-                presentationId: presentationID, objectIds: groupObjectIDs)
-            for objectId in groupObjectIDs {
+                presentationId: presentationID, objectIds: objectIDs)
+            for objectId in objectIDs {
                 print(objectId)
             }
         }
