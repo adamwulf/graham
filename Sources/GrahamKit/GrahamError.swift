@@ -19,6 +19,9 @@ public enum GrahamError: Error, LocalizedError {
     case decodeError(detail: String)
     /// The OAuth flow failed.
     case oauthError(String)
+    /// An argument to a high-level operation is invalid, for example a slide
+    /// position that is out of range, or a slide id that does not exist.
+    case invalidArgument(String)
 
     public var errorDescription: String? {
         switch self {
@@ -42,6 +45,8 @@ public enum GrahamError: Error, LocalizedError {
             return "Could not decode the response: \(detail)"
         case .oauthError(let detail):
             return "OAuth error: \(detail)"
+        case .invalidArgument(let detail):
+            return "Invalid argument: \(detail)"
         }
     }
 

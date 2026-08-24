@@ -25,11 +25,149 @@ public struct SlidesClient: Sendable {
     }
 
     /// Gets one presentation, with its slides.
-    public func presentation(id: String) async throws -> Presentation {
+    ///
+    /// - Parameters:
+    ///   - id: The presentation id.
+    ///   - fields: An optional field mask, for example `slides.objectId`, so a
+    ///     caller that needs only the slide order does not pull the full deck.
+    ///     `nil` returns every field.
+    public func presentation(id: String, fields: String? = nil) async throws -> Presentation {
         let url = try GoogleURL.build(
-            "\(Self.baseURL)/presentations/\(GoogleURL.escapePathComponent(id))"
+            "\(Self.baseURL)/presentations/\(GoogleURL.escapePathComponent(id))",
+            query: [("fields", fields)]
         )
         return try await api.getJSON(Presentation.self, from: url)
+    }
+
+    // MARK: - Batch update (the shared write path)
+
+    /// Sends one `presentations.batchUpdate` call with `requests`, in order.
+    ///
+    /// This is the one write path for Slides. Every high-level write method
+    /// builds typed ``SlidesBatchUpdateRequest`` values and goes through here,
+    /// so the endpoint, the escaped path, and the response decoding live in
+    /// exactly one place.
+    public func batchUpdate(
+        presentationId: String,
+        requests: [SlidesBatchUpdateRequest]
+    ) async throws -> SlidesBatchUpdateResponse {
+        let url = try GoogleURL.build(
+            "\(Self.baseURL)/presentations/\(GoogleURL.escapePathComponent(presentationId)):batchUpdate"
+        )
+        let body = SlidesBatchUpdateRequestBody(requests: requests)
+        return try await api.sendJSON(SlidesBatchUpdateResponse.self, method: "POST", url: url, body: body)
+    }
+
+    /// Creates one slide and returns the new slide's object id.
+    ///
+    /// - Parameters:
+    ///   - presentationId: The presentation to add the slide to.
+    ///   - position: The one-based final position of the new slide, matching
+    ///     the slide numbers that `slides cat` and `slides list` print. `nil`
+    ///     appends the slide at the end.
+    ///   - layout: A predefined layout name, for example `BLANK` or
+    ///     `TITLE_AND_BODY`. The name is normalized (trimmed, uppercased, `-`
+    ///     and spaces become `_`), so `title-and-body` also works. Google
+    ///     rejects a name it does not know.
+    public func createSlide(
+        presentationId: String,
+        at position: Int? = nil,
+        layout: String = "BLANK"
+    ) async throws -> String {
+        if let position, position < 1 {
+            throw GrahamError.invalidArgument(
+                "slide position must be 1 or greater, got \(position)")
+        }
+        let normalized = Self.normalizeLayout(layout)
+        guard !normalized.isEmpty else {
+            throw GrahamError.invalidArgument("the layout name is empty")
+        }
+        let request = CreateSlideRequest(
+            insertionIndex: position.map { $0 - 1 },
+            slideLayoutReference: SlideLayoutReference(predefinedLayout: normalized)
+        )
+        let response = try await batchUpdate(
+            presentationId: presentationId,
+            requests: [.createSlide(request)]
+        )
+        guard let objectId = response.replies?.first?.createSlide?.objectId else {
+            throw GrahamError.invalidResponse(
+                "the createSlide reply carries no object id")
+        }
+        return objectId
+    }
+
+    /// Moves one slide so it ends at a one-based final position.
+    ///
+    /// The API's `updateSlidesPosition.insertionIndex` is zero-based and refers
+    /// to the slide order **before** the move. So this method first reads the
+    /// current slide order, then translates: for a final zero-based index `f`
+    /// and a current index `c`, the insertion index is `f` when the slide moves
+    /// backward (`f < c`) and `f + 1` when it moves forward (`f > c`), because
+    /// the slide's own pre-move position still counts in the insertion order.
+    /// When the slide is already at `position`, no write is sent.
+    ///
+    /// - Parameters:
+    ///   - presentationId: The presentation that holds the slide.
+    ///   - slideId: The exact object id of the slide to move.
+    ///   - position: The one-based final position, matching the slide numbers
+    ///     that `slides cat` and `slides list` print.
+    public func moveSlide(
+        presentationId: String,
+        slideId: String,
+        to position: Int
+    ) async throws {
+        guard position >= 1 else {
+            throw GrahamError.invalidArgument(
+                "slide position must be 1 or greater, got \(position)")
+        }
+        // Only the slide order is needed, so the read pulls just the ids.
+        let presentation = try await self.presentation(
+            id: presentationId, fields: "slides.objectId")
+        let slides = presentation.slides ?? []
+        guard let currentIndex = slides.firstIndex(where: { $0.objectId == slideId }) else {
+            throw GrahamError.invalidArgument(
+                "no slide with id \"\(slideId)\" in presentation \(presentationId)")
+        }
+        guard position <= slides.count else {
+            throw GrahamError.invalidArgument(
+                "slide position \(position) is out of range; "
+                + "the presentation has \(slides.count) slide(s)")
+        }
+        let targetIndex = position - 1
+        if targetIndex == currentIndex {
+            return
+        }
+        let insertionIndex = targetIndex > currentIndex ? targetIndex + 1 : targetIndex
+        let request = UpdateSlidesPositionRequest(
+            slideObjectIds: [slideId],
+            insertionIndex: insertionIndex
+        )
+        _ = try await batchUpdate(
+            presentationId: presentationId,
+            requests: [.updateSlidesPosition(request)]
+        )
+    }
+
+    /// Deletes one slide or page element by its exact object id.
+    ///
+    /// The id is sent as given: this method never infers, expands, or looks up
+    /// a target. Google rejects an id that does not exist.
+    public func deleteObject(presentationId: String, objectId: String) async throws {
+        _ = try await batchUpdate(
+            presentationId: presentationId,
+            requests: [.deleteObject(DeleteObjectRequest(objectId: objectId))]
+        )
+    }
+
+    /// Normalizes a predefined layout name: trims whitespace, uppercases, and
+    /// maps `-` and spaces to `_`, so `title-and-body` becomes `TITLE_AND_BODY`.
+    static func normalizeLayout(_ layout: String) -> String {
+        layout
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+            .replacingOccurrences(of: "-", with: "_")
+            .replacingOccurrences(of: " ", with: "_")
     }
 
     // MARK: - Image download
