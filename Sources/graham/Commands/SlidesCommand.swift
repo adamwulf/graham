@@ -7,7 +7,8 @@ struct Slides: AsyncParsableCommand {
         abstract: "Work with Google Slides presentations.",
         subcommands: [
             Cat.self, List.self, Images.self, Add.self, Create.self, Element.self,
-            Group.self, Ungroup.self, Move.self, Delete.self, Style.self, Chart.self,
+            Group.self, Ungroup.self, Move.self, Delete.self, Style.self, Table.self,
+            Chart.self,
         ]
     )
 
@@ -1294,6 +1295,465 @@ struct Slides: AsyncParsableCommand {
         }
     }
 
+    struct Table: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "table",
+            abstract: "Edit a table's rows, columns, cells, and borders.",
+            subcommands: [
+                InsertRows.self, InsertColumns.self, DeleteRow.self, DeleteColumn.self,
+                Merge.self, Unmerge.self, StyleCells.self, RowHeight.self,
+                ColumnWidth.self, Borders.self,
+            ]
+        )
+
+        /// Optional one-based range flags shared by cell and border styling.
+        struct RangeOptions: ParsableArguments {
+            @Option(parsing: .unconditional, help: "The one-based first row of the range.")
+            var row: Int?
+
+            @Option(parsing: .unconditional, help: "The one-based first column of the range.")
+            var column: Int?
+
+            @Option(parsing: .unconditional, help: "The number of rows; defaults to 1 for a range.")
+            var rowSpan: Int?
+
+            @Option(parsing: .unconditional, help: "The number of columns; defaults to 1 for a range.")
+            var columnSpan: Int?
+
+            func validate() throws {
+                let hasAny = row != nil || column != nil || rowSpan != nil || columnSpan != nil
+                guard hasAny else { return }
+                guard row != nil, column != nil else {
+                    throw ValidationError(
+                        "A table range requires both --row and --column; spans alone are invalid.")
+                }
+                try validateOneBased(row, name: "--row")
+                try validateOneBased(column, name: "--column")
+                try validateOneBased(rowSpan, name: "--row-span")
+                try validateOneBased(columnSpan, name: "--column-span")
+            }
+        }
+
+        struct InsertRows: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "insert-rows",
+                abstract: "Insert table rows and print the table object id.",
+                discussion: """
+                    Rows are one-based. Give exactly one of --below or --above; \
+                    --count defaults to 1 and can be at most 20. Get table \
+                    object ids from `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The table object id.")
+            var tableID: String
+
+            @Option(parsing: .unconditional, help: "Insert below this one-based row.")
+            var below: Int?
+
+            @Option(parsing: .unconditional, help: "Insert above this one-based row.")
+            var above: Int?
+
+            @Option(parsing: .unconditional, help: "The number of rows to insert (1...20).")
+            var count: Int = 1
+
+            func validate() throws {
+                guard (below == nil) != (above == nil) else {
+                    throw ValidationError("Provide exactly one of --below or --above.")
+                }
+                try validateOneBased(below ?? above, name: "the reference row")
+                guard (1...20).contains(count) else {
+                    throw ValidationError("--count must be between 1 and 20.")
+                }
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                if let below {
+                    try await client.insertTableRows(
+                        presentationId: presentationID, tableId: tableID,
+                        row: below, below: true, count: count)
+                } else if let above {
+                    try await client.insertTableRows(
+                        presentationId: presentationID, tableId: tableID,
+                        row: above, below: false, count: count)
+                }
+                print(tableID)
+            }
+        }
+
+        struct InsertColumns: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "insert-columns",
+                abstract: "Insert table columns and print the table object id.",
+                discussion: """
+                    Columns are one-based. Give exactly one of --right-of or \
+                    --left-of; --count defaults to 1 and can be at most 20. Get \
+                    table object ids from `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The table object id.")
+            var tableID: String
+
+            @Option(parsing: .unconditional, help: "Insert right of this one-based column.")
+            var rightOf: Int?
+
+            @Option(parsing: .unconditional, help: "Insert left of this one-based column.")
+            var leftOf: Int?
+
+            @Option(parsing: .unconditional, help: "The number of columns to insert (1...20).")
+            var count: Int = 1
+
+            func validate() throws {
+                guard (rightOf == nil) != (leftOf == nil) else {
+                    throw ValidationError("Provide exactly one of --right-of or --left-of.")
+                }
+                try validateOneBased(rightOf ?? leftOf, name: "the reference column")
+                guard (1...20).contains(count) else {
+                    throw ValidationError("--count must be between 1 and 20.")
+                }
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                if let rightOf {
+                    try await client.insertTableColumns(
+                        presentationId: presentationID, tableId: tableID,
+                        column: rightOf, right: true, count: count)
+                } else if let leftOf {
+                    try await client.insertTableColumns(
+                        presentationId: presentationID, tableId: tableID,
+                        column: leftOf, right: false, count: count)
+                }
+                print(tableID)
+            }
+        }
+
+        struct DeleteRow: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "delete-row",
+                abstract: "Delete a table row and print the table object id.",
+                discussion: """
+                    Rows are one-based. A merged reference cell deletes every \
+                    row it spans. Get table object ids from \
+                    `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+            @Argument(help: "The table object id.")
+            var tableID: String
+            @Option(parsing: .unconditional, help: "The one-based row to delete.")
+            var row: Int
+
+            func validate() throws { try validateOneBased(row, name: "--row") }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.deleteTableRow(
+                    presentationId: presentationID, tableId: tableID, row: row)
+                print(tableID)
+            }
+        }
+
+        struct DeleteColumn: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "delete-column",
+                abstract: "Delete a table column and print the table object id.",
+                discussion: """
+                    Columns are one-based. A merged reference cell deletes \
+                    every column it spans. Get table object ids from \
+                    `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+            @Argument(help: "The table object id.")
+            var tableID: String
+            @Option(parsing: .unconditional, help: "The one-based column to delete.")
+            var column: Int
+
+            func validate() throws { try validateOneBased(column, name: "--column") }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.deleteTableColumn(
+                    presentationId: presentationID, tableId: tableID, column: column)
+                print(tableID)
+            }
+        }
+
+        struct Merge: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "merge",
+                abstract: "Merge table cells and print the table object id.",
+                discussion: """
+                    Row and column indices are one-based. Text is concatenated \
+                    into the upper-left cell. Get table object ids from \
+                    `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+            @Argument(help: "The table object id.")
+            var tableID: String
+            @Option(parsing: .unconditional, help: "The one-based first row.")
+            var row: Int
+            @Option(parsing: .unconditional, help: "The one-based first column.")
+            var column: Int
+            @Option(parsing: .unconditional, help: "The number of rows to merge.")
+            var rowSpan: Int
+            @Option(parsing: .unconditional, help: "The number of columns to merge.")
+            var columnSpan: Int
+
+            func validate() throws {
+                try validateOneBased(row, name: "--row")
+                try validateOneBased(column, name: "--column")
+                try validateOneBased(rowSpan, name: "--row-span")
+                try validateOneBased(columnSpan, name: "--column-span")
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.mergeTableCells(
+                    presentationId: presentationID, tableId: tableID,
+                    row: row, column: column, rowSpan: rowSpan, columnSpan: columnSpan)
+                print(tableID)
+            }
+        }
+
+        struct Unmerge: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "unmerge",
+                abstract: "Unmerge table cells and print the table object id.",
+                discussion: """
+                    Row and column indices are one-based. Every merged cell in \
+                    the range is unmerged. Get table object ids from \
+                    `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+            @Argument(help: "The table object id.")
+            var tableID: String
+            @Option(parsing: .unconditional, help: "The one-based first row.")
+            var row: Int
+            @Option(parsing: .unconditional, help: "The one-based first column.")
+            var column: Int
+            @Option(parsing: .unconditional, help: "The number of rows to unmerge.")
+            var rowSpan: Int
+            @Option(parsing: .unconditional, help: "The number of columns to unmerge.")
+            var columnSpan: Int
+
+            func validate() throws {
+                try validateOneBased(row, name: "--row")
+                try validateOneBased(column, name: "--column")
+                try validateOneBased(rowSpan, name: "--row-span")
+                try validateOneBased(columnSpan, name: "--column-span")
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.unmergeTableCells(
+                    presentationId: presentationID, tableId: tableID,
+                    row: row, column: column, rowSpan: rowSpan, columnSpan: columnSpan)
+                print(tableID)
+            }
+        }
+
+        struct StyleCells: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "style-cells",
+                abstract: "Style table cells and print the table object id.",
+                discussion: """
+                    Row and column indices are one-based. Omit the complete \
+                    range to style the whole table; with --row and --column, \
+                    omitted spans default to 1. At least one style flag is \
+                    required. Get table object ids from \
+                    `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+            @Argument(help: "The table object id.")
+            var tableID: String
+            @OptionGroup var range: RangeOptions
+            @Option(help: "The fill color: a hex value or theme color name.")
+            var fill: String?
+            @Option(parsing: .unconditional, help: "The fill alpha, from 0 to 1.")
+            var fillAlpha: Double?
+            @Flag(help: "Remove the fill; cannot be combined with fill or fill-alpha.")
+            var noFill = false
+            @Option(help: "The content alignment: top, middle, or bottom.")
+            var align: ContentAlignmentArgument?
+
+            func validate() throws {
+                try range.validate()
+                guard fill != nil || fillAlpha != nil || noFill || align != nil else {
+                    throw ValidationError("Provide at least one style flag.")
+                }
+                if noFill && (fill != nil || fillAlpha != nil) {
+                    throw ValidationError(
+                        "--no-fill cannot be combined with --fill or --fill-alpha.")
+                }
+                try validateAlpha(fillAlpha, name: "--fill-alpha")
+            }
+
+            func run() async throws {
+                let color = try fill.map { try OpaqueColor.parse($0) }
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.styleTableCells(
+                    presentationId: presentationID, tableId: tableID,
+                    row: range.row, column: range.column,
+                    rowSpan: range.rowSpan, columnSpan: range.columnSpan,
+                    fillColor: color, fillAlpha: fillAlpha, noFill: noFill,
+                    alignment: align?.contentAlignment)
+                print(tableID)
+            }
+        }
+
+        struct RowHeight: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "row-height",
+                abstract: "Set table row height and print the table object id.",
+                discussion: """
+                    Rows are one-based. Repeat values after --rows; omitting \
+                    --rows updates every row. Get table object ids from \
+                    `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+            @Argument(help: "The table object id.")
+            var tableID: String
+            @Option(parsing: .unconditional, help: "The positive minimum height in points.")
+            var minHeight: Double
+            @Option(
+                parsing: .upToNextOption,
+                help: "One-based rows to update; omit to update every row."
+            )
+            var rows: [Int] = []
+
+            func validate() throws {
+                try validatePositive(minHeight, name: "--min-height")
+                for row in rows { try validateOneBased(row, name: "--rows") }
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.setTableRowHeight(
+                    presentationId: presentationID, tableId: tableID,
+                    rows: rows, minHeight: minHeight)
+                print(tableID)
+            }
+        }
+
+        struct ColumnWidth: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "column-width",
+                abstract: "Set table column width and print the table object id.",
+                discussion: """
+                    Columns are one-based. Repeat values after --columns; \
+                    omitting --columns updates every column. Width must be at \
+                    least 32 points (406400 EMU). Get table object ids from \
+                    `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+            @Argument(help: "The table object id.")
+            var tableID: String
+            @Option(parsing: .unconditional, help: "The width in points; at least 32.")
+            var width: Double
+            @Option(
+                parsing: .upToNextOption,
+                help: "One-based columns to update; omit to update every column."
+            )
+            var columns: [Int] = []
+
+            func validate() throws {
+                guard width >= 32 else {
+                    throw ValidationError("--width must be at least 32 points (406400 EMU).")
+                }
+                for column in columns { try validateOneBased(column, name: "--columns") }
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.setTableColumnWidth(
+                    presentationId: presentationID, tableId: tableID,
+                    columns: columns, width: width)
+                print(tableID)
+            }
+        }
+
+        struct Borders: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "borders",
+                abstract: "Style table borders and print the table object id.",
+                discussion: """
+                    Row and column indices are one-based. Omit the complete \
+                    range to style the whole table; with --row and --column, \
+                    omitted spans default to 1. At least one style flag is \
+                    required. Get table object ids from \
+                    `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+            @Argument(help: "The table object id.")
+            var tableID: String
+            @OptionGroup var range: RangeOptions
+            @Option(help: "The border position, such as all or inner-horizontal.")
+            var position: TableBorderPositionArgument = .all
+            @Option(help: "The border color: a hex value or theme color name.")
+            var color: String?
+            @Option(parsing: .unconditional, help: "The border alpha, from 0 to 1.")
+            var alpha: Double?
+            @Option(parsing: .unconditional, help: "The positive border weight in points.")
+            var weight: Double?
+            @Option(help: "The dash style, such as solid, dash-dot, or long-dash.")
+            var dash: DashStyleArgument?
+
+            func validate() throws {
+                try range.validate()
+                guard color != nil || alpha != nil || weight != nil || dash != nil else {
+                    throw ValidationError("Provide at least one style flag.")
+                }
+                try validateAlpha(alpha, name: "--alpha")
+                try validatePositive(weight, name: "--weight")
+            }
+
+            func run() async throws {
+                let borderColor = try color.map { try OpaqueColor.parse($0) }
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.styleTableBorders(
+                    presentationId: presentationID, tableId: tableID,
+                    row: range.row, column: range.column,
+                    rowSpan: range.rowSpan, columnSpan: range.columnSpan,
+                    position: position.borderPosition,
+                    color: borderColor, alpha: alpha, weight: weight,
+                    dash: dash?.dashStyle)
+                print(tableID)
+            }
+        }
+    }
+
     struct Chart: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "chart",
@@ -1429,6 +1889,34 @@ enum ContentAlignmentArgument: String, ExpressibleByArgument {
     }
 }
 
+/// CLI-facing lower-kebab table-border positions mapping to the Slides API
+/// wire enum.
+enum TableBorderPositionArgument: String, ExpressibleByArgument {
+    case all
+    case bottom
+    case inner
+    case innerHorizontal = "inner-horizontal"
+    case innerVertical = "inner-vertical"
+    case left
+    case outer
+    case right
+    case top
+
+    var borderPosition: TableBorderPosition {
+        switch self {
+        case .all: return .all
+        case .bottom: return .bottom
+        case .inner: return .inner
+        case .innerHorizontal: return .innerHorizontal
+        case .innerVertical: return .innerVertical
+        case .left: return .left
+        case .outer: return .outer
+        case .right: return .right
+        case .top: return .top
+        }
+    }
+}
+
 /// Rejects an alpha that is present but outside 0...1.
 private func validateAlpha(_ alpha: Double?, name: String) throws {
     if let alpha, !(alpha >= 0 && alpha <= 1) {
@@ -1440,5 +1928,12 @@ private func validateAlpha(_ alpha: Double?, name: String) throws {
 private func validatePositive(_ value: Double?, name: String) throws {
     if let value, !(value > 0) {
         throw ValidationError("\(name) must be greater than zero.")
+    }
+}
+
+/// Rejects an index or span that is present but below the one-based minimum.
+private func validateOneBased(_ value: Int?, name: String) throws {
+    if let value, value < 1 {
+        throw ValidationError("\(name) must be one-based (1 or greater).")
     }
 }
