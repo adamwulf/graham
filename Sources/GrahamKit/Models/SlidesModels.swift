@@ -757,6 +757,24 @@ extension Presentation {
         return rows
     }
 
+    /// Finds one page element anywhere in the presentation by its object id.
+    ///
+    /// The search is depth-first across every slide and recurses into nested
+    /// groups, so a group child is found however deeply it nests. It follows
+    /// the same order as ``elementRows`` — slide order, then element order, a
+    /// group before its children — and returns the first match. `nil` if no
+    /// element has the id.
+    public func findElement(objectId: String) -> PageElement? {
+        for slide in slides ?? [] {
+            for element in slide.pageElements ?? [] {
+                if let found = Self.findElement(element, objectId: objectId) {
+                    return found
+                }
+            }
+        }
+        return nil
+    }
+
     private static func flatten(
         _ element: PageElement,
         slideIndex: Int,
@@ -796,6 +814,18 @@ extension Presentation {
         for child in element.elementGroup?.children ?? [] {
             collectImages(child, slideIndex: slideIndex, slideId: slideId, into: &rows)
         }
+    }
+
+    /// Depth-first search of one element and its nested group children for the
+    /// object id. Returns the matching element, or `nil`.
+    private static func findElement(_ element: PageElement, objectId: String) -> PageElement? {
+        if element.objectId == objectId { return element }
+        for child in element.elementGroup?.children ?? [] {
+            if let found = findElement(child, objectId: objectId) {
+                return found
+            }
+        }
+        return nil
     }
 }
 

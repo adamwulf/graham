@@ -171,6 +171,45 @@ final class SlidesReadTests: XCTestCase {
         XCTAssertEqual(try row("deep-img").parentObjectId, "grp2")
     }
 
+    // MARK: - findElement
+
+    func testFindElementFindsATopLevelElement() throws {
+        let presentation = try decodePresentation()
+        let element = try XCTUnwrap(presentation.findElement(objectId: "img1"))
+        XCTAssertEqual(element.objectId, "img1")
+        XCTAssertEqual(element.kind, .image)
+    }
+
+    func testFindElementRecursesIntoNestedGroups() throws {
+        let presentation = try decodePresentation()
+
+        // One level deep, a direct child of grp1.
+        let child = try XCTUnwrap(presentation.findElement(objectId: "g-sh"))
+        XCTAssertEqual(child.objectId, "g-sh")
+        XCTAssertEqual(child.kind, .shape)
+
+        // Two levels deep, inside the inner group grp2. This proves the search
+        // recurses through nested groups, not just the top level.
+        let deep = try XCTUnwrap(presentation.findElement(objectId: "deep-img"))
+        XCTAssertEqual(deep.objectId, "deep-img")
+        XCTAssertEqual(deep.kind, .image)
+
+        // The group object itself is findable too.
+        XCTAssertEqual(try XCTUnwrap(presentation.findElement(objectId: "grp2")).kind, .group)
+    }
+
+    func testFindElementReturnsNilForAMissingId() throws {
+        let presentation = try decodePresentation()
+        XCTAssertNil(presentation.findElement(objectId: "does-not-exist"))
+    }
+
+    func testFindElementReturnsNilOnAnEmptyPresentation() throws {
+        let presentation = try GoogleJSON.decoder.decode(
+            Presentation.self, from: Data(#"{"presentationId": "p"}"#.utf8)
+        )
+        XCTAssertNil(presentation.findElement(objectId: "sh1"))
+    }
+
     // MARK: - Text
 
     func testTextIsDirectAndGroupsCarryNone() throws {
