@@ -9,7 +9,15 @@ struct Drive: AsyncParsableCommand {
     )
 
     struct List: AsyncParsableCommand {
-        static let configuration = CommandConfiguration(abstract: "List files in Drive.")
+        static let configuration = CommandConfiguration(
+            abstract: "List files in Drive, or navigate drives and folders."
+        )
+
+        @Argument(help: "A folder or shared-drive ID to list the contents of. Omit to show the top-level drives.")
+        var id: String?
+
+        @Option(help: "Filter by type: docs, sheets, slides, folders, or all.")
+        var type: DriveFileType = .all
 
         @Option(help: "A Drive search query, for example: name contains 'report'")
         var query: String?
@@ -25,7 +33,9 @@ struct Drive: AsyncParsableCommand {
 
         func run() async throws {
             let client = DriveClient(api: try CLI.makeAPI())
-            let files = try await client.list(query: query, orderBy: orderBy, limit: limit)
+            let files = try await client.browse(
+                id: id, type: type, query: query, orderBy: orderBy, limit: limit
+            )
             print(try OutputFormatter.render(files, format: format))
         }
     }

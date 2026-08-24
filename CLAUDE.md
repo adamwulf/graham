@@ -71,8 +71,12 @@ Google uses OAuth2, unlike hunch's single static token:
   `GOOGLE_REFRESH_TOKEN`. Process environment beats `.env`.
 - `graham auth login` runs the consent flow: loopback server on an ephemeral
   127.0.0.1 port, browser consent, code exchange with `access_type=offline`
-  and `prompt=consent`, then prints the refresh token for the user to paste
-  into `.env`. The tool never writes `.env` itself.
+  and `prompt=consent`, then saves the refresh token to the nearest `.env`
+  file (walking up from the working directory) via `DotEnv.setValue`. It
+  upserts `GOOGLE_REFRESH_TOKEN` — replacing an existing line, or appending a
+  new one — so a re-login updates cleanly. If no `.env` exists it creates one
+  in the working directory; if the write fails it falls back to printing the
+  line for the user to paste.
 - `OAuthTokenProvider` (an actor) turns the refresh token into short-lived
   access tokens on demand and caches them until near expiry.
 
@@ -120,6 +124,29 @@ this; add request-body models under `Models/` when the time comes.
   practice, extend `GoogleAPI.send` to inspect the envelope status.
 - Output is deterministic: JSON encoders sort keys, tables pad all but the
   last column (no trailing whitespace).
+- Shared-drive items are invisible to `files.list` unless the request sets
+  `supportsAllDrives=true`, `includeItemsFromAllDrives=true`, and
+  `corpora=allDrives`. `DriveClient.list` sets all three, so it spans shared
+  drives for both contents and global-search calls. `DriveClient.drives` lists
+  the shared drives themselves (the `/drives` endpoint), and `DriveClient.root`
+  fetches "My Drive" via `files.get` on the id `root`. `DriveClient.roots`
+  combines My Drive plus the shared drives into one `[DriveFile]`, mapping each
+  `SharedDrive` to a row with a synthetic `application/vnd.google-apps.drive`
+  MIME (`SharedDrive.asDriveFile`). `DriveClient.browse` holds the `drive list`
+  routing (id → contents, no id + no query + all/folders → roots, else global
+  search); the CLI just calls `browse` so all the routing is unit-tested.
+- `DriveFileType` lives in `GrahamKit` (no ArgumentParser import). Its
+  `ExpressibleByArgument` conformance lives in the CLI target next to
+  `OutputFormat`'s. Building a Drive `q` goes through `DriveClient.buildQuery`,
+  which backslash-escapes any `'`/`\` inside a quoted id — never interpolate a
+  raw id into a `q` clause.
+- The default OAuth scopes (`GoogleScope.all`) include the full `drive` scope,
+  which Google classes as a **restricted** scope. Two consequences: an External
+  OAuth app cannot publish to Production without Google's verification review,
+  and an External app left in **Testing** mode issues refresh tokens that
+  expire 7 days after issue (so `graham auth login` must be re-run about
+  weekly). If a write feature only needs files graham creates or opens, adding
+  a `drive.file` scope (not restricted) to `GoogleScope` avoids both problems.
 
 ## Commands
 
