@@ -726,6 +726,398 @@ public struct SlidesClient: Sendable {
         )
     }
 
+    // MARK: - Element styles
+    //
+    // Every style method builds a typed style container together with a
+    // deterministic field mask: one mask path per provided parameter, in a
+    // fixed documented order, so the wire mask is stable and testable. At least
+    // one parameter must be provided, or the method throws
+    // ``GrahamError/invalidArgument(_:)`` and sends nothing. A `--no-*`
+    // parameter clears a fill/outline/shadow by setting its property state to
+    // `NOT_RENDERED`, and cannot be combined with any other parameter of the
+    // same group. Updating a fill/outline/shadow implicitly renders it, so a
+    // set never has to name `propertyState`.
+
+    /// Styles a shape's fill, outline, shadow, and content alignment.
+    ///
+    /// - Parameters:
+    ///   - fillColor / fillAlpha: The solid background fill. `noFill` clears it
+    ///     and is mutually exclusive with a fill color or alpha.
+    ///   - outlineColor / outlineAlpha / outlineWeight / outlineDash: The
+    ///     border. `noOutline` clears it and is mutually exclusive with any
+    ///     other outline parameter.
+    ///   - shadowColor / shadowAlpha / shadowBlur / shadowOffsetX /
+    ///     shadowOffsetY: The drop shadow. The offsets build a single shadow
+    ///     transform (a missing axis is 0). `noShadow` clears the shadow and is
+    ///     mutually exclusive with any other shadow parameter.
+    ///   - contentAlignment: The vertical alignment of the shape's text.
+    ///
+    /// Weights and the blur are in points and must be greater than zero; every
+    /// alpha must be within 0...1.
+    public func styleShape(
+        presentationId: String,
+        objectId: String,
+        fillColor: OpaqueColor? = nil,
+        fillAlpha: Double? = nil,
+        noFill: Bool = false,
+        outlineColor: OpaqueColor? = nil,
+        outlineAlpha: Double? = nil,
+        outlineWeight: Double? = nil,
+        outlineDash: DashStyle? = nil,
+        noOutline: Bool = false,
+        shadowColor: OpaqueColor? = nil,
+        shadowAlpha: Double? = nil,
+        shadowBlur: Double? = nil,
+        shadowOffsetX: Double? = nil,
+        shadowOffsetY: Double? = nil,
+        noShadow: Bool = false,
+        contentAlignment: ContentAlignment? = nil
+    ) async throws {
+        var mask: [String] = []
+
+        // Fill group.
+        var backgroundFill: ShapeBackgroundFill?
+        let hasFill = fillColor != nil || fillAlpha != nil
+        if noFill {
+            guard !hasFill else {
+                throw GrahamError.invalidArgument(
+                    "no-fill cannot be combined with a fill color or alpha")
+            }
+            backgroundFill = ShapeBackgroundFill(propertyState: .notRendered)
+            mask.append("shapeBackgroundFill.propertyState")
+        } else if hasFill {
+            if let fillAlpha { try Self.validateAlpha(fillAlpha, label: "fill alpha") }
+            backgroundFill = ShapeBackgroundFill(
+                solidFill: SolidFill(color: fillColor, alpha: fillAlpha))
+            if fillColor != nil { mask.append("shapeBackgroundFill.solidFill.color") }
+            if fillAlpha != nil { mask.append("shapeBackgroundFill.solidFill.alpha") }
+        }
+
+        // Outline group.
+        let outline = try Self.buildOutline(
+            color: outlineColor,
+            alpha: outlineAlpha,
+            weight: outlineWeight,
+            dash: outlineDash,
+            noOutline: noOutline
+        )
+        mask.append(contentsOf: outline.mask)
+
+        // Shadow group.
+        let shadow = try Self.buildShadow(
+            color: shadowColor,
+            alpha: shadowAlpha,
+            blur: shadowBlur,
+            offsetX: shadowOffsetX,
+            offsetY: shadowOffsetY,
+            noShadow: noShadow
+        )
+        mask.append(contentsOf: shadow.mask)
+
+        // Content alignment.
+        if contentAlignment != nil { mask.append("contentAlignment") }
+
+        guard !mask.isEmpty else {
+            throw GrahamError.invalidArgument("style shape requires at least one style option")
+        }
+
+        let style = ShapeStyle(
+            shapeBackgroundFill: backgroundFill,
+            outline: outline.value,
+            shadow: shadow.value,
+            contentAlignment: contentAlignment
+        )
+        _ = try await batchUpdate(
+            presentationId: presentationId,
+            requests: [.updateShapeProperties(UpdateShapePropertiesRequest(
+                objectId: objectId,
+                shapeProperties: style,
+                fields: mask.joined(separator: ",")
+            ))]
+        )
+    }
+
+    /// Styles an image's outline. This is the only appearance the Slides API
+    /// lets a write set on an image.
+    ///
+    /// The API exposes an image's brightness, contrast, transparency, crop,
+    /// recolor, and shadow as **read-only**, so graham cannot change them; only
+    /// the outline (and the link, which belongs to a later milestone) is
+    /// writable. `noOutline` clears the outline and is mutually exclusive with
+    /// any other outline parameter.
+    public func styleImage(
+        presentationId: String,
+        objectId: String,
+        outlineColor: OpaqueColor? = nil,
+        outlineAlpha: Double? = nil,
+        outlineWeight: Double? = nil,
+        outlineDash: DashStyle? = nil,
+        noOutline: Bool = false
+    ) async throws {
+        let outline = try Self.buildOutline(
+            color: outlineColor,
+            alpha: outlineAlpha,
+            weight: outlineWeight,
+            dash: outlineDash,
+            noOutline: noOutline
+        )
+        guard !outline.mask.isEmpty else {
+            throw GrahamError.invalidArgument("style image requires at least one outline option")
+        }
+        _ = try await batchUpdate(
+            presentationId: presentationId,
+            requests: [.updateImageProperties(UpdateImagePropertiesRequest(
+                objectId: objectId,
+                imageProperties: ImageStyle(outline: outline.value),
+                fields: outline.mask.joined(separator: ",")
+            ))]
+        )
+    }
+
+    /// Styles a line's fill, weight, dash style, and arrow ends.
+    ///
+    /// Lines have no fill property state, so there is no `--no-*` clear here.
+    /// The weight is in points and must be greater than zero; the alpha must be
+    /// within 0...1.
+    public func styleLine(
+        presentationId: String,
+        objectId: String,
+        color: OpaqueColor? = nil,
+        alpha: Double? = nil,
+        weight: Double? = nil,
+        dash: DashStyle? = nil,
+        startArrow: ArrowStyle? = nil,
+        endArrow: ArrowStyle? = nil
+    ) async throws {
+        if let alpha { try Self.validateAlpha(alpha, label: "line alpha") }
+        if let weight { try Self.validatePositive(weight, label: "line weight") }
+
+        var mask: [String] = []
+        var lineFill: LineFill?
+        if color != nil || alpha != nil {
+            lineFill = LineFill(solidFill: SolidFill(color: color, alpha: alpha))
+        }
+        if color != nil { mask.append("lineFill.solidFill.color") }
+        if alpha != nil { mask.append("lineFill.solidFill.alpha") }
+        if weight != nil { mask.append("weight") }
+        if dash != nil { mask.append("dashStyle") }
+        if startArrow != nil { mask.append("startArrow") }
+        if endArrow != nil { mask.append("endArrow") }
+
+        guard !mask.isEmpty else {
+            throw GrahamError.invalidArgument("style line requires at least one style option")
+        }
+
+        let style = LineStyle(
+            lineFill: lineFill,
+            weight: weight.map { ElementDimension(magnitude: $0, unit: .pt) },
+            dashStyle: dash,
+            startArrow: startArrow,
+            endArrow: endArrow
+        )
+        _ = try await batchUpdate(
+            presentationId: presentationId,
+            requests: [.updateLineProperties(UpdateLinePropertiesRequest(
+                objectId: objectId,
+                lineProperties: style,
+                fields: mask.joined(separator: ",")
+            ))]
+        )
+    }
+
+    /// Styles a video's playback options and outline.
+    ///
+    /// `start` and `end` are whole seconds and must be 0 or greater; when both
+    /// are given, `end` must be greater than `start`. The outline parameters
+    /// match ``styleShape(presentationId:objectId:fillColor:fillAlpha:noFill:outlineColor:outlineAlpha:outlineWeight:outlineDash:noOutline:shadowColor:shadowAlpha:shadowBlur:shadowOffsetX:shadowOffsetY:noShadow:contentAlignment:)``.
+    public func styleVideo(
+        presentationId: String,
+        objectId: String,
+        autoPlay: Bool? = nil,
+        mute: Bool? = nil,
+        start: Int? = nil,
+        end: Int? = nil,
+        outlineColor: OpaqueColor? = nil,
+        outlineAlpha: Double? = nil,
+        outlineWeight: Double? = nil,
+        outlineDash: DashStyle? = nil,
+        noOutline: Bool = false
+    ) async throws {
+        if let start, start < 0 {
+            throw GrahamError.invalidArgument("video start must be 0 or greater, got \(start)")
+        }
+        if let end, end < 0 {
+            throw GrahamError.invalidArgument("video end must be 0 or greater, got \(end)")
+        }
+        if let start, let end, end <= start {
+            throw GrahamError.invalidArgument(
+                "video end (\(end)) must be greater than start (\(start))")
+        }
+
+        var mask: [String] = []
+        if autoPlay != nil { mask.append("autoPlay") }
+        if mute != nil { mask.append("mute") }
+        if start != nil { mask.append("start") }
+        if end != nil { mask.append("end") }
+
+        let outline = try Self.buildOutline(
+            color: outlineColor,
+            alpha: outlineAlpha,
+            weight: outlineWeight,
+            dash: outlineDash,
+            noOutline: noOutline
+        )
+        mask.append(contentsOf: outline.mask)
+
+        guard !mask.isEmpty else {
+            throw GrahamError.invalidArgument("style video requires at least one style option")
+        }
+
+        let style = VideoStyle(
+            autoPlay: autoPlay,
+            mute: mute,
+            start: start,
+            end: end,
+            outline: outline.value
+        )
+        _ = try await batchUpdate(
+            presentationId: presentationId,
+            requests: [.updateVideoProperties(UpdateVideoPropertiesRequest(
+                objectId: objectId,
+                videoProperties: style,
+                fields: mask.joined(separator: ",")
+            ))]
+        )
+    }
+
+    /// Refreshes a linked Sheets chart to its latest spreadsheet data.
+    ///
+    /// This works only on a chart embedded with `LINKED` linking mode; Google
+    /// rejects an object id that is not a linked chart. The reply is empty.
+    public func refreshSheetsChart(presentationId: String, objectId: String) async throws {
+        _ = try await batchUpdate(
+            presentationId: presentationId,
+            requests: [.refreshSheetsChart(RefreshSheetsChartRequest(objectId: objectId))]
+        )
+    }
+
+    /// The outline (border) shared by ``styleShape``, ``styleImage``, and
+    /// ``styleVideo``, together with its deterministic mask paths in the fixed
+    /// order color, alpha, weight, dash. `noOutline` instead clears the outline
+    /// with a single `outline.propertyState` path and rejects any other
+    /// outline parameter.
+    private static func buildOutline(
+        color: OpaqueColor?,
+        alpha: Double?,
+        weight: Double?,
+        dash: DashStyle?,
+        noOutline: Bool
+    ) throws -> (value: Outline?, mask: [String]) {
+        let hasAny = color != nil || alpha != nil || weight != nil || dash != nil
+        if noOutline {
+            guard !hasAny else {
+                throw GrahamError.invalidArgument(
+                    "no-outline cannot be combined with other outline options")
+            }
+            return (Outline(propertyState: .notRendered), ["outline.propertyState"])
+        }
+        guard hasAny else { return (nil, []) }
+
+        if let alpha { try validateAlpha(alpha, label: "outline alpha") }
+        if let weight { try validatePositive(weight, label: "outline weight") }
+
+        var mask: [String] = []
+        let outlineFill: OutlineFill?
+        if color != nil || alpha != nil {
+            outlineFill = OutlineFill(solidFill: SolidFill(color: color, alpha: alpha))
+        } else {
+            outlineFill = nil
+        }
+        if color != nil { mask.append("outline.outlineFill.solidFill.color") }
+        if alpha != nil { mask.append("outline.outlineFill.solidFill.alpha") }
+        if weight != nil { mask.append("outline.weight") }
+        if dash != nil { mask.append("outline.dashStyle") }
+
+        let outline = Outline(
+            outlineFill: outlineFill,
+            weight: weight.map { ElementDimension(magnitude: $0, unit: .pt) },
+            dashStyle: dash
+        )
+        return (outline, mask)
+    }
+
+    /// The drop shadow used by ``styleShape``, together with its deterministic
+    /// mask paths in the fixed order color, alpha, blurRadius, transform. The
+    /// offsets build one shadow transform (scale 1, no shear, a missing axis is
+    /// 0). `noShadow` instead clears the shadow with a single
+    /// `shadow.propertyState` path and rejects any other shadow parameter.
+    private static func buildShadow(
+        color: OpaqueColor?,
+        alpha: Double?,
+        blur: Double?,
+        offsetX: Double?,
+        offsetY: Double?,
+        noShadow: Bool
+    ) throws -> (value: Shadow?, mask: [String]) {
+        let hasOffset = offsetX != nil || offsetY != nil
+        let hasAny = color != nil || alpha != nil || blur != nil || hasOffset
+        if noShadow {
+            guard !hasAny else {
+                throw GrahamError.invalidArgument(
+                    "no-shadow cannot be combined with other shadow options")
+            }
+            return (Shadow(propertyState: .notRendered), ["shadow.propertyState"])
+        }
+        guard hasAny else { return (nil, []) }
+
+        if let alpha { try validateAlpha(alpha, label: "shadow alpha") }
+        if let blur { try validatePositive(blur, label: "shadow blur") }
+
+        var mask: [String] = []
+        if color != nil { mask.append("shadow.color") }
+        if alpha != nil { mask.append("shadow.alpha") }
+        if blur != nil { mask.append("shadow.blurRadius") }
+        var transform: ElementTransform?
+        if hasOffset {
+            transform = ElementTransform(
+                scaleX: 1,
+                scaleY: 1,
+                shearX: 0,
+                shearY: 0,
+                translateX: offsetX ?? 0,
+                translateY: offsetY ?? 0,
+                unit: .pt
+            )
+            mask.append("shadow.transform")
+        }
+
+        let shadow = Shadow(
+            color: color,
+            alpha: alpha,
+            blurRadius: blur.map { ElementDimension(magnitude: $0, unit: .pt) },
+            transform: transform
+        )
+        return (shadow, mask)
+    }
+
+    /// Throws ``GrahamError/invalidArgument(_:)`` unless `alpha` is within
+    /// 0...1.
+    private static func validateAlpha(_ alpha: Double, label: String) throws {
+        guard (0...1).contains(alpha) else {
+            throw GrahamError.invalidArgument(
+                "\(label) must be within 0 and 1, got \(alpha)")
+        }
+    }
+
+    /// Throws ``GrahamError/invalidArgument(_:)`` unless `value` is greater
+    /// than zero.
+    private static func validatePositive(_ value: Double, label: String) throws {
+        guard value > 0 else {
+            throw GrahamError.invalidArgument(
+                "\(label) must be greater than zero, got \(value)")
+        }
+    }
+
     /// Normalizes a predefined layout name: trims whitespace, uppercases, and
     /// maps `-` and spaces to `_`, so `title-and-body` becomes `TITLE_AND_BODY`.
     static func normalizeLayout(_ layout: String) -> String {

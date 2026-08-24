@@ -42,6 +42,16 @@ public enum SlidesBatchUpdateRequest: Encodable, Sendable, Equatable {
     case updatePageElementTransform(UpdatePageElementTransformRequest)
     /// Reorders page elements front-to-back on their slide.
     case updatePageElementsZOrder(UpdatePageElementsZOrderRequest)
+    /// Sets a shape's fill, outline, shadow, and content alignment.
+    case updateShapeProperties(UpdateShapePropertiesRequest)
+    /// Sets an image's outline (the only appearance the API lets a write set).
+    case updateImageProperties(UpdateImagePropertiesRequest)
+    /// Sets a line's fill, weight, dash style, and arrow ends.
+    case updateLineProperties(UpdateLinePropertiesRequest)
+    /// Sets a video's playback options and outline.
+    case updateVideoProperties(UpdateVideoPropertiesRequest)
+    /// Refreshes a linked Sheets chart to its latest data.
+    case refreshSheetsChart(RefreshSheetsChartRequest)
     /// Deletes a slide or a page element by its exact object id.
     case deleteObject(DeleteObjectRequest)
 
@@ -59,6 +69,11 @@ public enum SlidesBatchUpdateRequest: Encodable, Sendable, Equatable {
         case updateSlidesPosition
         case updatePageElementTransform
         case updatePageElementsZOrder
+        case updateShapeProperties
+        case updateImageProperties
+        case updateLineProperties
+        case updateVideoProperties
+        case refreshSheetsChart
         case deleteObject
     }
 
@@ -91,6 +106,16 @@ public enum SlidesBatchUpdateRequest: Encodable, Sendable, Equatable {
             try container.encode(request, forKey: .updatePageElementTransform)
         case .updatePageElementsZOrder(let request):
             try container.encode(request, forKey: .updatePageElementsZOrder)
+        case .updateShapeProperties(let request):
+            try container.encode(request, forKey: .updateShapeProperties)
+        case .updateImageProperties(let request):
+            try container.encode(request, forKey: .updateImageProperties)
+        case .updateLineProperties(let request):
+            try container.encode(request, forKey: .updateLineProperties)
+        case .updateVideoProperties(let request):
+            try container.encode(request, forKey: .updateVideoProperties)
+        case .refreshSheetsChart(let request):
+            try container.encode(request, forKey: .refreshSheetsChart)
         case .deleteObject(let request):
             try container.encode(request, forKey: .deleteObject)
         }
@@ -638,6 +663,406 @@ public struct UpdatePageElementsZOrderRequest: Codable, Sendable, Equatable {
 /// The `deleteObject` operation. The API requires the object id, and it must
 /// be a slide or a page element in the presentation.
 public struct DeleteObjectRequest: Codable, Sendable, Equatable {
+    public let objectId: String
+
+    public init(objectId: String) {
+        self.objectId = objectId
+    }
+}
+
+// MARK: - Element style values (write side)
+//
+// These mirror the Slides v1 appearance schema used by the `update*Properties`
+// requests. They are the write-side counterparts of the `Slide`-prefixed read
+// models in `SlidesModels.swift`; the two sets are kept separate on purpose so
+// the write side can make a field required when the operation requires it and
+// omit read-only fields entirely.
+
+/// The theme colors the Slides API recognizes for an ``OpaqueColor``.
+///
+/// The cases are the sixteen values verified against the Slides v1 discovery
+/// document; the raw values are the exact wire spellings.
+public enum ThemeColorName: String, Codable, Sendable {
+    case dark1 = "DARK1"
+    case light1 = "LIGHT1"
+    case dark2 = "DARK2"
+    case light2 = "LIGHT2"
+    case accent1 = "ACCENT1"
+    case accent2 = "ACCENT2"
+    case accent3 = "ACCENT3"
+    case accent4 = "ACCENT4"
+    case accent5 = "ACCENT5"
+    case accent6 = "ACCENT6"
+    case hyperlink = "HYPERLINK"
+    case followedHyperlink = "FOLLOWED_HYPERLINK"
+    case text1 = "TEXT1"
+    case background1 = "BACKGROUND1"
+    case text2 = "TEXT2"
+    case background2 = "BACKGROUND2"
+}
+
+/// An explicit RGB color. Each channel is a float from 0 to 1.
+public struct RgbColor: Codable, Sendable, Equatable {
+    public let red: Double
+    public let green: Double
+    public let blue: Double
+
+    public init(red: Double, green: Double, blue: Double) {
+        self.red = red
+        self.green = green
+        self.blue = blue
+    }
+}
+
+/// A solid color: exactly one of an explicit RGB color or a theme color.
+///
+/// The one-of is enforced by the two inits, following the ``SlideLayoutReference``
+/// precedent: whichever init a caller uses, the other field stays `nil` and is
+/// omitted on the wire, so the value encodes as either
+/// `{"rgbColor":{...}}` or `{"themeColor":"ACCENT1"}`.
+public struct OpaqueColor: Codable, Sendable, Equatable {
+    public let rgbColor: RgbColor?
+    public let themeColor: ThemeColorName?
+
+    /// An explicit RGB color. Each channel is a float from 0 to 1.
+    public init(red: Double, green: Double, blue: Double) {
+        self.rgbColor = RgbColor(red: red, green: green, blue: blue)
+        self.themeColor = nil
+    }
+
+    /// A named theme color.
+    public init(theme: ThemeColorName) {
+        self.rgbColor = nil
+        self.themeColor = theme
+    }
+
+    /// Parses a color from a CLI-friendly string.
+    ///
+    /// This is the one color-parsing seam for the whole tool; the CLI never
+    /// parses colors itself. Accepted forms:
+    ///
+    /// - A hex color, with an optional leading `#`, either `RRGGBB` or the
+    ///   short `RGB` form (each nibble is doubled, so `#F00` is `#FF0000`).
+    ///   Hex is case-insensitive and each channel maps to `component / 255`.
+    /// - A theme color name, matched case-insensitively (`accent1`, `DARK1`).
+    ///
+    /// Anything else throws ``GrahamError/invalidArgument(_:)`` naming the
+    /// input.
+    public static func parse(_ input: String) throws -> OpaqueColor {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hexBody = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
+        if let rgb = parseHex(hexBody) {
+            return rgb
+        }
+        if let theme = ThemeColorName(rawValue: trimmed.uppercased()) {
+            return OpaqueColor(theme: theme)
+        }
+        throw GrahamError.invalidArgument(
+            "could not parse \"\(input)\" as a color; use a hex value like #FF0000 "
+            + "or #F00, or a theme color name like accent1")
+    }
+
+    /// Parses a bare hex body (no `#`) of exactly three or six hex digits,
+    /// returning `nil` for any other length or a non-hex character so the
+    /// caller can fall through to a theme-name lookup.
+    private static func parseHex(_ hex: String) -> OpaqueColor? {
+        let normalized: String
+        switch hex.count {
+        case 3:
+            // Expand each nibble: F00 -> FF0000.
+            normalized = hex.map { "\($0)\($0)" }.joined()
+        case 6:
+            normalized = hex
+        default:
+            return nil
+        }
+        let digits = Array(normalized)
+        guard digits.allSatisfy(\.isHexDigit) else { return nil }
+        func channel(_ start: Int) -> Double {
+            Double(Int(String(digits[start..<start + 2]), radix: 16) ?? 0) / 255
+        }
+        return OpaqueColor(red: channel(0), green: channel(2), blue: channel(4))
+    }
+}
+
+/// A solid color fill with an optional opacity.
+public struct SolidFill: Codable, Sendable, Equatable {
+    public let color: OpaqueColor?
+    /// The opacity, from 0 to 1.
+    public let alpha: Double?
+
+    public init(color: OpaqueColor? = nil, alpha: Double? = nil) {
+        self.color = color
+        self.alpha = alpha
+    }
+}
+
+/// The render state of a fill, outline, or shadow.
+public enum PropertyState: String, Codable, Sendable {
+    case rendered = "RENDERED"
+    case notRendered = "NOT_RENDERED"
+    case inherit = "INHERIT"
+}
+
+/// A shape's background fill.
+///
+/// Updating the `solidFill` implicitly renders the fill; a caller that wants
+/// to clear a fill sets ``propertyState`` to ``PropertyState/notRendered``.
+public struct ShapeBackgroundFill: Codable, Sendable, Equatable {
+    public let propertyState: PropertyState?
+    public let solidFill: SolidFill?
+
+    public init(propertyState: PropertyState? = nil, solidFill: SolidFill? = nil) {
+        self.propertyState = propertyState
+        self.solidFill = solidFill
+    }
+}
+
+/// The dash style of an outline or a line.
+public enum DashStyle: String, Codable, Sendable {
+    case solid = "SOLID"
+    case dot = "DOT"
+    case dash = "DASH"
+    case dashDot = "DASH_DOT"
+    case longDash = "LONG_DASH"
+    case longDashDot = "LONG_DASH_DOT"
+}
+
+/// The fill of an outline.
+public struct OutlineFill: Codable, Sendable, Equatable {
+    public let solidFill: SolidFill
+
+    public init(solidFill: SolidFill) {
+        self.solidFill = solidFill
+    }
+}
+
+/// The outline (border) of a shape, image, or video.
+public struct Outline: Codable, Sendable, Equatable {
+    public let outlineFill: OutlineFill?
+    public let weight: ElementDimension?
+    public let dashStyle: DashStyle?
+    public let propertyState: PropertyState?
+
+    public init(
+        outlineFill: OutlineFill? = nil,
+        weight: ElementDimension? = nil,
+        dashStyle: DashStyle? = nil,
+        propertyState: PropertyState? = nil
+    ) {
+        self.outlineFill = outlineFill
+        self.weight = weight
+        self.dashStyle = dashStyle
+        self.propertyState = propertyState
+    }
+}
+
+/// A drop shadow.
+///
+/// Only the fields the Slides API accepts on a write are modeled. The API's
+/// `type`, `alignment`, and `rotateWithShape` are read-only and deliberately
+/// absent here.
+public struct Shadow: Codable, Sendable, Equatable {
+    public let color: OpaqueColor?
+    /// The opacity of the shadow, from 0 to 1.
+    public let alpha: Double?
+    public let blurRadius: ElementDimension?
+    public let transform: ElementTransform?
+    public let propertyState: PropertyState?
+
+    public init(
+        color: OpaqueColor? = nil,
+        alpha: Double? = nil,
+        blurRadius: ElementDimension? = nil,
+        transform: ElementTransform? = nil,
+        propertyState: PropertyState? = nil
+    ) {
+        self.color = color
+        self.alpha = alpha
+        self.blurRadius = blurRadius
+        self.transform = transform
+        self.propertyState = propertyState
+    }
+}
+
+/// The fill of a line.
+public struct LineFill: Codable, Sendable, Equatable {
+    public let solidFill: SolidFill
+
+    public init(solidFill: SolidFill) {
+        self.solidFill = solidFill
+    }
+}
+
+/// The arrow style at a line's start or end.
+public enum ArrowStyle: String, Codable, Sendable {
+    case none = "NONE"
+    case stealthArrow = "STEALTH_ARROW"
+    case fillArrow = "FILL_ARROW"
+    case fillCircle = "FILL_CIRCLE"
+    case fillSquare = "FILL_SQUARE"
+    case fillDiamond = "FILL_DIAMOND"
+    case openArrow = "OPEN_ARROW"
+    case openCircle = "OPEN_CIRCLE"
+    case openSquare = "OPEN_SQUARE"
+    case openDiamond = "OPEN_DIAMOND"
+}
+
+/// The vertical alignment of a shape's text.
+public enum ContentAlignment: String, Codable, Sendable {
+    case top = "TOP"
+    case middle = "MIDDLE"
+    case bottom = "BOTTOM"
+}
+
+/// The writable subset of a shape's appearance.
+///
+/// Every field is optional; the request's field mask, not this container,
+/// decides which properties the API applies.
+public struct ShapeStyle: Codable, Sendable, Equatable {
+    public let shapeBackgroundFill: ShapeBackgroundFill?
+    public let outline: Outline?
+    public let shadow: Shadow?
+    public let contentAlignment: ContentAlignment?
+
+    public init(
+        shapeBackgroundFill: ShapeBackgroundFill? = nil,
+        outline: Outline? = nil,
+        shadow: Shadow? = nil,
+        contentAlignment: ContentAlignment? = nil
+    ) {
+        self.shapeBackgroundFill = shapeBackgroundFill
+        self.outline = outline
+        self.shadow = shadow
+        self.contentAlignment = contentAlignment
+    }
+}
+
+/// The writable subset of an image's appearance.
+///
+/// The Slides API only lets a write set an image's `outline` (and its link,
+/// which belongs to a later milestone). `cropProperties`, `transparency`,
+/// `brightness`, `contrast`, `recolor`, and `shadow` are all read-only in the
+/// API, so they are not modeled on the write side.
+public struct ImageStyle: Codable, Sendable, Equatable {
+    public let outline: Outline?
+
+    public init(outline: Outline? = nil) {
+        self.outline = outline
+    }
+}
+
+/// The writable subset of a line's appearance.
+///
+/// `startConnection`, `endConnection`, and `link` are left out of this slice.
+public struct LineStyle: Codable, Sendable, Equatable {
+    public let lineFill: LineFill?
+    public let weight: ElementDimension?
+    public let dashStyle: DashStyle?
+    public let startArrow: ArrowStyle?
+    public let endArrow: ArrowStyle?
+
+    public init(
+        lineFill: LineFill? = nil,
+        weight: ElementDimension? = nil,
+        dashStyle: DashStyle? = nil,
+        startArrow: ArrowStyle? = nil,
+        endArrow: ArrowStyle? = nil
+    ) {
+        self.lineFill = lineFill
+        self.weight = weight
+        self.dashStyle = dashStyle
+        self.startArrow = startArrow
+        self.endArrow = endArrow
+    }
+}
+
+/// The writable subset of a video's appearance and playback.
+///
+/// `start` and `end` are whole seconds into the clip.
+public struct VideoStyle: Codable, Sendable, Equatable {
+    public let autoPlay: Bool?
+    public let mute: Bool?
+    public let start: Int?
+    public let end: Int?
+    public let outline: Outline?
+
+    public init(
+        autoPlay: Bool? = nil,
+        mute: Bool? = nil,
+        start: Int? = nil,
+        end: Int? = nil,
+        outline: Outline? = nil
+    ) {
+        self.autoPlay = autoPlay
+        self.mute = mute
+        self.start = start
+        self.end = end
+        self.outline = outline
+    }
+}
+
+// MARK: - Element style operation requests
+
+/// The `updateShapeProperties` operation. `fields` is a comma-separated field
+/// mask of the ``ShapeStyle`` paths to apply; at least one path is required.
+public struct UpdateShapePropertiesRequest: Codable, Sendable, Equatable {
+    public let objectId: String
+    public let shapeProperties: ShapeStyle
+    public let fields: String
+
+    public init(objectId: String, shapeProperties: ShapeStyle, fields: String) {
+        self.objectId = objectId
+        self.shapeProperties = shapeProperties
+        self.fields = fields
+    }
+}
+
+/// The `updateImageProperties` operation. `fields` is a comma-separated field
+/// mask of the ``ImageStyle`` paths to apply; at least one path is required.
+public struct UpdateImagePropertiesRequest: Codable, Sendable, Equatable {
+    public let objectId: String
+    public let imageProperties: ImageStyle
+    public let fields: String
+
+    public init(objectId: String, imageProperties: ImageStyle, fields: String) {
+        self.objectId = objectId
+        self.imageProperties = imageProperties
+        self.fields = fields
+    }
+}
+
+/// The `updateLineProperties` operation. `fields` is a comma-separated field
+/// mask of the ``LineStyle`` paths to apply; at least one path is required.
+public struct UpdateLinePropertiesRequest: Codable, Sendable, Equatable {
+    public let objectId: String
+    public let lineProperties: LineStyle
+    public let fields: String
+
+    public init(objectId: String, lineProperties: LineStyle, fields: String) {
+        self.objectId = objectId
+        self.lineProperties = lineProperties
+        self.fields = fields
+    }
+}
+
+/// The `updateVideoProperties` operation. `fields` is a comma-separated field
+/// mask of the ``VideoStyle`` paths to apply; at least one path is required.
+public struct UpdateVideoPropertiesRequest: Codable, Sendable, Equatable {
+    public let objectId: String
+    public let videoProperties: VideoStyle
+    public let fields: String
+
+    public init(objectId: String, videoProperties: VideoStyle, fields: String) {
+        self.objectId = objectId
+        self.videoProperties = videoProperties
+        self.fields = fields
+    }
+}
+
+/// The `refreshSheetsChart` operation. The API takes only the object id, and
+/// it works only on a chart that was embedded with `LINKED` linking mode.
+public struct RefreshSheetsChartRequest: Codable, Sendable, Equatable {
     public let objectId: String
 
     public init(objectId: String) {
