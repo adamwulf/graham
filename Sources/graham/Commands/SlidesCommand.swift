@@ -6,8 +6,8 @@ struct Slides: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Work with Google Slides presentations.",
         subcommands: [
-            Cat.self, List.self, Images.self, Add.self, Create.self, Group.self,
-            Ungroup.self, Move.self, Delete.self,
+            Cat.self, List.self, Images.self, Add.self, Create.self, Element.self,
+            Group.self, Ungroup.self, Move.self, Delete.self,
         ]
     )
 
@@ -428,6 +428,335 @@ struct Slides: AsyncParsableCommand {
         }
     }
 
+    struct Element: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "element",
+            abstract: "Edit a page element: move, scale, rotate, or reorder it.",
+            subcommands: [Move.self, Scale.self, Rotate.self, Transform.self, Reorder.self]
+        )
+
+        struct Move: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "move",
+                abstract: "Move a page element and print its object id.",
+                discussion: """
+                    Positions and deltas are measured in points. Use --to-x and \
+                    --to-y together to set the element's local origin in its \
+                    parent's coordinate space, or --by-x and --by-y to nudge it \
+                    by a delta, where a missing axis is 0. The two styles are \
+                    mutually exclusive. For an element inside a group, \
+                    coordinates are relative to the group. Get object ids from \
+                    `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the page element to move.")
+            var objectID: String
+
+            @Option(
+                parsing: .unconditional,
+                help: "The new horizontal origin in points; use with --to-y."
+            )
+            var toX: Double?
+
+            @Option(
+                parsing: .unconditional,
+                help: "The new vertical origin in points; use with --to-x."
+            )
+            var toY: Double?
+
+            @Option(parsing: .unconditional, help: "The horizontal delta in points.")
+            var byX: Double?
+
+            @Option(parsing: .unconditional, help: "The vertical delta in points.")
+            var byY: Double?
+
+            func validate() throws {
+                let hasTo = toX != nil || toY != nil
+                let hasBy = byX != nil || byY != nil
+                if hasTo && hasBy {
+                    throw ValidationError(
+                        "Use either --to-x/--to-y or --by-x/--by-y, not both.")
+                }
+                if !hasTo && !hasBy {
+                    throw ValidationError(
+                        "Provide --to-x and --to-y, or --by-x and/or --by-y.")
+                }
+                if hasTo && (toX == nil || toY == nil) {
+                    throw ValidationError("--to-x and --to-y must be provided together.")
+                }
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                if let toX, let toY {
+                    try await client.moveElement(
+                        presentationId: presentationID,
+                        objectId: objectID,
+                        toX: toX,
+                        toY: toY
+                    )
+                } else {
+                    try await client.moveElement(
+                        presentationId: presentationID,
+                        objectId: objectID,
+                        byX: byX ?? 0,
+                        byY: byY ?? 0
+                    )
+                }
+                print(objectID)
+            }
+        }
+
+        struct Scale: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "scale",
+                abstract: "Resize a page element in place and print its object id.",
+                discussion: """
+                    Scaling keeps the element's center fixed. Use --by for a \
+                    uniform factor, or --by-x and --by-y together for separate \
+                    horizontal and vertical factors. The two styles are \
+                    mutually exclusive and every factor must be greater than \
+                    zero. Get object ids from `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the page element to scale.")
+            var objectID: String
+
+            @Option(
+                parsing: .unconditional,
+                help: "A uniform scale factor; must be greater than zero."
+            )
+            var by: Double?
+
+            @Option(
+                parsing: .unconditional,
+                help: "The horizontal scale factor; use with --by-y."
+            )
+            var byX: Double?
+
+            @Option(
+                parsing: .unconditional,
+                help: "The vertical scale factor; use with --by-x."
+            )
+            var byY: Double?
+
+            func validate() throws {
+                let hasUniform = by != nil
+                let hasAxis = byX != nil || byY != nil
+                if hasUniform && hasAxis {
+                    throw ValidationError("--by cannot be combined with --by-x/--by-y.")
+                }
+                if !hasUniform && !hasAxis {
+                    throw ValidationError("Provide --by, or --by-x and --by-y.")
+                }
+                if hasAxis && (byX == nil || byY == nil) {
+                    throw ValidationError("--by-x and --by-y must be provided together.")
+                }
+                if let by, !(by > 0) {
+                    throw ValidationError("--by must be greater than zero.")
+                }
+                if let byX, !(byX > 0) {
+                    throw ValidationError("--by-x must be greater than zero.")
+                }
+                if let byY, !(byY > 0) {
+                    throw ValidationError("--by-y must be greater than zero.")
+                }
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                let factorX: Double
+                let factorY: Double
+                if let by {
+                    factorX = by
+                    factorY = by
+                } else {
+                    factorX = byX ?? 1
+                    factorY = byY ?? 1
+                }
+                try await client.scaleElement(
+                    presentationId: presentationID,
+                    objectId: objectID,
+                    factorX: factorX,
+                    factorY: factorY
+                )
+                print(objectID)
+            }
+        }
+
+        struct Rotate: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "rotate",
+                abstract: "Rotate a page element and print its object id.",
+                discussion: """
+                    Rotation is about the element's center and measured in \
+                    degrees, positive clockwise. Use --by to rotate by a delta, \
+                    or --to to set an absolute angle; exactly one is required. \
+                    Get object ids from `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the page element to rotate.")
+            var objectID: String
+
+            @Option(
+                parsing: .unconditional,
+                help: "Rotate by this many degrees, clockwise."
+            )
+            var by: Double?
+
+            @Option(
+                parsing: .unconditional,
+                help: "Rotate to this absolute angle in degrees, clockwise."
+            )
+            var to: Double?
+
+            func validate() throws {
+                if (by == nil) == (to == nil) {
+                    throw ValidationError("Provide exactly one of --by or --to.")
+                }
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                if let by {
+                    try await client.rotateElement(
+                        presentationId: presentationID,
+                        objectId: objectID,
+                        byDegrees: by
+                    )
+                } else if let to {
+                    try await client.rotateElement(
+                        presentationId: presentationID,
+                        objectId: objectID,
+                        toDegrees: to
+                    )
+                }
+                print(objectID)
+            }
+        }
+
+        struct Transform: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "transform",
+                abstract: "Set a page element's affine transform and print its object id.",
+                discussion: """
+                    This is the raw primitive: it sends the six transform \
+                    fields verbatim. By default it replaces the element's whole \
+                    matrix (absolute mode) with scale 1, no shear, no \
+                    translation, in points. --relative instead left-multiplies \
+                    the given matrix onto the existing transform; in relative \
+                    mode the API does not convert units, so match the element's \
+                    existing unit (usually EMU, with --unit emu). Get object \
+                    ids from `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the page element to transform.")
+            var objectID: String
+
+            @Option(parsing: .unconditional, help: "The scaleX (a) component.")
+            var scaleX: Double = 1
+
+            @Option(parsing: .unconditional, help: "The scaleY (d) component.")
+            var scaleY: Double = 1
+
+            @Option(parsing: .unconditional, help: "The shearX (c) component.")
+            var shearX: Double = 0
+
+            @Option(parsing: .unconditional, help: "The shearY (b) component.")
+            var shearY: Double = 0
+
+            @Option(parsing: .unconditional, help: "The translateX (tx) component.")
+            var translateX: Double = 0
+
+            @Option(parsing: .unconditional, help: "The translateY (ty) component.")
+            var translateY: Double = 0
+
+            @Option(help: "The unit of the transform: pt or emu.")
+            var unit: ElementUnit = .pt
+
+            @Flag(help: "Left-multiply onto the existing transform instead of replacing it.")
+            var relative = false
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                let transform = ElementTransform(
+                    scaleX: scaleX,
+                    scaleY: scaleY,
+                    shearX: shearX,
+                    shearY: shearY,
+                    translateX: translateX,
+                    translateY: translateY,
+                    unit: unit
+                )
+                let mode: TransformApplyMode = relative ? .relative : .absolute
+                try await client.transformElement(
+                    presentationId: presentationID,
+                    objectId: objectID,
+                    transform: transform,
+                    mode: mode
+                )
+                print(objectID)
+            }
+        }
+
+        struct Reorder: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "reorder",
+                abstract: "Reorder page elements front-to-back and print their ids.",
+                discussion: """
+                    Moves one or more page elements in the z-order with --to \
+                    front, forward, backward, or back. The elements must be on \
+                    the same page and must not be grouped; when several are \
+                    given their relative order is kept. Get object ids from \
+                    `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "One or more page-element object ids, in the order to keep.")
+            var objectIDs: [String]
+
+            @Option(help: "The z-order move: front, forward, backward, or back.")
+            var to: ReorderPosition
+
+            func validate() throws {
+                if objectIDs.isEmpty {
+                    throw ValidationError("reorder requires at least one object id.")
+                }
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.reorderElements(
+                    presentationId: presentationID,
+                    objectIds: objectIDs,
+                    operation: to.operation
+                )
+                for objectID in objectIDs {
+                    print(objectID)
+                }
+            }
+        }
+    }
+
     struct Group: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Group page elements and print the new group's object id."
@@ -606,5 +935,35 @@ struct Slides: AsyncParsableCommand {
             )
             return failed
         }
+    }
+}
+
+/// CLI-facing names for a z-order move. This keeps the wire enum
+/// ``ZOrderOperation`` out of the command surface; the mapping lives here so
+/// the user types `front`/`forward`/`backward`/`back` instead of the API's
+/// `BRING_TO_FRONT`/`SEND_TO_BACK` spellings.
+enum ReorderPosition: String, ExpressibleByArgument {
+    case front
+    case forward
+    case backward
+    case back
+
+    /// The Slides API operation this position maps to.
+    var operation: ZOrderOperation {
+        switch self {
+        case .front: return .bringToFront
+        case .forward: return .bringForward
+        case .backward: return .sendBackward
+        case .back: return .sendToBack
+        }
+    }
+}
+
+/// Lets `--unit pt|emu` bind to the shared ``ElementUnit``. The API's raw
+/// values are upper-case (`PT`/`EMU`), so accept either case, matching how
+/// ``VideoSource`` and ``LineCategory`` parse in `Graham.swift`.
+extension ElementUnit: ExpressibleByArgument {
+    public init?(argument: String) {
+        self.init(rawValue: argument.uppercased())
     }
 }
