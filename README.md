@@ -29,8 +29,8 @@ root. The nearest `.env` wins, and real environment variables win over `.env`.
 
 ```bash
 graham auth login
-# a browser window opens; approve access, then copy the printed
-# GOOGLE_REFRESH_TOKEN=... line into your .env
+# a browser window opens; approve access. graham saves
+# GOOGLE_REFRESH_TOKEN=... to the nearest .env file for you.
 graham auth status
 ```
 

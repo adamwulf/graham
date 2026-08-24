@@ -42,12 +42,25 @@ struct Auth: AsyncParsableCommand {
                         + "https://myaccount.google.com/permissions and log in again."
                 )
             }
-            print("""
+            do {
+                let envURL = try DotEnv.setValue(
+                    refreshToken, forKey: CredentialsResolver.refreshTokenKey)
+                print("""
 
-            Login complete. Add this line to your .env file:
+                Login complete. Saved \(CredentialsResolver.refreshTokenKey) to:
+                \(envURL.path)
+                """)
+            } catch {
+                print("""
 
-            GOOGLE_REFRESH_TOKEN=\(refreshToken)
-            """)
+                Login complete, but graham could not write the .env file:
+                \(error.localizedDescription)
+
+                Add this line to your .env file yourself:
+
+                \(CredentialsResolver.refreshTokenKey)=\(refreshToken)
+                """)
+            }
         }
     }
 

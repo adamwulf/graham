@@ -71,8 +71,12 @@ Google uses OAuth2, unlike hunch's single static token:
   `GOOGLE_REFRESH_TOKEN`. Process environment beats `.env`.
 - `graham auth login` runs the consent flow: loopback server on an ephemeral
   127.0.0.1 port, browser consent, code exchange with `access_type=offline`
-  and `prompt=consent`, then prints the refresh token for the user to paste
-  into `.env`. The tool never writes `.env` itself.
+  and `prompt=consent`, then saves the refresh token to the nearest `.env`
+  file (walking up from the working directory) via `DotEnv.setValue`. It
+  upserts `GOOGLE_REFRESH_TOKEN` — replacing an existing line, or appending a
+  new one — so a re-login updates cleanly. If no `.env` exists it creates one
+  in the working directory; if the write fails it falls back to printing the
+  line for the user to paste.
 - `OAuthTokenProvider` (an actor) turns the refresh token into short-lived
   access tokens on demand and caches them until near expiry.
 
