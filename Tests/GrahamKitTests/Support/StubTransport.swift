@@ -11,6 +11,7 @@ final class StubTransport: HTTPTransport, @unchecked Sendable {
     private struct Stub {
         let matches: (HTTPRequest) -> Bool
         var responses: [HTTPResponse]
+        let responder: ((HTTPRequest) -> HTTPResponse)?
     }
 
     private let lock = NSLock()
@@ -33,8 +34,21 @@ final class StubTransport: HTTPTransport, @unchecked Sendable {
         defer { lock.unlock() }
         stubs.append(Stub(
             matches: { $0.url.absoluteString.contains(fragment) },
-            responses: responses
+            responses: responses,
+            responder: nil
         ))
+    }
+
+    /// Registers a reusable request-aware response. This is useful for a
+    /// scripted facade test where many operations share one batch endpoint but
+    /// the response depends on the typed request in the body.
+    func stub(
+        matching: @escaping (HTTPRequest) -> Bool,
+        responding: @escaping (HTTPRequest) -> HTTPResponse
+    ) {
+        lock.lock()
+        defer { lock.unlock() }
+        stubs.append(Stub(matches: matching, responses: [], responder: responding))
     }
 
     func stub(urlContains fragment: String, json: String, status: Int = 200) {
@@ -62,6 +76,9 @@ final class StubTransport: HTTPTransport, @unchecked Sendable {
         defer { lock.unlock() }
         allRequests.append(request)
         for index in stubs.indices where stubs[index].matches(request) {
+            if let responder = stubs[index].responder {
+                return responder(request)
+            }
             if stubs[index].responses.count > 1 {
                 return stubs[index].responses.removeFirst()
             }

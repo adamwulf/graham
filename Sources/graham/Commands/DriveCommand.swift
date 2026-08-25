@@ -5,7 +5,7 @@ import GrahamKit
 struct Drive: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Work with Google Drive files.",
-        subcommands: [List.self, Get.self, Create.self, Export.self]
+        subcommands: [List.self, Get.self, Create.self, Copy.self, Trash.self, Delete.self, Export.self]
     )
 
     struct List: AsyncParsableCommand {
@@ -58,13 +58,13 @@ struct Drive: AsyncParsableCommand {
 
     struct Create: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Create a new, empty Doc, Sheet, or Slides file."
+            abstract: "Create a new, empty Doc, Sheet, Slides file, or folder."
         )
 
         @Argument(help: "The name of the new file.")
         var name: String
 
-        @Option(help: "The file type to create: docs, sheets, or slides.")
+        @Option(help: "The file type to create: docs, sheets, slides, or folder.")
         var type: DriveCreateType
 
         @Option(help: "The output format: table, json, jsonl, or id.")
@@ -74,6 +74,66 @@ struct Drive: AsyncParsableCommand {
             let client = DriveClient(api: try CLI.makeAPI())
             let file = try await client.create(name: name, type: type)
             print(try OutputFormatter.render([file], format: format))
+        }
+    }
+
+    struct Copy: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Copy a file, optionally giving the copy a new name."
+        )
+
+        @Argument(help: "The Drive file ID to copy.")
+        var fileID: String
+
+        @Option(help: "A name for the copy. Without it, Drive names it \"Copy of <original>\".")
+        var name: String?
+
+        func run() async throws {
+            let client = DriveClient(api: try CLI.makeAPI())
+            let file = try await client.copy(fileId: fileID, name: name)
+            print(file.id)
+        }
+    }
+
+    struct Trash: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Move a file to the trash. Reversible in the Drive UI."
+        )
+
+        @Argument(help: "The Drive file ID to trash.")
+        var fileID: String
+
+        func run() async throws {
+            let client = DriveClient(api: try CLI.makeAPI())
+            let file = try await client.trash(fileId: fileID)
+            print(file.id)
+        }
+    }
+
+    struct Delete: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Permanently delete a file. This bypasses the trash and cannot be undone."
+        )
+
+        @Argument(help: "The Drive file ID to delete.")
+        var fileID: String
+
+        @Flag(help: "Confirm the permanent deletion. Required, because it cannot be undone.")
+        var force = false
+
+        func validate() throws {
+            guard force else {
+                throw ValidationError(
+                    "Deleting is permanent and bypasses the trash. Pass --force to confirm, "
+                    + "or use \"graham drive trash\" for a reversible move to the trash."
+                )
+            }
+        }
+
+        func run() async throws {
+            let client = DriveClient(api: try CLI.makeAPI())
+            try await client.delete(fileId: fileID)
+            print(fileID)
         }
     }
 

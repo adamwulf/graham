@@ -150,6 +150,79 @@ final class GoogleAPITests: XCTestCase {
             XCTAssertTrue(detail.contains("id"), "Detail should name the missing key: \(detail)")
         }
     }
+
+    // MARK: - No-content path (sendNoContent)
+
+    func testSendNoContentSucceedsOnAnEmpty204() async throws {
+        let transport = StubTransport()
+        transport.stubTokenEndpoint(accessToken: "abc")
+        transport.stub(urlContains: "/files/f1", responses: [
+            HTTPResponse(statusCode: 204, body: Data()),
+        ])
+        let api = TestSupport.makeAPI(transport: transport)
+
+        try await api.sendNoContent(method: "DELETE", url: fileURL)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: "/files/f1").first)
+        // The method is carried through, and the auth header is still attached.
+        XCTAssertEqual(request.method, "DELETE")
+        XCTAssertEqual(request.headers["Authorization"], "Bearer abc")
+    }
+
+    func testSendNoContentRefreshesTheTokenOn401AndRetriesOnce() async throws {
+        let transport = StubTransport()
+        transport.stubTokenEndpoint()
+        transport.stub(urlContains: "/files/f1", responses: [
+            StubTransport.json(#"{"error":{"code":401,"message":"expired","status":"UNAUTHENTICATED"}}"#, status: 401),
+            HTTPResponse(statusCode: 204, body: Data()),
+        ])
+        let api = TestSupport.makeAPI(transport: transport)
+
+        try await api.sendNoContent(method: "DELETE", url: fileURL)
+
+        // One try, one retry after the 401; one token refresh at the start and
+        // one more after the 401.
+        XCTAssertEqual(transport.requests(urlContains: "/files/f1").count, 2)
+        XCTAssertEqual(transport.requests(urlContains: "oauth2.googleapis.com/token").count, 2)
+    }
+
+    func testSendNoContentRetriesOn5xx() async throws {
+        let transport = StubTransport()
+        transport.stubTokenEndpoint()
+        transport.stub(urlContains: "/files/f1", responses: [
+            StubTransport.json("oops", status: 500),
+            HTTPResponse(statusCode: 204, body: Data()),
+        ])
+        let recorder = SleepRecorder()
+        let api = TestSupport.makeAPI(transport: transport) { recorder.record($0) }
+
+        try await api.sendNoContent(method: "DELETE", url: fileURL)
+
+        XCTAssertEqual(recorder.delays, [1])
+        XCTAssertEqual(transport.requests(urlContains: "/files/f1").count, 2)
+    }
+
+    func testSendNoContentPropagatesTheGoogleError() async {
+        let transport = StubTransport()
+        transport.stubTokenEndpoint()
+        transport.stub(
+            urlContains: "/files/f1",
+            json: #"{"error":{"code":403,"message":"The user does not have permission.","status":"PERMISSION_DENIED"}}"#,
+            status: 403
+        )
+        let api = TestSupport.makeAPI(transport: transport)
+
+        do {
+            try await api.sendNoContent(method: "DELETE", url: fileURL)
+            XCTFail("Expected an error")
+        } catch {
+            guard case GrahamError.googleAPIError(let code, let status, _) = error else {
+                return XCTFail("Wrong error: \(error)")
+            }
+            XCTAssertEqual(code, 403)
+            XCTAssertEqual(status, "PERMISSION_DENIED")
+        }
+    }
 }
 
 /// Records backoff delays from the injected sleep closure.

@@ -171,6 +171,45 @@ final class SlidesReadTests: XCTestCase {
         XCTAssertEqual(try row("deep-img").parentObjectId, "grp2")
     }
 
+    // MARK: - findElement
+
+    func testFindElementFindsATopLevelElement() throws {
+        let presentation = try decodePresentation()
+        let element = try XCTUnwrap(presentation.findElement(objectId: "img1"))
+        XCTAssertEqual(element.objectId, "img1")
+        XCTAssertEqual(element.kind, .image)
+    }
+
+    func testFindElementRecursesIntoNestedGroups() throws {
+        let presentation = try decodePresentation()
+
+        // One level deep, a direct child of grp1.
+        let child = try XCTUnwrap(presentation.findElement(objectId: "g-sh"))
+        XCTAssertEqual(child.objectId, "g-sh")
+        XCTAssertEqual(child.kind, .shape)
+
+        // Two levels deep, inside the inner group grp2. This proves the search
+        // recurses through nested groups, not just the top level.
+        let deep = try XCTUnwrap(presentation.findElement(objectId: "deep-img"))
+        XCTAssertEqual(deep.objectId, "deep-img")
+        XCTAssertEqual(deep.kind, .image)
+
+        // The group object itself is findable too.
+        XCTAssertEqual(try XCTUnwrap(presentation.findElement(objectId: "grp2")).kind, .group)
+    }
+
+    func testFindElementReturnsNilForAMissingId() throws {
+        let presentation = try decodePresentation()
+        XCTAssertNil(presentation.findElement(objectId: "does-not-exist"))
+    }
+
+    func testFindElementReturnsNilOnAnEmptyPresentation() throws {
+        let presentation = try GoogleJSON.decoder.decode(
+            Presentation.self, from: Data(#"{"presentationId": "p"}"#.utf8)
+        )
+        XCTAssertNil(presentation.findElement(objectId: "sh1"))
+    }
+
     // MARK: - Text
 
     func testTextIsDirectAndGroupsCarryNone() throws {
@@ -426,6 +465,57 @@ final class SlidesReadTests: XCTestCase {
         let short = SlideElementRow.oneLine(long, limit: 10)
         XCTAssertEqual(short.count, 10)
         XCTAssertTrue(short.hasSuffix("\u{2026}"))
+    }
+
+    // MARK: - Layouts
+
+    /// A presentation with two layouts, one missing its display name.
+    private static let layoutsJSON = #"""
+    {
+      "presentationId": "p-layouts",
+      "layouts": [
+        {"objectId": "layout-1", "layoutProperties": {
+          "name": "TITLE", "displayName": "Title Slide", "masterObjectId": "master-1"}},
+        {"objectId": "layout-2", "layoutProperties": {
+          "name": "TITLE_AND_BODY", "masterObjectId": "master-1"}}
+      ]
+    }
+    """#
+
+    private func decodeLayouts() throws -> Presentation {
+        try GoogleJSON.decoder.decode(Presentation.self, from: Data(Self.layoutsJSON.utf8))
+    }
+
+    func testLayoutRowsExposeIdNameAndDisplayName() throws {
+        let rows = try decodeLayouts().layoutRows
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows[0].objectId, "layout-1")
+        XCTAssertEqual(rows[0].name, "TITLE")
+        XCTAssertEqual(rows[0].displayName, "Title Slide")
+        XCTAssertEqual(rows[1].objectId, "layout-2")
+        XCTAssertEqual(rows[1].name, "TITLE_AND_BODY")
+        XCTAssertNil(rows[1].displayName)
+    }
+
+    func testLayoutTableRendersColumns() throws {
+        let rows = try decodeLayouts().layoutRows
+        let table = try OutputFormatter.render(rows, format: .table)
+        let lines = table.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+
+        let header = try XCTUnwrap(lines.first)
+        XCTAssertTrue(header.hasPrefix("LAYOUT"), header)
+        XCTAssertTrue(header.contains("NAME"), header)
+        XCTAssertTrue(header.hasSuffix("DISPLAY_NAME"), header)
+
+        let first = try XCTUnwrap(lines.first { $0.contains("layout-1") })
+        XCTAssertTrue(first.contains("TITLE"), first)
+        XCTAssertTrue(first.hasSuffix("Title Slide"), first)
+    }
+
+    func testLayoutRowsAreEmptyWithoutLayouts() throws {
+        let presentation = try GoogleJSON.decoder.decode(
+            Presentation.self, from: Data(#"{"presentationId": "p"}"#.utf8))
+        XCTAssertTrue(presentation.layoutRows.isEmpty)
     }
 
     // MARK: - Empty and defensive cases

@@ -16,6 +16,7 @@ final class DriveCreateParsingTests: XCTestCase {
         XCTAssertEqual(try Drive.Create.parse(["n", "--type", "docs"]).type, .docs)
         XCTAssertEqual(try Drive.Create.parse(["n", "--type", "sheets"]).type, .sheets)
         XCTAssertEqual(try Drive.Create.parse(["n", "--type", "slides"]).type, .slides)
+        XCTAssertEqual(try Drive.Create.parse(["n", "--type", "folder"]).type, .folder)
     }
 
     func testDriveCreateAcceptsAnExplicitFormat() throws {
@@ -31,7 +32,7 @@ final class DriveCreateParsingTests: XCTestCase {
     }
 
     func testDriveCreateRejectsNonCreatableTypes() {
-        // "all" and "folders" are listing filters, not creatable types.
+        // "all" and plural "folders" are listing filters, not creatable types.
         XCTAssertThrowsError(try Drive.Create.parse(["n", "--type", "all"]))
         XCTAssertThrowsError(try Drive.Create.parse(["n", "--type", "folders"]))
         XCTAssertThrowsError(try Drive.Create.parse(["n", "--type", "images"]))

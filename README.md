@@ -10,16 +10,24 @@ Named after Graham's number — a contrast to the googol that named Google.
   check.
 - **Drive** — navigate the top-level drives, list a folder or shared drive,
   search across all drives, and filter by type; get metadata; export and
-  download files; create empty Docs, Sheets, and Slides files.
-- **Sheets and Docs** — read a spreadsheet and its values; read a document.
+  download files; create folders and empty Docs, Sheets, and Slides files; copy files;
+  move files to trash; and permanently delete files.
+- **Sheets and Docs** — read a spreadsheet and its values; write cell values;
+  add a basic chart on its own sheet; read a document.
 - **Slides** — read presentation text; list every page element with its type,
   geometry, text, links, and alt text; list or download every image, including
   images nested in groups; add, move, and delete slides through the shared
-  `presentations.batchUpdate` write path.
+  `presentations.batchUpdate` write path; create text boxes, images, videos,
+  lines, tables, and Sheets charts; group and ungroup elements; move, scale,
+  rotate, transform, and reorder elements; style shape fills, outlines, and
+  shadows; style lines and videos; edit table rows, columns, merged cells, and
+  borders; refresh linked charts; and insert, delete, and style text and
+  paragraphs, manage bullets, and set links; set or clear element alt text;
+  read, set, and clear speaker notes; list presentation layouts and create
+  slides from an exact layout id; delete any page element by exact id; and run
+  a live end-to-end smoke test of the complete command surface.
 
-See `ROADMAP.md` for the remaining Slides editing work. The next milestone is
-element creation: a text box with inserted text first, then the other
-page-element types.
+See `ROADMAP.md` for future work.
 
 ## Install
 
@@ -85,9 +93,20 @@ graham drive get <file-id> --format json
 graham drive export <file-id> --mime application/pdf -o report.pdf
 # Create an empty Google Workspace file and print its new id.
 graham drive create "Quarterly Report" --type docs
+# Create a folder.
+graham drive create "Project Files" --type folder
+# Copy a file, optionally renaming the copy, and print its new id.
+graham drive copy <file-id> --name "Quarterly Report Copy"
+# Move a file to trash (reversible in Drive), or permanently delete it.
+graham drive trash <file-id>
+graham drive delete <file-id> --force
 
 graham sheets get <spreadsheet-id>
 graham sheets values <spreadsheet-id> "Sheet1!A1:C10"
+# Write comma-separated rows (commas cannot be escaped in this first version).
+graham sheets set <spreadsheet-id> "Sheet1!A1:B3" --row "Label,Value" --row "A,10" --row "B,20"
+# Add a chart and print the chart id; pass it to `slides create chart --chart-id`.
+graham sheets chart add <spreadsheet-id> --range "Sheet1!A1:B3" --title "Sales" --type column
 
 graham docs cat <document-id>
 graham slides cat <presentation-id>
@@ -100,10 +119,74 @@ graham slides images <presentation-id> --download ./images
 # Add a slide (a BLANK slide at the end by default) and print its object id.
 graham slides add <presentation-id>
 graham slides add <presentation-id> --at 2 --layout TITLE_AND_BODY
+# List the deck's exact layout ids, or add a slide using one.
+graham slides layouts <presentation-id>
+graham slides add <presentation-id> --layout-id <layout-id>
+# Create a text box (empty by default) and print its object id.
+graham slides create textbox <presentation-id> <slide-id> --text "Hello"
+# Create other elements on a slide (geometry is in points; slide ids come from `slides list --format json`).
+graham slides create image <presentation-id> <slide-id> --url https://example.com/pic.png
+graham slides create video <presentation-id> <slide-id> --id dQw4w9WgXcQ --source youtube
+graham slides create line <presentation-id> <slide-id> --category straight
+graham slides create table <presentation-id> <slide-id> --rows 3 --columns 4
+graham slides create chart <presentation-id> <slide-id> --spreadsheet <spreadsheet-id> --chart-id 12345 --linked
+# Group two or more elements (prints the new group id), or ungroup one or more groups.
+graham slides group <presentation-id> <child-object-id> <child-object-id>
+graham slides ungroup <presentation-id> <group-object-id>
+# Edit element geometry in points; object ids come from `slides list --format json`.
+graham slides element move <presentation-id> <object-id> --to-x 100 --to-y 75
+graham slides element scale <presentation-id> <object-id> --by 1.5
+graham slides element rotate <presentation-id> <object-id> --by 90
+graham slides element transform <presentation-id> <object-id> --translate-x 10 --unit pt
+graham slides element reorder <presentation-id> <object-id> --to front
+# Delete any page element by exact id (deleting a group deletes its children too).
+graham slides element delete <presentation-id> <object-id>
+# Set or clear either alt-text field; clearing both removes the element's alt text.
+graham slides alt-text <presentation-id> <object-id> --title "Chart" --description "Quarterly revenue"
+graham slides alt-text <presentation-id> <object-id> --clear-title --clear-description
+# Read, set, or clear presenter speaker notes by slide id.
+graham slides notes show <presentation-id>
+graham slides notes set <presentation-id> <slide-id> --text "Discuss the forecast"
+graham slides notes clear <presentation-id> <slide-id>
+# Style a shape's fill, outline, and drop shadow (colors are hex like #FF0000 or theme names like accent1).
+graham slides style shape <presentation-id> <object-id> --fill "#FFCC00" --outline accent1 --outline-weight 2
+graham slides style shape <presentation-id> <object-id> --no-fill --shadow-color "#000000" --shadow-blur 4 --align middle
+# Style an image's outline (brightness, contrast, transparency, crop, recolor, and shadow are read-only in the Slides API).
+graham slides style image <presentation-id> <object-id> --outline "#333333" --outline-weight 1
+# Style a line's color, weight, dash, and arrow ends.
+graham slides style line <presentation-id> <object-id> --color accent2 --weight 3 --dash dash-dot --end-arrow open-arrow
+# Style a video's playback and outline.
+graham slides style video <presentation-id> <object-id> --autoplay --mute --start 5 --end 30
+# Edit table structure with one-based row and column indices.
+graham slides table insert-rows <presentation-id> <table-id> --below 2 --count 2
+graham slides table insert-columns <presentation-id> <table-id> --right-of 1
+graham slides table merge <presentation-id> <table-id> --row 1 --column 1 --row-span 2 --column-span 3
+# Style cells, dimensions, and borders; omit a range to update the whole table.
+graham slides table style-cells <presentation-id> <table-id> --fill accent1 --align middle
+graham slides table row-height <presentation-id> <table-id> --min-height 24 --rows 1 3
+graham slides table column-width <presentation-id> <table-id> --width 72
+graham slides table borders <presentation-id> <table-id> --position inner-horizontal --weight 1 --dash solid
+# Edit the text in a shape or table cell (text ranges are zero-based; --row/--column are one-based).
+graham slides text insert <presentation-id> <object-id> --text "Hello" --at 0
+graham slides text delete <presentation-id> <object-id> --from 0 --to 5
+# Style a text run's weight, color, font, size, baseline, and link.
+graham slides text style <presentation-id> <object-id> --bold --color "#FF0000" --link https://example.com
+# Style paragraphs: alignment, line spacing, spacing, indents, and direction.
+graham slides text paragraph <presentation-id> <object-id> --align center --line-spacing 150
+# Add or remove list bullets over a range (omit the range to cover the whole text).
+graham slides text bullets <presentation-id> <object-id> --preset disc-circle-square
+graham slides text unbullet <presentation-id> <object-id>
+# Refresh a linked Sheets chart embedded on a slide.
+graham slides chart refresh <presentation-id> <object-id>
 # Move one slide to a one-based final position (as shown by cat and list).
 graham slides move <presentation-id> <slide-id> --to 1
 # Delete one slide by its exact object id.
 graham slides delete <presentation-id> <slide-id>
+# Exercise the complete live API surface inside the root-level "graham test" folder.
+# The run builds a live Sheets chart and embeds it linked in the test deck.
+# Created files are trashed afterward; --keep retains them. Any failed step exits nonzero.
+graham slides test
+graham slides test --keep --folder "graham test" --image-url https://example.com/image.png
 ```
 
 `graham drive list [<id>]` has three forms:

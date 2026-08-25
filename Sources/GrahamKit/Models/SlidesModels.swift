@@ -13,12 +13,35 @@ public struct Presentation: Codable, Sendable {
     public let presentationId: String?
     public let title: String?
     public let slides: [SlidePage]?
+    /// The slide layouts a new slide can be created from.
+    public let layouts: [SlideLayoutPage]?
+}
+
+/// One slide layout in a presentation.
+///
+/// A layout is a template a slide can be created from. graham reads its object
+/// id and name; a layout id feeds `slides add --layout-id`.
+public struct SlideLayoutPage: Codable, Sendable {
+    public let objectId: String?
+    public let layoutProperties: SlideLayoutProperties?
+}
+
+/// The properties of a slide layout.
+public struct SlideLayoutProperties: Codable, Sendable {
+    /// The API name of the layout, for example `TITLE_AND_BODY`.
+    public let name: String?
+    /// The human-readable name of the layout.
+    public let displayName: String?
+    /// The object id of the master this layout belongs to.
+    public let masterObjectId: String?
 }
 
 /// One slide (a page) in a presentation.
 public struct SlidePage: Codable, Sendable {
     public let objectId: String?
     public let pageElements: [PageElement]?
+    /// The slide-level properties graham reads: its notes page.
+    public let slideProperties: SlideSlideProperties?
 
     /// All visible text on the slide, one text block per line.
     ///
@@ -32,6 +55,38 @@ public struct SlidePage: Codable, Sendable {
             .filter { !$0.isEmpty }
             .joined(separator: "\n")
     }
+}
+
+// MARK: - Speaker notes
+//
+// A slide's `slideProperties.notesPage` is itself a full `Page`, but a
+// `SlidePage` cannot contain another `SlidePage` without becoming recursive.
+// graham only needs the notes shape id and its text, so these reduced,
+// non-recursive types model just that slice. The notes page is read-only:
+// notes are edited through the normal text operations against the speaker-notes
+// shape id, in the same batch update as any other write.
+
+/// The reduced slide-level properties graham reads: a slide's notes page.
+public struct SlideSlideProperties: Codable, Sendable {
+    public let notesPage: SlideNotesPage?
+}
+
+/// A slide's notes page, holding the speaker-notes shape.
+///
+/// ``notesProperties`` names the speaker-notes shape, and ``pageElements``
+/// holds that shape among any others. Google notes that the shape "may not
+/// always exist on the notes page — inserting text using this object ID will
+/// automatically create the shape", so the element may be absent until notes
+/// are first set.
+public struct SlideNotesPage: Codable, Sendable {
+    public let objectId: String?
+    public let notesProperties: SlideNotesProperties?
+    public let pageElements: [PageElement]?
+}
+
+/// The notes-page properties: the object id of the speaker-notes shape.
+public struct SlideNotesProperties: Codable, Sendable {
+    public let speakerNotesObjectId: String?
 }
 
 // MARK: - Page element
@@ -652,6 +707,49 @@ public struct SlideImageRow: Codable, Sendable, Equatable {
     }
 }
 
+/// One slide's speaker notes, flattened out of the presentation tree.
+///
+/// One row per slide, in slide order. The notes shape id comes from the
+/// slide's `slideProperties.notesPage.notesProperties.speakerNotesObjectId`,
+/// and the notes text is the plain text of the matching shape on the notes
+/// page. When the notes shape is absent from the notes page, or has no text,
+/// the notes are the empty string.
+public struct SlideSpeakerNotesRow: Codable, Sendable, Equatable {
+    /// The one-based slide number, matching `slides cat` and `slides list`.
+    public let slideNumber: Int
+    /// The object id of the slide.
+    public let slideId: String?
+    /// The object id of the speaker-notes shape, when the notes page names one.
+    public let notesShapeId: String?
+    /// The plain text of the speaker notes; empty when the shape is missing or
+    /// has no text.
+    public let notes: String
+
+    public init(slideNumber: Int, slideId: String?, notesShapeId: String?, notes: String) {
+        self.slideNumber = slideNumber
+        self.slideId = slideId
+        self.notesShapeId = notesShapeId
+        self.notes = notes
+    }
+}
+
+/// One slide layout, flattened for the CLI: its object id, API name, and
+/// display name. A layout id feeds `slides add --layout-id`.
+public struct SlideLayoutRow: Codable, Sendable, Equatable {
+    /// The object id of the layout.
+    public let objectId: String?
+    /// The API name of the layout, for example `TITLE_AND_BODY`.
+    public let name: String?
+    /// The human-readable name of the layout.
+    public let displayName: String?
+
+    public init(objectId: String?, name: String?, displayName: String?) {
+        self.objectId = objectId
+        self.name = name
+        self.displayName = displayName
+    }
+}
+
 // MARK: - Per-element extraction helpers
 
 extension PageElement {
@@ -757,6 +855,67 @@ extension Presentation {
         return rows
     }
 
+    /// One speaker-notes row per slide, in slide order.
+    ///
+    /// For each slide, the notes shape id comes from
+    /// `slideProperties.notesPage.notesProperties.speakerNotesObjectId`, and the
+    /// notes text is the plain text of the matching shape on the notes page.
+    /// When the notes shape is absent or empty, the notes are the empty string.
+    /// The extraction lives here in GrahamKit; the command only fetches and
+    /// renders. See ``SlideSpeakerNotesRow``.
+    public var speakerNotesRows: [SlideSpeakerNotesRow] {
+        (slides ?? []).enumerated().map { index, slide in
+            let notesPage = slide.slideProperties?.notesPage
+            let shapeId = notesPage?.notesProperties?.speakerNotesObjectId
+            return SlideSpeakerNotesRow(
+                slideNumber: index + 1,
+                slideId: slide.objectId,
+                notesShapeId: shapeId,
+                notes: Self.speakerNotesText(notesPage: notesPage, shapeId: shapeId)
+            )
+        }
+    }
+
+    /// The plain text of the speaker-notes shape named by `shapeId` on
+    /// `notesPage`, or the empty string when the shape is missing or empty.
+    static func speakerNotesText(notesPage: SlideNotesPage?, shapeId: String?) -> String {
+        guard let shapeId else { return "" }
+        for element in notesPage?.pageElements ?? [] where element.objectId == shapeId {
+            return element.shape?.text?.plainText ?? ""
+        }
+        return ""
+    }
+
+    /// Every slide layout, in the order the API returns them. See
+    /// ``SlideLayoutRow``.
+    public var layoutRows: [SlideLayoutRow] {
+        (layouts ?? []).map { layout in
+            SlideLayoutRow(
+                objectId: layout.objectId,
+                name: layout.layoutProperties?.name,
+                displayName: layout.layoutProperties?.displayName
+            )
+        }
+    }
+
+    /// Finds one page element anywhere in the presentation by its object id.
+    ///
+    /// The search is depth-first across every slide and recurses into nested
+    /// groups, so a group child is found however deeply it nests. It follows
+    /// the same order as ``elementRows`` — slide order, then element order, a
+    /// group before its children — and returns the first match. `nil` if no
+    /// element has the id.
+    public func findElement(objectId: String) -> PageElement? {
+        for slide in slides ?? [] {
+            for element in slide.pageElements ?? [] {
+                if let found = Self.findElement(element, objectId: objectId) {
+                    return found
+                }
+            }
+        }
+        return nil
+    }
+
     private static func flatten(
         _ element: PageElement,
         slideIndex: Int,
@@ -796,6 +955,18 @@ extension Presentation {
         for child in element.elementGroup?.children ?? [] {
             collectImages(child, slideIndex: slideIndex, slideId: slideId, into: &rows)
         }
+    }
+
+    /// Depth-first search of one element and its nested group children for the
+    /// object id. Returns the matching element, or `nil`.
+    private static func findElement(_ element: PageElement, objectId: String) -> PageElement? {
+        if element.objectId == objectId { return element }
+        for child in element.elementGroup?.children ?? [] {
+            if let found = findElement(child, objectId: objectId) {
+                return found
+            }
+        }
+        return nil
     }
 }
 
@@ -876,6 +1047,37 @@ extension SlideImageRow: GrahamRow {
             .filter { !$0.isEmpty }
             .joined(separator: " \u{2014} ")
     }
+}
+
+extension SlideSpeakerNotesRow: GrahamRow {
+    public static var tableColumns: [String] {
+        ["SLIDE", "SLIDE_ID", "NOTES_SHAPE", "NOTES"]
+    }
+
+    public var tableValues: [String] {
+        [
+            String(slideNumber),
+            slideId ?? "",
+            notesShapeId ?? "",
+            // The notes text is last and can be long, so it is collapsed to one
+            // line but not padded.
+            SlideElementRow.oneLine(notes),
+        ]
+    }
+
+    public var idValue: String { slideId ?? "" }
+}
+
+extension SlideLayoutRow: GrahamRow {
+    public static var tableColumns: [String] {
+        ["LAYOUT", "NAME", "DISPLAY_NAME"]
+    }
+
+    public var tableValues: [String] {
+        [objectId ?? "", name ?? "", displayName ?? ""]
+    }
+
+    public var idValue: String { objectId ?? "" }
 }
 
 // MARK: - Image download: filenames and results

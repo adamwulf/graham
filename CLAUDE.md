@@ -67,8 +67,11 @@ nested groups recursively contain more page elements.
 `Presentation.elementRows` is the detailed read facade used by `slides list`.
 It flattens groups depth-first while retaining `parentObjectId` and nesting
 depth, and extracts direct text, links, alt text, raw geometry, and image URLs.
-`Presentation.imageRows` recursively filters images for `slides images`. Keep
-extraction and flattening logic in `GrahamKit`; commands only fetch and render.
+`Presentation.imageRows` recursively filters images for `slides images`.
+`Presentation.findElement(objectId:)` finds one element anywhere in the deck,
+recursing into nested groups; the geometry edits use it to read an element's
+current transform before writing. Keep extraction and flattening logic in
+`GrahamKit`; commands only fetch and render.
 
 ### The transport seam
 
@@ -125,8 +128,9 @@ next to the model. Then any command can render it in all four formats.
 Drive file creation already uses `GoogleAPI.sendJSON`. Slides writes go
 through `SlidesClient.batchUpdate` and the `SlidesBatchUpdateRequest` union
 (`Models/SlidesBatchUpdateModels.swift`); a new Slides operation joins that
-union as a new case. Sheets and Docs also use batch-update-style POST
-endpoints, and will follow the same shape.
+union as a new case. Sheets has its own `SheetsBatchUpdateRequest` union in
+`Models/SheetsBatchUpdateModels.swift`, beginning with `addChart`. Docs will
+follow the same shape when its first batch write is added.
 
 1. Define typed request and response models under `Models/`. Request fields
    should be required when the operation requires them; response fields should
@@ -138,8 +142,10 @@ endpoints, and will follow the same shape.
 3. Test the exact method, URL, encoded JSON body, decoded replies, empty replies,
    and Google error propagation through `StubTransport`.
 4. Add a thin CLI command only after the client behavior is covered.
-   User-facing slide positions are one-based; translate the Slides API
-   pre-move insertion-index semantics in `GrahamKit`, not in the command.
+   User-facing positions are one-based: slide positions, table rows and
+   columns, and link slide targets. Text indices are the exception: they stay
+   zero-based (UTF-16 code units), matching the API. Translate one-based to
+   zero-based in `GrahamKit`, not in the command.
 
 Never update response fixtures or `Package.resolved` by hand to simulate a
 write. Tests remain offline and exercise the real encoding path.
@@ -196,6 +202,27 @@ write. Tests remain offline and exercise the real encoding path.
   one-based. Resolve the source index and translate at the high-level client
   boundary. A batch response can contain empty replies for operations such as
   move/delete, so do not require every request to return an object ID.
+- The Slides `update*Properties` operations take a `fields` mask string of
+  comma-separated paths relative to the properties root (the root itself is
+  not spelled). The client builds one deterministic mask path per provided
+  parameter, in a fixed documented order, and the tests assert the exact
+  string. Updating a fill/outline/shadow implicitly sets its `propertyState`
+  to `RENDERED`; clearing one means masking `propertyState` with
+  `NOT_RENDERED`.
+- `ImageProperties` is almost entirely read-only in the Slides API:
+  brightness, contrast, transparency, crop, recolor, and shadow CANNOT be
+  written; only the image outline and link can. Do not plan or model writes
+  for the read-only fields.
+- `updatePageElementTransform` RELATIVE mode left-multiplies (result =
+  update × existing) and does NOT convert units between the two matrices. The
+  computed geometry edits therefore read the element first, do the math in
+  the element's native unit (usually EMU; 12700 EMU per point), and send one
+  precomputed ABSOLUTE transform — Google's own recommendation. The pure
+  matrix helpers live on `ElementTransform`.
+- Element creation generates client-side object ids (`graham-` + UUID, which
+  fits Google's 5–50 char id rules) so that a create and its follow-up edits
+  (for example text-box + insertText) can share one atomic batch. Reply
+  object ids are still preferred when Google returns them.
 
 ## Commands
 

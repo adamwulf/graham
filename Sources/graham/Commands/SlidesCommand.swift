@@ -5,8 +5,72 @@ import GrahamKit
 struct Slides: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Work with Google Slides presentations.",
-        subcommands: [Cat.self, List.self, Images.self, Add.self, Move.self, Delete.self]
+        subcommands: [
+            Cat.self, List.self, Layouts.self, Images.self, Add.self, Create.self,
+            Element.self, Group.self, Ungroup.self, Move.self, Delete.self,
+            AltText.self, Notes.self, Style.self, Table.self, Text.self, Chart.self,
+            Test.self,
+        ]
     )
+
+    struct Test: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Run the live end-to-end Slides smoke test.",
+            discussion: """
+                Creates a presentation and companion files inside a folder in \
+                My Drive, exercises graham's API surface, and trashes the files \
+                afterward. The folder remains. Use --keep to retain the files \
+                for inspection. The command exits nonzero when any step fails.
+                """
+        )
+
+        @Flag(help: "Keep the presentation, spreadsheet, and document after the run.")
+        var keep = false
+
+        @Option(help: "The root-level My Drive folder to find or create.")
+        var folder = "graham test"
+
+        @Option(name: .customLong("image-url"), help: "The public image URL used by create-image.")
+        var imageURL = SlidesLiveTest.defaultImageURL
+
+        func run() async throws {
+            let api = try CLI.makeAPI()
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime]
+            let label = formatter.string(from: Date())
+            let runner = SlidesLiveTest(
+                drive: DriveClient(api: api),
+                slides: SlidesClient(api: api),
+                sheets: SheetsClient(api: api),
+                docs: DocsClient(api: api),
+                folderName: folder,
+                imageURL: imageURL,
+                keep: keep,
+                label: label,
+                onStep: { step in
+                    let ids = step.createdIDs.isEmpty
+                        ? ""
+                        : " [\(step.createdIDs.joined(separator: ", "))]"
+                    switch step.outcome {
+                    case .pass:
+                        print("PASS \(step.name)\(ids)")
+                    case .fail(let reason):
+                        print("FAIL \(step.name): \(reason)\(ids)")
+                    case .skip(let reason):
+                        print("SKIP \(step.name): \(reason)\(ids)")
+                    }
+                }
+            )
+            let summary = await runner.run()
+            print(
+                "Summary: \(summary.passed) passed, \(summary.failed) failed, "
+                    + "\(summary.skipped) skipped"
+            )
+            if summary.failed > 0 {
+                throw ExitCode.failure
+            }
+        }
+    }
 
     struct Cat: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
@@ -65,15 +129,42 @@ struct Slides: AsyncParsableCommand {
         }
     }
 
+    struct Layouts: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "layouts",
+            abstract: "List the slide layouts in a presentation.",
+            discussion: """
+                Each row is one layout: its object id, API name, and display \
+                name. A layout id feeds `slides add --layout-id` to create a \
+                slide from that layout. Use --format json for the full detail.
+                """
+        )
+
+        @Argument(help: "The presentation ID.")
+        var presentationID: String
+
+        @Option(help: "The output format: table, json, jsonl, or id.")
+        var format: OutputFormat = .table
+
+        func run() async throws {
+            let client = SlidesClient(api: try CLI.makeAPI())
+            let presentation = try await client.presentation(id: presentationID)
+            print(try OutputFormatter.render(presentation.layoutRows, format: format))
+        }
+    }
+
     struct Add: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Add a new slide and print its object id.",
             discussion: """
                 Without --at, the slide is appended at the end. Positions are \
                 one-based and match the slide numbers of `slides cat` and \
-                `slides list`. The layout is a predefined layout name such as \
-                BLANK, TITLE, TITLE_AND_BODY, or SECTION_HEADER; the name is \
-                case-insensitive and accepts - for _.
+                `slides list`. --layout is a predefined layout name such as \
+                BLANK, TITLE, TITLE_AND_BODY, or SECTION_HEADER (case- \
+                insensitive, - accepted for _); omitting it defaults to BLANK. \
+                --layout-id instead names a layout in this presentation by its \
+                object id, from `slides layouts`. --layout and --layout-id are \
+                mutually exclusive.
                 """
         )
 
@@ -83,20 +174,760 @@ struct Slides: AsyncParsableCommand {
         @Option(help: "The one-based position of the new slide; omit to append.")
         var at: Int?
 
-        @Option(help: "The predefined layout of the new slide.")
-        var layout: String = "BLANK"
+        @Option(help: "The predefined layout of the new slide; omit for BLANK.")
+        var layout: String?
+
+        @Option(help: "The object id of a layout in the presentation, from `slides layouts`.")
+        var layoutId: String?
 
         func validate() throws {
             if let at, at < 1 {
                 throw ValidationError("--at must be 1 or greater.")
+            }
+            if layout != nil && layoutId != nil {
+                throw ValidationError("--layout cannot be combined with --layout-id.")
             }
         }
 
         func run() async throws {
             let client = SlidesClient(api: try CLI.makeAPI())
             let objectId = try await client.createSlide(
-                presentationId: presentationID, at: at, layout: layout)
+                presentationId: presentationID, at: at, layout: layout, layoutId: layoutId)
             print(objectId)
+        }
+    }
+
+    struct Create: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Create a page element on a slide.",
+            subcommands: [Textbox.self, Image.self, Video.self, Line.self, Table.self, Chart.self]
+        )
+
+        /// Optional placement and size shared by non-text-box element creation.
+        struct GeometryOptions: ParsableArguments {
+            @Option(parsing: .unconditional, help: "The horizontal position in points.")
+            var x: Double?
+
+            @Option(parsing: .unconditional, help: "The vertical position in points.")
+            var y: Double?
+
+            @Option(
+                parsing: .unconditional,
+                help: "The width in points; provide it with --height."
+            )
+            var width: Double?
+
+            @Option(
+                parsing: .unconditional,
+                help: "The height in points; provide it with --width."
+            )
+            var height: Double?
+
+            func validate() throws {
+                if (width == nil) != (height == nil) {
+                    throw ValidationError("--width and --height must be provided together.")
+                }
+                if let width, !(width > 0) {
+                    throw ValidationError("--width must be greater than zero.")
+                }
+                if let height, !(height > 0) {
+                    throw ValidationError("--height must be greater than zero.")
+                }
+            }
+        }
+
+        struct Textbox: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "textbox",
+                abstract: "Create a text box and print its object id.",
+                discussion: """
+                    Geometry is measured in points. Empty text creates an empty \
+                    text box. Get slide ids from `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the slide that will hold the text box.")
+            var slideID: String
+
+            @Option(help: "The initial text; empty creates an empty text box.")
+            var text = ""
+
+            @Option(parsing: .unconditional, help: "The horizontal position in points.")
+            var x: Double = 50
+
+            @Option(parsing: .unconditional, help: "The vertical position in points.")
+            var y: Double = 50
+
+            @Option(
+                parsing: .unconditional,
+                help: "The width in points; must be greater than zero."
+            )
+            var width: Double = 300
+
+            @Option(
+                parsing: .unconditional,
+                help: "The height in points; must be greater than zero."
+            )
+            var height: Double = 50
+
+            func validate() throws {
+                if width <= 0 {
+                    throw ValidationError("--width must be greater than zero.")
+                }
+                if height <= 0 {
+                    throw ValidationError("--height must be greater than zero.")
+                }
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                let objectId = try await client.createTextBox(
+                    presentationId: presentationID,
+                    slideId: slideID,
+                    text: text,
+                    x: x,
+                    y: y,
+                    width: width,
+                    height: height
+                )
+                print(objectId)
+            }
+        }
+
+        struct Image: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Create an image and print its object id.",
+                discussion: """
+                    Optional geometry is measured in points. Get slide ids \
+                    from `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the slide that will hold the image.")
+            var slideID: String
+
+            @Option(help: "The public URL of the image.")
+            var url: String
+
+            @OptionGroup
+            var geometry: GeometryOptions
+
+            func validate() throws {
+                try geometry.validate()
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                let objectId = try await client.createImage(
+                    presentationId: presentationID,
+                    slideId: slideID,
+                    url: url,
+                    x: geometry.x,
+                    y: geometry.y,
+                    width: geometry.width,
+                    height: geometry.height
+                )
+                print(objectId)
+            }
+        }
+
+        struct Video: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Create a video and print its object id.",
+                discussion: """
+                    Optional geometry is measured in points. Get slide ids \
+                    from `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the slide that will hold the video.")
+            var slideID: String
+
+            @Option(name: .customLong("id"), help: "The YouTube or Drive video ID.")
+            var id: String
+
+            @Option(help: "The video source: youtube or drive.")
+            var source: VideoSource = .youtube
+
+            @OptionGroup
+            var geometry: GeometryOptions
+
+            func validate() throws {
+                try geometry.validate()
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                let objectId = try await client.createVideo(
+                    presentationId: presentationID,
+                    slideId: slideID,
+                    source: source,
+                    videoId: id,
+                    x: geometry.x,
+                    y: geometry.y,
+                    width: geometry.width,
+                    height: geometry.height
+                )
+                print(objectId)
+            }
+        }
+
+        struct Line: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Create a line and print its object id.",
+                discussion: """
+                    Optional geometry is measured in points. Get slide ids \
+                    from `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the slide that will hold the line.")
+            var slideID: String
+
+            @Option(help: "The line category: straight, bent, or curved.")
+            var category: LineCategory = .straight
+
+            @OptionGroup
+            var geometry: GeometryOptions
+
+            func validate() throws {
+                try geometry.validate()
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                let objectId = try await client.createLine(
+                    presentationId: presentationID,
+                    slideId: slideID,
+                    category: category,
+                    x: geometry.x,
+                    y: geometry.y,
+                    width: geometry.width,
+                    height: geometry.height
+                )
+                print(objectId)
+            }
+        }
+
+        struct Table: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Create a table and print its object id.",
+                discussion: """
+                    Optional geometry is measured in points. Get slide ids \
+                    from `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the slide that will hold the table.")
+            var slideID: String
+
+            @Option(help: "The number of rows; must be 1 or greater.")
+            var rows: Int
+
+            @Option(help: "The number of columns; must be 1 or greater.")
+            var columns: Int
+
+            @OptionGroup
+            var geometry: GeometryOptions
+
+            func validate() throws {
+                try geometry.validate()
+                if rows < 1 {
+                    throw ValidationError("--rows must be 1 or greater.")
+                }
+                if columns < 1 {
+                    throw ValidationError("--columns must be 1 or greater.")
+                }
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                let objectId = try await client.createTable(
+                    presentationId: presentationID,
+                    slideId: slideID,
+                    rows: rows,
+                    columns: columns,
+                    x: geometry.x,
+                    y: geometry.y,
+                    width: geometry.width,
+                    height: geometry.height
+                )
+                print(objectId)
+            }
+        }
+
+        struct Chart: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Create a Sheets chart and print its object id.",
+                discussion: """
+                    Optional geometry is measured in points. Get slide ids \
+                    from `slides list --format json`. The chart id is the \
+                    spreadsheet's embedded-chart id; --linked keeps the chart \
+                    connected to the sheet.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the slide that will hold the chart.")
+            var slideID: String
+
+            @Option(name: .customLong("spreadsheet"), help: "The source spreadsheet ID.")
+            var spreadsheet: String
+
+            @Option(help: "The spreadsheet embedded-chart ID.")
+            var chartId: Int
+
+            @Flag(help: "Keep the chart connected to its source sheet.")
+            var linked = false
+
+            @OptionGroup
+            var geometry: GeometryOptions
+
+            func validate() throws {
+                try geometry.validate()
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                let objectId = try await client.createSheetsChart(
+                    presentationId: presentationID,
+                    slideId: slideID,
+                    spreadsheetId: spreadsheet,
+                    chartId: chartId,
+                    linked: linked,
+                    x: geometry.x,
+                    y: geometry.y,
+                    width: geometry.width,
+                    height: geometry.height
+                )
+                print(objectId)
+            }
+        }
+    }
+
+    struct Element: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "element",
+            abstract: "Edit a page element: move, scale, rotate, reorder, or delete it.",
+            subcommands: [
+                Move.self, Scale.self, Rotate.self, Transform.self, Reorder.self, Delete.self,
+            ]
+        )
+
+        struct Move: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "move",
+                abstract: "Move a page element and print its object id.",
+                discussion: """
+                    Positions and deltas are measured in points. Use --to-x and \
+                    --to-y together to set the element's local origin in its \
+                    parent's coordinate space, or --by-x and --by-y to nudge it \
+                    by a delta, where a missing axis is 0. The two styles are \
+                    mutually exclusive. For an element inside a group, \
+                    coordinates are relative to the group. Get object ids from \
+                    `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the page element to move.")
+            var objectID: String
+
+            @Option(
+                parsing: .unconditional,
+                help: "The new horizontal origin in points; use with --to-y."
+            )
+            var toX: Double?
+
+            @Option(
+                parsing: .unconditional,
+                help: "The new vertical origin in points; use with --to-x."
+            )
+            var toY: Double?
+
+            @Option(parsing: .unconditional, help: "The horizontal delta in points.")
+            var byX: Double?
+
+            @Option(parsing: .unconditional, help: "The vertical delta in points.")
+            var byY: Double?
+
+            func validate() throws {
+                let hasTo = toX != nil || toY != nil
+                let hasBy = byX != nil || byY != nil
+                if hasTo && hasBy {
+                    throw ValidationError(
+                        "Use either --to-x/--to-y or --by-x/--by-y, not both.")
+                }
+                if !hasTo && !hasBy {
+                    throw ValidationError(
+                        "Provide --to-x and --to-y, or --by-x and/or --by-y.")
+                }
+                if hasTo && (toX == nil || toY == nil) {
+                    throw ValidationError("--to-x and --to-y must be provided together.")
+                }
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                if let toX, let toY {
+                    try await client.moveElement(
+                        presentationId: presentationID,
+                        objectId: objectID,
+                        toX: toX,
+                        toY: toY
+                    )
+                } else {
+                    try await client.moveElement(
+                        presentationId: presentationID,
+                        objectId: objectID,
+                        byX: byX ?? 0,
+                        byY: byY ?? 0
+                    )
+                }
+                print(objectID)
+            }
+        }
+
+        struct Scale: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "scale",
+                abstract: "Resize a page element in place and print its object id.",
+                discussion: """
+                    Scaling keeps the element's center fixed. Use --by for a \
+                    uniform factor, or --by-x and --by-y together for separate \
+                    horizontal and vertical factors. The two styles are \
+                    mutually exclusive and every factor must be greater than \
+                    zero. Get object ids from `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the page element to scale.")
+            var objectID: String
+
+            @Option(
+                parsing: .unconditional,
+                help: "A uniform scale factor; must be greater than zero."
+            )
+            var by: Double?
+
+            @Option(
+                parsing: .unconditional,
+                help: "The horizontal scale factor; use with --by-y."
+            )
+            var byX: Double?
+
+            @Option(
+                parsing: .unconditional,
+                help: "The vertical scale factor; use with --by-x."
+            )
+            var byY: Double?
+
+            func validate() throws {
+                let hasUniform = by != nil
+                let hasAxis = byX != nil || byY != nil
+                if hasUniform && hasAxis {
+                    throw ValidationError("--by cannot be combined with --by-x/--by-y.")
+                }
+                if !hasUniform && !hasAxis {
+                    throw ValidationError("Provide --by, or --by-x and --by-y.")
+                }
+                if hasAxis && (byX == nil || byY == nil) {
+                    throw ValidationError("--by-x and --by-y must be provided together.")
+                }
+                if let by, !(by > 0) {
+                    throw ValidationError("--by must be greater than zero.")
+                }
+                if let byX, !(byX > 0) {
+                    throw ValidationError("--by-x must be greater than zero.")
+                }
+                if let byY, !(byY > 0) {
+                    throw ValidationError("--by-y must be greater than zero.")
+                }
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                let factorX: Double
+                let factorY: Double
+                if let by {
+                    factorX = by
+                    factorY = by
+                } else {
+                    factorX = byX ?? 1
+                    factorY = byY ?? 1
+                }
+                try await client.scaleElement(
+                    presentationId: presentationID,
+                    objectId: objectID,
+                    factorX: factorX,
+                    factorY: factorY
+                )
+                print(objectID)
+            }
+        }
+
+        struct Rotate: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "rotate",
+                abstract: "Rotate a page element and print its object id.",
+                discussion: """
+                    Rotation is about the element's center and measured in \
+                    degrees, positive clockwise. Use --by to rotate by a delta, \
+                    or --to to set an absolute angle; exactly one is required. \
+                    Get object ids from `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the page element to rotate.")
+            var objectID: String
+
+            @Option(
+                parsing: .unconditional,
+                help: "Rotate by this many degrees, clockwise."
+            )
+            var by: Double?
+
+            @Option(
+                parsing: .unconditional,
+                help: "Rotate to this absolute angle in degrees, clockwise."
+            )
+            var to: Double?
+
+            func validate() throws {
+                if (by == nil) == (to == nil) {
+                    throw ValidationError("Provide exactly one of --by or --to.")
+                }
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                if let by {
+                    try await client.rotateElement(
+                        presentationId: presentationID,
+                        objectId: objectID,
+                        byDegrees: by
+                    )
+                } else if let to {
+                    try await client.rotateElement(
+                        presentationId: presentationID,
+                        objectId: objectID,
+                        toDegrees: to
+                    )
+                }
+                print(objectID)
+            }
+        }
+
+        struct Transform: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "transform",
+                abstract: "Set a page element's affine transform and print its object id.",
+                discussion: """
+                    This is the raw primitive: it sends the six transform \
+                    fields verbatim. By default it replaces the element's whole \
+                    matrix (absolute mode) with scale 1, no shear, no \
+                    translation, in points. --relative instead left-multiplies \
+                    the given matrix onto the existing transform; in relative \
+                    mode the API does not convert units, so match the element's \
+                    existing unit (usually EMU, with --unit emu). Get object \
+                    ids from `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the page element to transform.")
+            var objectID: String
+
+            @Option(parsing: .unconditional, help: "The scaleX (a) component.")
+            var scaleX: Double = 1
+
+            @Option(parsing: .unconditional, help: "The scaleY (d) component.")
+            var scaleY: Double = 1
+
+            @Option(parsing: .unconditional, help: "The shearX (c) component.")
+            var shearX: Double = 0
+
+            @Option(parsing: .unconditional, help: "The shearY (b) component.")
+            var shearY: Double = 0
+
+            @Option(parsing: .unconditional, help: "The translateX (tx) component.")
+            var translateX: Double = 0
+
+            @Option(parsing: .unconditional, help: "The translateY (ty) component.")
+            var translateY: Double = 0
+
+            @Option(help: "The unit of the transform: pt or emu.")
+            var unit: ElementUnit = .pt
+
+            @Flag(help: "Left-multiply onto the existing transform instead of replacing it.")
+            var relative = false
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                let transform = ElementTransform(
+                    scaleX: scaleX,
+                    scaleY: scaleY,
+                    shearX: shearX,
+                    shearY: shearY,
+                    translateX: translateX,
+                    translateY: translateY,
+                    unit: unit
+                )
+                let mode: TransformApplyMode = relative ? .relative : .absolute
+                try await client.transformElement(
+                    presentationId: presentationID,
+                    objectId: objectID,
+                    transform: transform,
+                    mode: mode
+                )
+                print(objectID)
+            }
+        }
+
+        struct Reorder: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "reorder",
+                abstract: "Reorder page elements front-to-back and print their ids.",
+                discussion: """
+                    Moves one or more page elements in the z-order with --to \
+                    front, forward, backward, or back. The elements must be on \
+                    the same page and must not be grouped; when several are \
+                    given their relative order is kept. Get object ids from \
+                    `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "One or more page-element object ids, in the order to keep.")
+            var objectIDs: [String]
+
+            @Option(help: "The z-order move: front, forward, backward, or back.")
+            var to: ReorderPosition
+
+            func validate() throws {
+                if objectIDs.isEmpty {
+                    throw ValidationError("reorder requires at least one object id.")
+                }
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.reorderElements(
+                    presentationId: presentationID,
+                    objectIds: objectIDs,
+                    operation: to.operation
+                )
+                for objectID in objectIDs {
+                    print(objectID)
+                }
+            }
+        }
+
+        struct Delete: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "delete",
+                abstract: "Delete a page element by its exact object id and print the id.",
+                discussion: """
+                    Deletes any page element by its exact object id; deleting a \
+                    group deletes its children too. The id is sent exactly as \
+                    given; nothing is inferred or expanded. Get object ids from \
+                    `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the page element to delete.")
+            var objectID: String
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.deleteObject(
+                    presentationId: presentationID, objectId: objectID)
+                print(objectID)
+            }
+        }
+    }
+
+    struct Group: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Group page elements and print the new group's object id."
+        )
+
+        @Argument(help: "The presentation ID.")
+        var presentationID: String
+
+        @Argument(help: "Two or more child page-element object ids.")
+        var childIDs: [String]
+
+        func validate() throws {
+            if childIDs.count < 2 {
+                throw ValidationError("group requires at least two child object ids.")
+            }
+        }
+
+        func run() async throws {
+            let client = SlidesClient(api: try CLI.makeAPI())
+            let objectId = try await client.groupElements(
+                presentationId: presentationID, childIds: childIDs)
+            print(objectId)
+        }
+    }
+
+    struct Ungroup: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Ungroup page elements and print each former group id."
+        )
+
+        @Argument(help: "The presentation ID.")
+        var presentationID: String
+
+        @Argument(help: "One or more top-level group object ids.")
+        var objectIDs: [String]
+
+        func validate() throws {
+            if objectIDs.isEmpty {
+                throw ValidationError("ungroup requires at least one group object id.")
+            }
+        }
+
+        func run() async throws {
+            let client = SlidesClient(api: try CLI.makeAPI())
+            try await client.ungroupElements(
+                presentationId: presentationID, objectIds: objectIDs)
+            for objectId in objectIDs {
+                print(objectId)
+            }
         }
     }
 
@@ -153,6 +984,154 @@ struct Slides: AsyncParsableCommand {
             try await client.deleteObject(
                 presentationId: presentationID, objectId: slideID)
             print(slideID)
+        }
+    }
+
+    struct AltText: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "alt-text",
+            abstract: "Set or clear a page element's alt text and print its object id.",
+            discussion: """
+                Sets the alt-text title and description of any page element. An \
+                omitted field is left unchanged; --clear-title and \
+                --clear-description each clear that field to empty. --title and \
+                --clear-title are mutually exclusive, as are --description and \
+                --clear-description, and at least one of the four is required. \
+                Clearing both fields deletes the element's alt text. Get object \
+                ids from `slides list --format json`.
+                """
+        )
+
+        @Argument(help: "The presentation ID.")
+        var presentationID: String
+
+        @Argument(help: "The object id of the page element.")
+        var objectID: String
+
+        @Option(help: "The alt-text title.")
+        var title: String?
+
+        @Flag(help: "Clear the alt-text title; cannot be combined with --title.")
+        var clearTitle = false
+
+        @Option(help: "The alt-text description.")
+        var description: String?
+
+        @Flag(help: "Clear the alt-text description; cannot be combined with --description.")
+        var clearDescription = false
+
+        func validate() throws {
+            if title != nil && clearTitle {
+                throw ValidationError("--title cannot be combined with --clear-title.")
+            }
+            if description != nil && clearDescription {
+                throw ValidationError(
+                    "--description cannot be combined with --clear-description.")
+            }
+            guard title != nil || clearTitle || description != nil || clearDescription else {
+                throw ValidationError(
+                    "Provide at least one of --title, --clear-title, --description, "
+                    + "or --clear-description.")
+            }
+        }
+
+        func run() async throws {
+            let client = SlidesClient(api: try CLI.makeAPI())
+            // A --clear-* flag sends the empty string, which the API reads as
+            // "clear this field"; an omitted value stays nil, which the encoder
+            // omits so the field keeps its current value.
+            try await client.setAltText(
+                presentationId: presentationID,
+                objectId: objectID,
+                title: clearTitle ? "" : title,
+                description: clearDescription ? "" : description
+            )
+            print(objectID)
+        }
+    }
+
+    struct Notes: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "notes",
+            abstract: "Read, set, or clear slide speaker notes.",
+            subcommands: [Show.self, Set.self, Clear.self]
+        )
+
+        struct Show: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "show",
+                abstract: "Show each slide's speaker notes.",
+                discussion: """
+                    Lists one row per slide: its one-based number, slide id, \
+                    notes shape id, and the notes text. Use --format json for \
+                    the full detail.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Option(help: "The output format: table, json, jsonl, or id.")
+            var format: OutputFormat = .table
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                let rows = try await client.speakerNotes(presentationId: presentationID)
+                print(try OutputFormatter.render(rows, format: format))
+            }
+        }
+
+        struct Set: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "set",
+                abstract: "Set a slide's speaker notes and print the slide id.",
+                discussion: """
+                    Replaces the slide's speaker notes with --text. graham reads \
+                    the presentation to find the slide's notes shape, then \
+                    replaces its text in a single batch update. Get slide ids \
+                    from `slides list --format json` or `slides notes show`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the slide.")
+            var slideID: String
+
+            @Option(help: "The speaker-notes text.")
+            var text: String
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.setSpeakerNotes(
+                    presentationId: presentationID, slideId: slideID, text: text)
+                print(slideID)
+            }
+        }
+
+        struct Clear: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "clear",
+                abstract: "Clear a slide's speaker notes and print the slide id.",
+                discussion: """
+                    Removes all speaker-notes text from the slide. Get slide ids \
+                    from `slides list --format json` or `slides notes show`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the slide.")
+            var slideID: String
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.clearSpeakerNotes(
+                    presentationId: presentationID, slideId: slideID)
+                print(slideID)
+            }
         }
     }
 
@@ -226,5 +1205,1624 @@ struct Slides: AsyncParsableCommand {
             )
             return failed
         }
+    }
+
+    struct Style: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "style",
+            abstract: "Style a page element: shape, image, line, or video.",
+            subcommands: [Shape.self, Image.self, Line.self, Video.self]
+        )
+
+        /// The outline options shared by `style shape`, `style image`, and
+        /// `style video`. The color is a hex value or a theme name; it is parsed
+        /// by ``OpaqueColor/parse(_:)`` in each command's `run()`, so here it is
+        /// only captured as a string.
+        struct OutlineOptions: ParsableArguments {
+            @Option(help: "The outline color: a hex value like #FF0000 or a theme name like accent1.")
+            var outline: String?
+
+            @Option(parsing: .unconditional, help: "The outline fill alpha, from 0 to 1.")
+            var outlineAlpha: Double?
+
+            @Option(
+                parsing: .unconditional,
+                help: "The outline weight in points; must be greater than zero."
+            )
+            var outlineWeight: Double?
+
+            @Option(help: "The outline dash: solid, dot, dash, dash-dot, long-dash, or long-dash-dot.")
+            var outlineDash: DashStyleArgument?
+
+            @Flag(help: "Remove the outline; cannot be combined with the other outline flags.")
+            var noOutline = false
+
+            /// Whether any outline flag was given at all.
+            var hasAnyFlag: Bool {
+                outline != nil || outlineAlpha != nil || outlineWeight != nil
+                    || outlineDash != nil || noOutline
+            }
+
+            func validate() throws {
+                if noOutline
+                    && (outline != nil || outlineAlpha != nil || outlineWeight != nil
+                        || outlineDash != nil)
+                {
+                    throw ValidationError(
+                        "--no-outline cannot be combined with the other outline flags.")
+                }
+                try validateAlpha(outlineAlpha, name: "--outline-alpha")
+                try validatePositive(outlineWeight, name: "--outline-weight")
+            }
+        }
+
+        struct Shape: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "shape",
+                abstract: "Style a shape and print its object id.",
+                discussion: """
+                    Sets a shape's background fill, outline, shadow, and content \
+                    alignment; at least one flag is required. Colors are a hex \
+                    value like #FF0000 (or #F00) or a theme name like accent1. \
+                    Alphas are 0 to 1; weights, blur, and offsets are in points. \
+                    --no-fill, --no-outline, and --no-shadow each remove that \
+                    part and cannot be combined with the other flags of the same \
+                    group. This changes appearance only; use `slides element` to \
+                    move, scale, or rotate. Get object ids from \
+                    `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the shape to style.")
+            var objectID: String
+
+            @Option(help: "The fill color: a hex value like #FF0000 or a theme name like accent1.")
+            var fill: String?
+
+            @Option(parsing: .unconditional, help: "The fill alpha, from 0 to 1.")
+            var fillAlpha: Double?
+
+            @Flag(help: "Remove the fill; cannot be combined with the other fill flags.")
+            var noFill = false
+
+            @OptionGroup
+            var outlineOptions: OutlineOptions
+
+            @Option(help: "The shadow color: a hex value like #FF0000 or a theme name like accent1.")
+            var shadowColor: String?
+
+            @Option(parsing: .unconditional, help: "The shadow alpha, from 0 to 1.")
+            var shadowAlpha: Double?
+
+            @Option(
+                parsing: .unconditional,
+                help: "The shadow blur radius in points; must be greater than zero."
+            )
+            var shadowBlur: Double?
+
+            @Option(parsing: .unconditional, help: "The shadow horizontal offset in points.")
+            var shadowOffsetX: Double?
+
+            @Option(parsing: .unconditional, help: "The shadow vertical offset in points.")
+            var shadowOffsetY: Double?
+
+            @Flag(help: "Remove the shadow; cannot be combined with the other shadow flags.")
+            var noShadow = false
+
+            @Option(help: "The content alignment: top, middle, or bottom.")
+            var align: ContentAlignmentArgument?
+
+            func validate() throws {
+                let hasFill = fill != nil || fillAlpha != nil || noFill
+                let hasShadow =
+                    shadowColor != nil || shadowAlpha != nil || shadowBlur != nil
+                    || shadowOffsetX != nil || shadowOffsetY != nil || noShadow
+                guard hasFill || hasShadow || align != nil || outlineOptions.hasAnyFlag
+                else {
+                    throw ValidationError("Provide at least one style flag.")
+                }
+                try outlineOptions.validate()
+                if noFill && (fill != nil || fillAlpha != nil) {
+                    throw ValidationError(
+                        "--no-fill cannot be combined with the other fill flags.")
+                }
+                if noShadow
+                    && (shadowColor != nil || shadowAlpha != nil || shadowBlur != nil
+                        || shadowOffsetX != nil || shadowOffsetY != nil)
+                {
+                    throw ValidationError(
+                        "--no-shadow cannot be combined with the other shadow flags.")
+                }
+                try validateAlpha(fillAlpha, name: "--fill-alpha")
+                try validateAlpha(shadowAlpha, name: "--shadow-alpha")
+                try validatePositive(shadowBlur, name: "--shadow-blur")
+            }
+
+            func run() async throws {
+                let fillColor = try fill.map { try OpaqueColor.parse($0) }
+                let outlineColor = try outlineOptions.outline.map { try OpaqueColor.parse($0) }
+                let shadow = try shadowColor.map { try OpaqueColor.parse($0) }
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.styleShape(
+                    presentationId: presentationID,
+                    objectId: objectID,
+                    fillColor: fillColor,
+                    fillAlpha: fillAlpha,
+                    noFill: noFill,
+                    outlineColor: outlineColor,
+                    outlineAlpha: outlineOptions.outlineAlpha,
+                    outlineWeight: outlineOptions.outlineWeight,
+                    outlineDash: outlineOptions.outlineDash?.dashStyle,
+                    noOutline: outlineOptions.noOutline,
+                    shadowColor: shadow,
+                    shadowAlpha: shadowAlpha,
+                    shadowBlur: shadowBlur,
+                    shadowOffsetX: shadowOffsetX,
+                    shadowOffsetY: shadowOffsetY,
+                    noShadow: noShadow,
+                    contentAlignment: align?.contentAlignment
+                )
+                print(objectID)
+            }
+        }
+
+        struct Image: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "image",
+                abstract: "Style an image's outline and print its object id.",
+                discussion: """
+                    Sets an image's outline only; at least one outline flag is \
+                    required. The color is a hex value like #FF0000 (or #F00) or \
+                    a theme name like accent1; the weight is in points and the \
+                    alpha is 0 to 1. The Slides API exposes an image's \
+                    brightness, contrast, transparency, crop, recolor, and \
+                    shadow as read-only, so graham cannot change them. Get object \
+                    ids from `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the image to style.")
+            var objectID: String
+
+            @OptionGroup
+            var outlineOptions: OutlineOptions
+
+            func validate() throws {
+                guard outlineOptions.hasAnyFlag else {
+                    throw ValidationError("Provide at least one outline flag.")
+                }
+                try outlineOptions.validate()
+            }
+
+            func run() async throws {
+                let outlineColor = try outlineOptions.outline.map { try OpaqueColor.parse($0) }
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.styleImage(
+                    presentationId: presentationID,
+                    objectId: objectID,
+                    outlineColor: outlineColor,
+                    outlineAlpha: outlineOptions.outlineAlpha,
+                    outlineWeight: outlineOptions.outlineWeight,
+                    outlineDash: outlineOptions.outlineDash?.dashStyle,
+                    noOutline: outlineOptions.noOutline
+                )
+                print(objectID)
+            }
+        }
+
+        struct Line: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "line",
+                abstract: "Style a line and print its object id.",
+                discussion: """
+                    Sets a line's fill color, weight, dash style, and arrow \
+                    ends; at least one flag is required. The color is a hex \
+                    value like #FF0000 (or #F00) or a theme name like accent1; \
+                    the weight is in points and the alpha is 0 to 1. The dash \
+                    style is solid, dot, dash, dash-dot, long-dash, or \
+                    long-dash-dot; each arrow is none, stealth-arrow, \
+                    fill-arrow, fill-circle, fill-square, fill-diamond, \
+                    open-arrow, open-circle, open-square, or open-diamond. Get \
+                    object ids from `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the line to style.")
+            var objectID: String
+
+            @Option(help: "The line color: a hex value like #FF0000 or a theme name like accent1.")
+            var color: String?
+
+            @Option(parsing: .unconditional, help: "The line fill alpha, from 0 to 1.")
+            var alpha: Double?
+
+            @Option(
+                parsing: .unconditional,
+                help: "The line weight in points; must be greater than zero."
+            )
+            var weight: Double?
+
+            @Option(help: "The dash style: solid, dot, dash, dash-dot, long-dash, or long-dash-dot.")
+            var dash: DashStyleArgument?
+
+            @Option(help: "The start arrow style, such as none, open-arrow, or fill-circle.")
+            var startArrow: ArrowStyleArgument?
+
+            @Option(help: "The end arrow style, such as none, open-arrow, or fill-circle.")
+            var endArrow: ArrowStyleArgument?
+
+            func validate() throws {
+                guard color != nil || alpha != nil || weight != nil || dash != nil
+                    || startArrow != nil || endArrow != nil
+                else {
+                    throw ValidationError("Provide at least one style flag.")
+                }
+                try validateAlpha(alpha, name: "--alpha")
+                try validatePositive(weight, name: "--weight")
+            }
+
+            func run() async throws {
+                let lineColor = try color.map { try OpaqueColor.parse($0) }
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.styleLine(
+                    presentationId: presentationID,
+                    objectId: objectID,
+                    color: lineColor,
+                    alpha: alpha,
+                    weight: weight,
+                    dash: dash?.dashStyle,
+                    startArrow: startArrow?.arrowStyle,
+                    endArrow: endArrow?.arrowStyle
+                )
+                print(objectID)
+            }
+        }
+
+        struct Video: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "video",
+                abstract: "Style a video and print its object id.",
+                discussion: """
+                    Sets a video's playback options and outline; at least one \
+                    flag is required. --autoplay/--no-autoplay and \
+                    --mute/--no-mute toggle those settings, and omitting them \
+                    leaves the setting unchanged. --start and --end are whole \
+                    seconds from the beginning; when both are given, --end must \
+                    be after --start. The outline color is a hex value like \
+                    #FF0000 (or #F00) or a theme name like accent1 and its \
+                    weight is in points. Get object ids from \
+                    `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the video to style.")
+            var objectID: String
+
+            @Flag(inversion: .prefixedNo, help: "Play the video automatically.")
+            var autoplay: Bool?
+
+            @Flag(inversion: .prefixedNo, help: "Mute the video's audio.")
+            var mute: Bool?
+
+            @Option(parsing: .unconditional, help: "The start time in whole seconds; 0 or greater.")
+            var start: Int?
+
+            @Option(parsing: .unconditional, help: "The end time in whole seconds; after --start.")
+            var end: Int?
+
+            @OptionGroup
+            var outlineOptions: OutlineOptions
+
+            func validate() throws {
+                guard autoplay != nil || mute != nil || start != nil || end != nil
+                    || outlineOptions.hasAnyFlag
+                else {
+                    throw ValidationError("Provide at least one style flag.")
+                }
+                try outlineOptions.validate()
+                if let start, start < 0 {
+                    throw ValidationError("--start must be 0 or greater.")
+                }
+                if let end, end < 0 {
+                    throw ValidationError("--end must be 0 or greater.")
+                }
+                if let start, let end, !(end > start) {
+                    throw ValidationError("--end must be greater than --start.")
+                }
+            }
+
+            func run() async throws {
+                let outlineColor = try outlineOptions.outline.map { try OpaqueColor.parse($0) }
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.styleVideo(
+                    presentationId: presentationID,
+                    objectId: objectID,
+                    autoPlay: autoplay,
+                    mute: mute,
+                    start: start,
+                    end: end,
+                    outlineColor: outlineColor,
+                    outlineAlpha: outlineOptions.outlineAlpha,
+                    outlineWeight: outlineOptions.outlineWeight,
+                    outlineDash: outlineOptions.outlineDash?.dashStyle,
+                    noOutline: outlineOptions.noOutline
+                )
+                print(objectID)
+            }
+        }
+    }
+
+    struct Table: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "table",
+            abstract: "Edit a table's rows, columns, cells, and borders.",
+            subcommands: [
+                InsertRows.self, InsertColumns.self, DeleteRow.self, DeleteColumn.self,
+                Merge.self, Unmerge.self, StyleCells.self, RowHeight.self,
+                ColumnWidth.self, Borders.self,
+            ]
+        )
+
+        /// Optional one-based range flags shared by cell and border styling.
+        struct RangeOptions: ParsableArguments {
+            @Option(parsing: .unconditional, help: "The one-based first row of the range.")
+            var row: Int?
+
+            @Option(parsing: .unconditional, help: "The one-based first column of the range.")
+            var column: Int?
+
+            @Option(parsing: .unconditional, help: "The number of rows; defaults to 1 for a range.")
+            var rowSpan: Int?
+
+            @Option(parsing: .unconditional, help: "The number of columns; defaults to 1 for a range.")
+            var columnSpan: Int?
+
+            func validate() throws {
+                let hasAny = row != nil || column != nil || rowSpan != nil || columnSpan != nil
+                guard hasAny else { return }
+                guard row != nil, column != nil else {
+                    throw ValidationError(
+                        "A table range requires both --row and --column; spans alone are invalid.")
+                }
+                try validateOneBased(row, name: "--row")
+                try validateOneBased(column, name: "--column")
+                try validateOneBased(rowSpan, name: "--row-span")
+                try validateOneBased(columnSpan, name: "--column-span")
+            }
+        }
+
+        struct InsertRows: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "insert-rows",
+                abstract: "Insert table rows and print the table object id.",
+                discussion: """
+                    Rows are one-based. Give exactly one of --below or --above; \
+                    --count defaults to 1 and can be at most 20. Get table \
+                    object ids from `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The table object id.")
+            var tableID: String
+
+            @Option(parsing: .unconditional, help: "Insert below this one-based row.")
+            var below: Int?
+
+            @Option(parsing: .unconditional, help: "Insert above this one-based row.")
+            var above: Int?
+
+            @Option(parsing: .unconditional, help: "The number of rows to insert (1...20).")
+            var count: Int = 1
+
+            func validate() throws {
+                guard (below == nil) != (above == nil) else {
+                    throw ValidationError("Provide exactly one of --below or --above.")
+                }
+                try validateOneBased(below ?? above, name: "the reference row")
+                guard (1...20).contains(count) else {
+                    throw ValidationError("--count must be between 1 and 20.")
+                }
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                if let below {
+                    try await client.insertTableRows(
+                        presentationId: presentationID, tableId: tableID,
+                        row: below, below: true, count: count)
+                } else if let above {
+                    try await client.insertTableRows(
+                        presentationId: presentationID, tableId: tableID,
+                        row: above, below: false, count: count)
+                }
+                print(tableID)
+            }
+        }
+
+        struct InsertColumns: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "insert-columns",
+                abstract: "Insert table columns and print the table object id.",
+                discussion: """
+                    Columns are one-based. Give exactly one of --right-of or \
+                    --left-of; --count defaults to 1 and can be at most 20. Get \
+                    table object ids from `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The table object id.")
+            var tableID: String
+
+            @Option(parsing: .unconditional, help: "Insert right of this one-based column.")
+            var rightOf: Int?
+
+            @Option(parsing: .unconditional, help: "Insert left of this one-based column.")
+            var leftOf: Int?
+
+            @Option(parsing: .unconditional, help: "The number of columns to insert (1...20).")
+            var count: Int = 1
+
+            func validate() throws {
+                guard (rightOf == nil) != (leftOf == nil) else {
+                    throw ValidationError("Provide exactly one of --right-of or --left-of.")
+                }
+                try validateOneBased(rightOf ?? leftOf, name: "the reference column")
+                guard (1...20).contains(count) else {
+                    throw ValidationError("--count must be between 1 and 20.")
+                }
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                if let rightOf {
+                    try await client.insertTableColumns(
+                        presentationId: presentationID, tableId: tableID,
+                        column: rightOf, right: true, count: count)
+                } else if let leftOf {
+                    try await client.insertTableColumns(
+                        presentationId: presentationID, tableId: tableID,
+                        column: leftOf, right: false, count: count)
+                }
+                print(tableID)
+            }
+        }
+
+        struct DeleteRow: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "delete-row",
+                abstract: "Delete a table row and print the table object id.",
+                discussion: """
+                    Rows are one-based. A merged reference cell deletes every \
+                    row it spans. Get table object ids from \
+                    `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+            @Argument(help: "The table object id.")
+            var tableID: String
+            @Option(parsing: .unconditional, help: "The one-based row to delete.")
+            var row: Int
+
+            func validate() throws { try validateOneBased(row, name: "--row") }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.deleteTableRow(
+                    presentationId: presentationID, tableId: tableID, row: row)
+                print(tableID)
+            }
+        }
+
+        struct DeleteColumn: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "delete-column",
+                abstract: "Delete a table column and print the table object id.",
+                discussion: """
+                    Columns are one-based. A merged reference cell deletes \
+                    every column it spans. Get table object ids from \
+                    `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+            @Argument(help: "The table object id.")
+            var tableID: String
+            @Option(parsing: .unconditional, help: "The one-based column to delete.")
+            var column: Int
+
+            func validate() throws { try validateOneBased(column, name: "--column") }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.deleteTableColumn(
+                    presentationId: presentationID, tableId: tableID, column: column)
+                print(tableID)
+            }
+        }
+
+        struct Merge: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "merge",
+                abstract: "Merge table cells and print the table object id.",
+                discussion: """
+                    Row and column indices are one-based. Text is concatenated \
+                    into the upper-left cell. Get table object ids from \
+                    `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+            @Argument(help: "The table object id.")
+            var tableID: String
+            @Option(parsing: .unconditional, help: "The one-based first row.")
+            var row: Int
+            @Option(parsing: .unconditional, help: "The one-based first column.")
+            var column: Int
+            @Option(parsing: .unconditional, help: "The number of rows to merge.")
+            var rowSpan: Int
+            @Option(parsing: .unconditional, help: "The number of columns to merge.")
+            var columnSpan: Int
+
+            func validate() throws {
+                try validateOneBased(row, name: "--row")
+                try validateOneBased(column, name: "--column")
+                try validateOneBased(rowSpan, name: "--row-span")
+                try validateOneBased(columnSpan, name: "--column-span")
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.mergeTableCells(
+                    presentationId: presentationID, tableId: tableID,
+                    row: row, column: column, rowSpan: rowSpan, columnSpan: columnSpan)
+                print(tableID)
+            }
+        }
+
+        struct Unmerge: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "unmerge",
+                abstract: "Unmerge table cells and print the table object id.",
+                discussion: """
+                    Row and column indices are one-based. Every merged cell in \
+                    the range is unmerged. Get table object ids from \
+                    `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+            @Argument(help: "The table object id.")
+            var tableID: String
+            @Option(parsing: .unconditional, help: "The one-based first row.")
+            var row: Int
+            @Option(parsing: .unconditional, help: "The one-based first column.")
+            var column: Int
+            @Option(parsing: .unconditional, help: "The number of rows to unmerge.")
+            var rowSpan: Int
+            @Option(parsing: .unconditional, help: "The number of columns to unmerge.")
+            var columnSpan: Int
+
+            func validate() throws {
+                try validateOneBased(row, name: "--row")
+                try validateOneBased(column, name: "--column")
+                try validateOneBased(rowSpan, name: "--row-span")
+                try validateOneBased(columnSpan, name: "--column-span")
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.unmergeTableCells(
+                    presentationId: presentationID, tableId: tableID,
+                    row: row, column: column, rowSpan: rowSpan, columnSpan: columnSpan)
+                print(tableID)
+            }
+        }
+
+        struct StyleCells: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "style-cells",
+                abstract: "Style table cells and print the table object id.",
+                discussion: """
+                    Row and column indices are one-based. Omit the complete \
+                    range to style the whole table; with --row and --column, \
+                    omitted spans default to 1. At least one style flag is \
+                    required. Get table object ids from \
+                    `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+            @Argument(help: "The table object id.")
+            var tableID: String
+            @OptionGroup var range: RangeOptions
+            @Option(help: "The fill color: a hex value or theme color name.")
+            var fill: String?
+            @Option(parsing: .unconditional, help: "The fill alpha, from 0 to 1.")
+            var fillAlpha: Double?
+            @Flag(help: "Remove the fill; cannot be combined with fill or fill-alpha.")
+            var noFill = false
+            @Option(help: "The content alignment: top, middle, or bottom.")
+            var align: ContentAlignmentArgument?
+
+            func validate() throws {
+                try range.validate()
+                guard fill != nil || fillAlpha != nil || noFill || align != nil else {
+                    throw ValidationError("Provide at least one style flag.")
+                }
+                if noFill && (fill != nil || fillAlpha != nil) {
+                    throw ValidationError(
+                        "--no-fill cannot be combined with --fill or --fill-alpha.")
+                }
+                try validateAlpha(fillAlpha, name: "--fill-alpha")
+            }
+
+            func run() async throws {
+                let color = try fill.map { try OpaqueColor.parse($0) }
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.styleTableCells(
+                    presentationId: presentationID, tableId: tableID,
+                    row: range.row, column: range.column,
+                    rowSpan: range.rowSpan, columnSpan: range.columnSpan,
+                    fillColor: color, fillAlpha: fillAlpha, noFill: noFill,
+                    alignment: align?.contentAlignment)
+                print(tableID)
+            }
+        }
+
+        struct RowHeight: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "row-height",
+                abstract: "Set table row height and print the table object id.",
+                discussion: """
+                    Rows are one-based. Repeat values after --rows; omitting \
+                    --rows updates every row. Get table object ids from \
+                    `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+            @Argument(help: "The table object id.")
+            var tableID: String
+            @Option(parsing: .unconditional, help: "The positive minimum height in points.")
+            var minHeight: Double
+            @Option(
+                parsing: .upToNextOption,
+                help: "One-based rows to update; omit to update every row."
+            )
+            var rows: [Int] = []
+
+            func validate() throws {
+                try validatePositive(minHeight, name: "--min-height")
+                for row in rows { try validateOneBased(row, name: "--rows") }
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.setTableRowHeight(
+                    presentationId: presentationID, tableId: tableID,
+                    rows: rows, minHeight: minHeight)
+                print(tableID)
+            }
+        }
+
+        struct ColumnWidth: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "column-width",
+                abstract: "Set table column width and print the table object id.",
+                discussion: """
+                    Columns are one-based. Repeat values after --columns; \
+                    omitting --columns updates every column. Width must be at \
+                    least 32 points (406400 EMU). Get table object ids from \
+                    `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+            @Argument(help: "The table object id.")
+            var tableID: String
+            @Option(parsing: .unconditional, help: "The width in points; at least 32.")
+            var width: Double
+            @Option(
+                parsing: .upToNextOption,
+                help: "One-based columns to update; omit to update every column."
+            )
+            var columns: [Int] = []
+
+            func validate() throws {
+                guard width >= 32 else {
+                    throw ValidationError("--width must be at least 32 points (406400 EMU).")
+                }
+                for column in columns { try validateOneBased(column, name: "--columns") }
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.setTableColumnWidth(
+                    presentationId: presentationID, tableId: tableID,
+                    columns: columns, width: width)
+                print(tableID)
+            }
+        }
+
+        struct Borders: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "borders",
+                abstract: "Style table borders and print the table object id.",
+                discussion: """
+                    Row and column indices are one-based. Omit the complete \
+                    range to style the whole table; with --row and --column, \
+                    omitted spans default to 1. At least one style flag is \
+                    required. Get table object ids from \
+                    `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+            @Argument(help: "The table object id.")
+            var tableID: String
+            @OptionGroup var range: RangeOptions
+            @Option(help: "The border position, such as all or inner-horizontal.")
+            var position: TableBorderPositionArgument = .all
+            @Option(help: "The border color: a hex value or theme color name.")
+            var color: String?
+            @Option(parsing: .unconditional, help: "The border alpha, from 0 to 1.")
+            var alpha: Double?
+            @Option(parsing: .unconditional, help: "The positive border weight in points.")
+            var weight: Double?
+            @Option(help: "The dash style, such as solid, dash-dot, or long-dash.")
+            var dash: DashStyleArgument?
+
+            func validate() throws {
+                try range.validate()
+                guard color != nil || alpha != nil || weight != nil || dash != nil else {
+                    throw ValidationError("Provide at least one style flag.")
+                }
+                try validateAlpha(alpha, name: "--alpha")
+                try validatePositive(weight, name: "--weight")
+            }
+
+            func run() async throws {
+                let borderColor = try color.map { try OpaqueColor.parse($0) }
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.styleTableBorders(
+                    presentationId: presentationID, tableId: tableID,
+                    row: range.row, column: range.column,
+                    rowSpan: range.rowSpan, columnSpan: range.columnSpan,
+                    position: position.borderPosition,
+                    color: borderColor, alpha: alpha, weight: weight,
+                    dash: dash?.dashStyle)
+                print(tableID)
+            }
+        }
+    }
+
+    struct Text: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "text",
+            abstract: "Edit the text inside a shape or table cell.",
+            subcommands: [
+                Insert.self, Delete.self, Style.self, Paragraph.self,
+                Bullets.self, Unbullet.self,
+            ]
+        )
+
+        /// Optional zero-based text range shared by delete, style, paragraph,
+        /// bullets, and unbullet. Indices are UTF-16 code units, matching the
+        /// Slides API: `--from` alone runs to the end, and omitting both targets
+        /// the whole text. A shape's or cell's text always ends in an implicit
+        /// newline that some fixed ranges may not touch, so Google can reject a
+        /// range that reaches the very end.
+        struct RangeOptions: ParsableArguments {
+            @Option(
+                parsing: .unconditional,
+                help: "The zero-based start index, in UTF-16 code units."
+            )
+            var from: Int?
+
+            @Option(
+                parsing: .unconditional,
+                help: "The zero-based end index (exclusive); use with --from."
+            )
+            var to: Int?
+        }
+
+        /// Optional one-based table-cell target. Both `--row` and `--column` are
+        /// required together and are only valid when the object id is a table;
+        /// they are translated to the API's zero-based cell location in
+        /// `GrahamKit`.
+        struct CellOptions: ParsableArguments {
+            @Option(
+                parsing: .unconditional,
+                help: "The one-based row of the target table cell; use with --column."
+            )
+            var row: Int?
+
+            @Option(
+                parsing: .unconditional,
+                help: "The one-based column of the target table cell; use with --row."
+            )
+            var column: Int?
+
+            func validate() throws {
+                if (row == nil) != (column == nil) {
+                    throw ValidationError("--row and --column must be provided together.")
+                }
+                try validateOneBased(row, name: "--row")
+                try validateOneBased(column, name: "--column")
+            }
+        }
+
+        struct Insert: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "insert",
+                abstract: "Insert text into a shape or table cell and print its object id.",
+                discussion: """
+                    The text is inserted at the start unless --at gives a \
+                    zero-based index in UTF-16 code units. Target a table cell \
+                    with --row and --column (one-based, together). Get object \
+                    ids from `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the shape or table that holds the text.")
+            var objectID: String
+
+            @Option(help: "The text to insert.")
+            var text: String
+
+            @Option(
+                parsing: .unconditional,
+                help: "The zero-based insertion index; defaults to 0, the start."
+            )
+            var at: Int = 0
+
+            @OptionGroup var cell: CellOptions
+
+            func validate() throws {
+                try cell.validate()
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.insertText(
+                    presentationId: presentationID,
+                    objectId: objectID,
+                    text: text,
+                    insertionIndex: at,
+                    row: cell.row,
+                    column: cell.column
+                )
+                print(objectID)
+            }
+        }
+
+        struct Delete: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "delete",
+                abstract: "Delete text from a shape or table cell and print its object id.",
+                discussion: """
+                    Without --from and --to, the whole text is deleted. The \
+                    indices are zero-based UTF-16 code units and --from alone \
+                    deletes to the end. A shape's or cell's text always ends in \
+                    an implicit newline that some fixed ranges may not touch, so \
+                    Google can reject a range that reaches the very end. Target a \
+                    table cell with --row and --column (one-based, together). \
+                    Get object ids from `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the shape or table that holds the text.")
+            var objectID: String
+
+            @OptionGroup var range: RangeOptions
+            @OptionGroup var cell: CellOptions
+
+            func validate() throws {
+                try cell.validate()
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.deleteText(
+                    presentationId: presentationID,
+                    objectId: objectID,
+                    from: range.from,
+                    to: range.to,
+                    row: cell.row,
+                    column: cell.column
+                )
+                print(objectID)
+            }
+        }
+
+        struct Style: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "style",
+                abstract: "Style text in a shape or table cell and print its object id.",
+                discussion: """
+                    Sets the character style of a text range; at least one style \
+                    flag is required. The range is zero-based UTF-16 code units \
+                    (--from alone runs to the end; omit both for the whole text), \
+                    and --row and --column (one-based, together) target a table \
+                    cell. Colors are a hex value like #FF0000 (or #F00) or a \
+                    theme name like accent1. --background and \
+                    --transparent-background are mutually exclusive. --font-weight \
+                    is a multiple of 100 from 100 to 900 and needs --font. The \
+                    five link flags --link, --link-slide, --link-page, \
+                    --link-relative, and --no-link are mutually exclusive; \
+                    --link-slide is one-based. Get object ids from \
+                    `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the shape or table that holds the text.")
+            var objectID: String
+
+            @OptionGroup var range: RangeOptions
+            @OptionGroup var cell: CellOptions
+
+            @Flag(inversion: .prefixedNo, help: "Bold the text.")
+            var bold: Bool?
+
+            @Flag(inversion: .prefixedNo, help: "Italicize the text.")
+            var italic: Bool?
+
+            @Flag(inversion: .prefixedNo, help: "Underline the text.")
+            var underline: Bool?
+
+            @Flag(inversion: .prefixedNo, help: "Strike through the text.")
+            var strikethrough: Bool?
+
+            @Flag(inversion: .prefixedNo, help: "Render the text in small capitals.")
+            var smallCaps: Bool?
+
+            @Option(help: "The text color: a hex value like #FF0000 or a theme name like accent1.")
+            var color: String?
+
+            @Option(help: "The background color: a hex value like #FF0000 or a theme name like accent1.")
+            var background: String?
+
+            @Flag(help: "Make the text background transparent; cannot be combined with --background.")
+            var transparentBackground = false
+
+            @Option(help: "The font family name, such as Arial.")
+            var font: String?
+
+            @Option(
+                parsing: .unconditional,
+                help: "The font weight, a multiple of 100 from 100 to 900; requires --font."
+            )
+            var fontWeight: Int?
+
+            @Option(
+                parsing: .unconditional,
+                help: "The font size in points; must be greater than zero."
+            )
+            var size: Double?
+
+            @Option(help: "The baseline offset: normal, superscript, or subscript.")
+            var baseline: TextBaselineArgument?
+
+            @Option(help: "Set a link to this URL.")
+            var link: String?
+
+            @Option(
+                parsing: .unconditional,
+                help: "Set a link to this one-based slide position."
+            )
+            var linkSlide: Int?
+
+            @Option(help: "Set a link to this page object id.")
+            var linkPage: String?
+
+            @Option(help: "Set a relative-slide link: next, previous, first, or last.")
+            var linkRelative: RelativeLinkArgument?
+
+            @Flag(help: "Remove any link; cannot be combined with the other link flags.")
+            var noLink = false
+
+            /// The five link flags are a one-of; this counts how many were given.
+            private var linkFlagCount: Int {
+                [link != nil, linkSlide != nil, linkPage != nil, linkRelative != nil, noLink]
+                    .filter { $0 }.count
+            }
+
+            func validate() throws {
+                try cell.validate()
+                let hasStyle =
+                    bold != nil || italic != nil || underline != nil
+                    || strikethrough != nil || smallCaps != nil || color != nil
+                    || background != nil || transparentBackground || font != nil
+                    || fontWeight != nil || size != nil || baseline != nil
+                    || linkFlagCount > 0
+                guard hasStyle else {
+                    throw ValidationError("Provide at least one style flag.")
+                }
+                if transparentBackground && background != nil {
+                    throw ValidationError(
+                        "--transparent-background cannot be combined with --background.")
+                }
+                if linkFlagCount > 1 {
+                    throw ValidationError(
+                        "Provide at most one of --link, --link-slide, --link-page, "
+                        + "--link-relative, or --no-link.")
+                }
+                if let fontWeight {
+                    guard font != nil else {
+                        throw ValidationError("--font-weight requires --font.")
+                    }
+                    guard (100...900).contains(fontWeight), fontWeight % 100 == 0 else {
+                        throw ValidationError(
+                            "--font-weight must be a multiple of 100 from 100 to 900.")
+                    }
+                }
+                try validatePositive(size, name: "--size")
+                try validateOneBased(linkSlide, name: "--link-slide")
+            }
+
+            /// Builds the one-of link target from whichever link flag was given.
+            private func linkTarget() -> TextLinkTarget? {
+                if let link {
+                    return .url(link)
+                } else if let linkSlide {
+                    return .slide(position: linkSlide)
+                } else if let linkPage {
+                    return .page(objectId: linkPage)
+                } else if let linkRelative {
+                    return .relative(linkRelative.relativeSlideLink)
+                }
+                return nil
+            }
+
+            func run() async throws {
+                let foreground = try color.map { try OpaqueColor.parse($0) }
+                let backgroundColor = try background.map { try OpaqueColor.parse($0) }
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.styleText(
+                    presentationId: presentationID,
+                    objectId: objectID,
+                    from: range.from,
+                    to: range.to,
+                    row: cell.row,
+                    column: cell.column,
+                    bold: bold,
+                    italic: italic,
+                    underline: underline,
+                    strikethrough: strikethrough,
+                    smallCaps: smallCaps,
+                    color: foreground,
+                    background: backgroundColor,
+                    transparentBackground: transparentBackground,
+                    fontFamily: font,
+                    fontWeight: fontWeight,
+                    fontSize: size,
+                    baseline: baseline?.baselineOffset,
+                    link: linkTarget(),
+                    clearLink: noLink
+                )
+                print(objectID)
+            }
+        }
+
+        struct Paragraph: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "paragraph",
+                abstract: "Style whole paragraphs and print the object id.",
+                discussion: """
+                    Sets paragraph-level style across every paragraph the range \
+                    touches; at least one style flag is required. The range is \
+                    zero-based UTF-16 code units (--from alone runs to the end; \
+                    omit both for the whole text), and --row and --column \
+                    (one-based, together) target a table cell. --line-spacing is \
+                    a percent of normal, where 100 is normal; spacing and indents \
+                    are in points. Get object ids from `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the shape or table that holds the text.")
+            var objectID: String
+
+            @OptionGroup var range: RangeOptions
+            @OptionGroup var cell: CellOptions
+
+            @Option(help: "The alignment: start, center, end, or justified.")
+            var align: ParagraphAlignmentArgument?
+
+            @Option(
+                parsing: .unconditional,
+                help: "The line spacing as a percent of normal; 100 is normal."
+            )
+            var lineSpacing: Double?
+
+            @Option(parsing: .unconditional, help: "The space above each paragraph in points.")
+            var spaceAbove: Double?
+
+            @Option(parsing: .unconditional, help: "The space below each paragraph in points.")
+            var spaceBelow: Double?
+
+            @Option(parsing: .unconditional, help: "The start-edge indent in points.")
+            var indentStart: Double?
+
+            @Option(parsing: .unconditional, help: "The end-edge indent in points.")
+            var indentEnd: Double?
+
+            @Option(parsing: .unconditional, help: "The first-line indent in points.")
+            var indentFirstLine: Double?
+
+            @Option(help: "The text direction: ltr or rtl.")
+            var direction: TextDirectionArgument?
+
+            @Option(help: "The spacing mode: never-collapse or collapse-lists.")
+            var spacingMode: SpacingModeArgument?
+
+            func validate() throws {
+                try cell.validate()
+                let hasStyle =
+                    align != nil || lineSpacing != nil || spaceAbove != nil
+                    || spaceBelow != nil || indentStart != nil || indentEnd != nil
+                    || indentFirstLine != nil || direction != nil || spacingMode != nil
+                guard hasStyle else {
+                    throw ValidationError("Provide at least one style flag.")
+                }
+                try validatePositive(lineSpacing, name: "--line-spacing")
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.styleParagraphs(
+                    presentationId: presentationID,
+                    objectId: objectID,
+                    from: range.from,
+                    to: range.to,
+                    row: cell.row,
+                    column: cell.column,
+                    alignment: align?.alignment,
+                    lineSpacing: lineSpacing,
+                    spaceAbove: spaceAbove,
+                    spaceBelow: spaceBelow,
+                    indentStart: indentStart,
+                    indentEnd: indentEnd,
+                    indentFirstLine: indentFirstLine,
+                    direction: direction?.direction,
+                    spacingMode: spacingMode?.spacingMode
+                )
+                print(objectID)
+            }
+        }
+
+        struct Bullets: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "bullets",
+                abstract: "Add bullets to paragraphs and print the object id.",
+                discussion: """
+                    Adds bullets to every paragraph the range touches; omit the \
+                    range to bullet the whole text. The range is zero-based \
+                    UTF-16 code units, and --row and --column (one-based, \
+                    together) target a table cell. --preset picks a bullet or \
+                    numbering style; omit it for the Slides default. Get object \
+                    ids from `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the shape or table that holds the text.")
+            var objectID: String
+
+            @OptionGroup var range: RangeOptions
+            @OptionGroup var cell: CellOptions
+
+            @Option(help: "The bullet preset, such as disc-circle-square or digit-alpha-roman.")
+            var preset: BulletPresetArgument?
+
+            func validate() throws {
+                try cell.validate()
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.createBullets(
+                    presentationId: presentationID,
+                    objectId: objectID,
+                    from: range.from,
+                    to: range.to,
+                    row: cell.row,
+                    column: cell.column,
+                    preset: preset?.bulletPreset
+                )
+                print(objectID)
+            }
+        }
+
+        struct Unbullet: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "unbullet",
+                abstract: "Remove bullets from paragraphs and print the object id.",
+                discussion: """
+                    Removes bullets from every paragraph the range touches; omit \
+                    the range to clear the whole text. The range is zero-based \
+                    UTF-16 code units, and --row and --column (one-based, \
+                    together) target a table cell. Get object ids from \
+                    `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the shape or table that holds the text.")
+            var objectID: String
+
+            @OptionGroup var range: RangeOptions
+            @OptionGroup var cell: CellOptions
+
+            func validate() throws {
+                try cell.validate()
+            }
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.deleteBullets(
+                    presentationId: presentationID,
+                    objectId: objectID,
+                    from: range.from,
+                    to: range.to,
+                    row: cell.row,
+                    column: cell.column
+                )
+                print(objectID)
+            }
+        }
+    }
+
+    struct Chart: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "chart",
+            abstract: "Work with charts on slides.",
+            subcommands: [Refresh.self]
+        )
+
+        struct Refresh: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "refresh",
+                abstract: "Refresh a linked Sheets chart and print its object id.",
+                discussion: """
+                    Re-fetches the chart from its source spreadsheet. This works \
+                    only on a chart that was added linked to a sheet; an \
+                    unlinked chart cannot be refreshed. Get object ids from \
+                    `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the linked chart to refresh.")
+            var objectID: String
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.refreshSheetsChart(
+                    presentationId: presentationID, objectId: objectID)
+                print(objectID)
+            }
+        }
+    }
+}
+
+/// CLI-facing names for a z-order move. This keeps the wire enum
+/// ``ZOrderOperation`` out of the command surface; the mapping lives here so
+/// the user types `front`/`forward`/`backward`/`back` instead of the API's
+/// `BRING_TO_FRONT`/`SEND_TO_BACK` spellings.
+enum ReorderPosition: String, ExpressibleByArgument {
+    case front
+    case forward
+    case backward
+    case back
+
+    /// The Slides API operation this position maps to.
+    var operation: ZOrderOperation {
+        switch self {
+        case .front: return .bringToFront
+        case .forward: return .bringForward
+        case .backward: return .sendBackward
+        case .back: return .sendToBack
+        }
+    }
+}
+
+/// Lets `--unit pt|emu` bind to the shared ``ElementUnit``. The API's raw
+/// values are upper-case (`PT`/`EMU`), so accept either case, matching how
+/// ``VideoSource`` and ``LineCategory`` parse in `Graham.swift`.
+extension ElementUnit: ExpressibleByArgument {
+    public init?(argument: String) {
+        self.init(rawValue: argument.uppercased())
+    }
+}
+
+/// CLI-facing dash-style names. Keeps the API's SCREAMING wire spellings
+/// (``DashStyle``) out of the command surface: the user types lower-kebab words
+/// like `dash-dot`, following the ``ReorderPosition`` precedent.
+enum DashStyleArgument: String, ExpressibleByArgument {
+    case solid
+    case dot
+    case dash
+    case dashDot = "dash-dot"
+    case longDash = "long-dash"
+    case longDashDot = "long-dash-dot"
+
+    /// The Slides API dash style this argument maps to.
+    var dashStyle: DashStyle {
+        switch self {
+        case .solid: return .solid
+        case .dot: return .dot
+        case .dash: return .dash
+        case .dashDot: return .dashDot
+        case .longDash: return .longDash
+        case .longDashDot: return .longDashDot
+        }
+    }
+}
+
+/// CLI-facing arrow-style names, lower-kebab, mapping to the API ``ArrowStyle``.
+enum ArrowStyleArgument: String, ExpressibleByArgument {
+    case none
+    case stealthArrow = "stealth-arrow"
+    case fillArrow = "fill-arrow"
+    case fillCircle = "fill-circle"
+    case fillSquare = "fill-square"
+    case fillDiamond = "fill-diamond"
+    case openArrow = "open-arrow"
+    case openCircle = "open-circle"
+    case openSquare = "open-square"
+    case openDiamond = "open-diamond"
+
+    /// The Slides API arrow style this argument maps to.
+    var arrowStyle: ArrowStyle {
+        switch self {
+        case .none: return .none
+        case .stealthArrow: return .stealthArrow
+        case .fillArrow: return .fillArrow
+        case .fillCircle: return .fillCircle
+        case .fillSquare: return .fillSquare
+        case .fillDiamond: return .fillDiamond
+        case .openArrow: return .openArrow
+        case .openCircle: return .openCircle
+        case .openSquare: return .openSquare
+        case .openDiamond: return .openDiamond
+        }
+    }
+}
+
+/// CLI-facing content-alignment names mapping to the API ``ContentAlignment``.
+enum ContentAlignmentArgument: String, ExpressibleByArgument {
+    case top
+    case middle
+    case bottom
+
+    /// The Slides API content alignment this argument maps to.
+    var contentAlignment: ContentAlignment {
+        switch self {
+        case .top: return .top
+        case .middle: return .middle
+        case .bottom: return .bottom
+        }
+    }
+}
+
+/// CLI-facing lower-kebab table-border positions mapping to the Slides API
+/// wire enum.
+enum TableBorderPositionArgument: String, ExpressibleByArgument {
+    case all
+    case bottom
+    case inner
+    case innerHorizontal = "inner-horizontal"
+    case innerVertical = "inner-vertical"
+    case left
+    case outer
+    case right
+    case top
+
+    var borderPosition: TableBorderPosition {
+        switch self {
+        case .all: return .all
+        case .bottom: return .bottom
+        case .inner: return .inner
+        case .innerHorizontal: return .innerHorizontal
+        case .innerVertical: return .innerVertical
+        case .left: return .left
+        case .outer: return .outer
+        case .right: return .right
+        case .top: return .top
+        }
+    }
+}
+
+/// CLI-facing baseline-offset names mapping to the API ``BaselineOffset``.
+/// `normal` maps to the API's `NONE`, so a user resets the baseline with a word
+/// that reads naturally, following the ``ReorderPosition`` precedent.
+enum TextBaselineArgument: String, ExpressibleByArgument {
+    case normal
+    case superscript
+    case `subscript`
+
+    /// The Slides API baseline offset this argument maps to.
+    var baselineOffset: BaselineOffset {
+        switch self {
+        case .normal: return .none
+        case .superscript: return .superscript
+        case .`subscript`: return .`subscript`
+        }
+    }
+}
+
+/// CLI-facing relative-slide-link names mapping to the API ``RelativeSlideLink``.
+/// The user types the short direction word; the API's `NEXT_SLIDE`-style
+/// spellings stay out of the command surface.
+enum RelativeLinkArgument: String, ExpressibleByArgument {
+    case next
+    case previous
+    case first
+    case last
+
+    /// The Slides API relative slide link this argument maps to.
+    var relativeSlideLink: RelativeSlideLink {
+        switch self {
+        case .next: return .nextSlide
+        case .previous: return .previousSlide
+        case .first: return .firstSlide
+        case .last: return .lastSlide
+        }
+    }
+}
+
+/// CLI-facing paragraph-alignment names mapping to the API ``ParagraphAlignment``.
+enum ParagraphAlignmentArgument: String, ExpressibleByArgument {
+    case start
+    case center
+    case end
+    case justified
+
+    /// The Slides API paragraph alignment this argument maps to.
+    var alignment: ParagraphAlignment {
+        switch self {
+        case .start: return .start
+        case .center: return .center
+        case .end: return .end
+        case .justified: return .justified
+        }
+    }
+}
+
+/// CLI-facing text-direction names mapping to the API ``TextDirection``. The
+/// user types the familiar `ltr`/`rtl` abbreviations.
+enum TextDirectionArgument: String, ExpressibleByArgument {
+    case ltr
+    case rtl
+
+    /// The Slides API text direction this argument maps to.
+    var direction: TextDirection {
+        switch self {
+        case .ltr: return .leftToRight
+        case .rtl: return .rightToLeft
+        }
+    }
+}
+
+/// CLI-facing spacing-mode names, lower-kebab, mapping to the API ``SpacingMode``.
+enum SpacingModeArgument: String, ExpressibleByArgument {
+    case neverCollapse = "never-collapse"
+    case collapseLists = "collapse-lists"
+
+    /// The Slides API spacing mode this argument maps to.
+    var spacingMode: SpacingMode {
+        switch self {
+        case .neverCollapse: return .neverCollapse
+        case .collapseLists: return .collapseLists
+        }
+    }
+}
+
+/// CLI-facing bullet-preset names, lower-kebab. Each is the API preset with its
+/// `BULLET_`/`NUMBERED_` prefix dropped and underscores turned into hyphens, so
+/// the user types `disc-circle-square` or `digit-alpha-roman` instead of the
+/// SCREAMING wire spellings of ``BulletPreset``.
+enum BulletPresetArgument: String, ExpressibleByArgument {
+    case discCircleSquare = "disc-circle-square"
+    case diamondxArrow3dSquare = "diamondx-arrow3d-square"
+    case checkbox
+    case arrowDiamondDisc = "arrow-diamond-disc"
+    case starCircleSquare = "star-circle-square"
+    case arrow3dCircleSquare = "arrow3d-circle-square"
+    case lefttriangleDiamondDisc = "lefttriangle-diamond-disc"
+    case diamondxHollowdiamondSquare = "diamondx-hollowdiamond-square"
+    case diamondCircleSquare = "diamond-circle-square"
+    case digitAlphaRoman = "digit-alpha-roman"
+    case digitAlphaRomanParens = "digit-alpha-roman-parens"
+    case digitNested = "digit-nested"
+    case upperalphaAlphaRoman = "upperalpha-alpha-roman"
+    case upperromanUpperalphaDigit = "upperroman-upperalpha-digit"
+    case zerodigitAlphaRoman = "zerodigit-alpha-roman"
+
+    /// The Slides API bullet preset this argument maps to.
+    var bulletPreset: BulletPreset {
+        switch self {
+        case .discCircleSquare: return .bulletDiscCircleSquare
+        case .diamondxArrow3dSquare: return .bulletDiamondxArrow3dSquare
+        case .checkbox: return .bulletCheckbox
+        case .arrowDiamondDisc: return .bulletArrowDiamondDisc
+        case .starCircleSquare: return .bulletStarCircleSquare
+        case .arrow3dCircleSquare: return .bulletArrow3dCircleSquare
+        case .lefttriangleDiamondDisc: return .bulletLefttriangleDiamondDisc
+        case .diamondxHollowdiamondSquare: return .bulletDiamondxHollowdiamondSquare
+        case .diamondCircleSquare: return .bulletDiamondCircleSquare
+        case .digitAlphaRoman: return .numberedDigitAlphaRoman
+        case .digitAlphaRomanParens: return .numberedDigitAlphaRomanParens
+        case .digitNested: return .numberedDigitNested
+        case .upperalphaAlphaRoman: return .numberedUpperalphaAlphaRoman
+        case .upperromanUpperalphaDigit: return .numberedUpperromanUpperalphaDigit
+        case .zerodigitAlphaRoman: return .numberedZerodigitAlphaRoman
+        }
+    }
+}
+
+/// Rejects an alpha that is present but outside 0...1.
+private func validateAlpha(_ alpha: Double?, name: String) throws {
+    if let alpha, !(alpha >= 0 && alpha <= 1) {
+        throw ValidationError("\(name) must be between 0 and 1.")
+    }
+}
+
+/// Rejects a value that is present but not greater than zero.
+private func validatePositive(_ value: Double?, name: String) throws {
+    if let value, !(value > 0) {
+        throw ValidationError("\(name) must be greater than zero.")
+    }
+}
+
+/// Rejects an index or span that is present but below the one-based minimum.
+private func validateOneBased(_ value: Int?, name: String) throws {
+    if let value, value < 1 {
+        throw ValidationError("\(name) must be one-based (1 or greater).")
     }
 }

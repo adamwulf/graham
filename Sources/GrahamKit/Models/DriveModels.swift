@@ -54,16 +54,46 @@ public struct DriveFileList: Codable, Sendable {
 
 /// The request body for `files.create`: the metadata of a new, empty file.
 ///
-/// Only the name and the MIME type are sent; Drive fills in everything else.
+/// The name and MIME type are always sent. `parents` is included when the
+/// caller wants the new file placed in a particular folder.
 /// Encoding through ``GoogleJSON`` escapes the name safely, so a name with a
 /// quote, a backslash, or a newline never breaks the JSON.
 public struct DriveFileCreateRequest: Codable, Sendable, Equatable {
     public let name: String
     public let mimeType: String
+    public let parents: [String]?
 
-    public init(name: String, mimeType: String) {
+    public init(name: String, mimeType: String, parents: [String]? = nil) {
         self.name = name
         self.mimeType = mimeType
+        self.parents = parents
+    }
+}
+
+/// The request body for `files.copy`: an optional new name and destination.
+///
+/// When `name` is nil the key is omitted entirely, so Drive keeps its default
+/// naming ("Copy of <original>"). A one-item `parents` array keeps a copy in a
+/// caller-selected folder. Both are carried in the body, never in the URL.
+public struct DriveFileCopyRequest: Codable, Sendable, Equatable {
+    public let name: String?
+    public let parents: [String]?
+
+    public init(name: String? = nil, parents: [String]? = nil) {
+        self.name = name
+        self.parents = parents
+    }
+}
+
+/// The request body for trashing a file via `files.update`: sets `trashed`.
+///
+/// Trashing is a metadata update, so it is a PATCH with this one field. Setting
+/// `trashed = true` moves the file to the trash, which the Drive UI can undo.
+public struct DriveTrashRequest: Codable, Sendable, Equatable {
+    public let trashed: Bool
+
+    public init(trashed: Bool) {
+        self.trashed = trashed
     }
 }
 

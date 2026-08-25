@@ -164,20 +164,75 @@ public struct DriveClient: Sendable {
             .replacingOccurrences(of: "'", with: "\\'")
     }
 
-    /// Creates a new, empty Google Doc, Sheet, or Slides file, via
-    /// `files.create`. The file lands in "My Drive" with the given name, and
-    /// its type is set by the MIME on ``DriveCreateType``. Returns the created
-    /// file's metadata (the same `fields` as ``file(id:)``).
+    /// Creates a new, empty Google Doc, Sheet, Slides file, or folder via
+    /// `files.create`. With no `parent`, the file lands in "My Drive". When a
+    /// parent id is supplied, Drive places the file directly in that folder.
+    /// Returns the created file's metadata (the same `fields` as ``file(id:)``).
     ///
     /// The name is carried in a JSON request body, not in the URL, so it is
     /// encoded safely no matter what characters it holds.
-    public func create(name: String, type: DriveCreateType) async throws -> DriveFile {
+    public func create(
+        name: String,
+        type: DriveCreateType,
+        parent: String? = nil
+    ) async throws -> DriveFile {
         let url = try GoogleURL.build(
             "\(Self.baseURL)/files",
             query: [("fields", Self.fileFields)]
         )
-        let body = DriveFileCreateRequest(name: name, mimeType: type.mimeType)
+        let body = DriveFileCreateRequest(
+            name: name,
+            mimeType: type.mimeType,
+            parents: parent.map { [$0] }
+        )
         return try await api.sendJSON(DriveFile.self, method: "POST", url: url, body: body)
+    }
+
+    /// Copies a file via `files.copy`. With a `name`, the copy takes that name;
+    /// without one, Drive names it "Copy of <original>". An optional `parent`
+    /// places the copy in that folder. Returns the new file, whose `id` is the
+    /// value the `copy` command prints.
+    ///
+    /// The optional name travels in a JSON request body, not in the URL, so it
+    /// is encoded safely no matter what characters it holds. The request spans
+    /// shared drives.
+    public func copy(
+        fileId: String,
+        name: String? = nil,
+        parent: String? = nil
+    ) async throws -> DriveFile {
+        let url = try GoogleURL.build(
+            "\(Self.baseURL)/files/\(GoogleURL.escapePathComponent(fileId))/copy",
+            query: [("supportsAllDrives", "true")]
+        )
+        let body = DriveFileCopyRequest(name: name, parents: parent.map { [$0] })
+        return try await api.sendJSON(DriveFile.self, method: "POST", url: url, body: body)
+    }
+
+    /// Moves a file to the trash via `files.update` (a PATCH that sets
+    /// `trashed = true`). Returns the updated file metadata. Trashing is
+    /// reversible from the Drive UI. The request spans shared drives.
+    ///
+    /// The `trashed` flag travels in a JSON request body, not in the URL.
+    public func trash(fileId: String) async throws -> DriveFile {
+        let url = try GoogleURL.build(
+            "\(Self.baseURL)/files/\(GoogleURL.escapePathComponent(fileId))",
+            query: [("supportsAllDrives", "true")]
+        )
+        let body = DriveTrashRequest(trashed: true)
+        return try await api.sendJSON(DriveFile.self, method: "PATCH", url: url, body: body)
+    }
+
+    /// Permanently deletes a file via `files.delete` (an HTTP DELETE that
+    /// replies with 204 and an empty body). This BYPASSES the trash: the file
+    /// is not recoverable from the Drive UI, unlike ``trash(fileId:)``. The
+    /// request spans shared drives.
+    public func delete(fileId: String) async throws {
+        let url = try GoogleURL.build(
+            "\(Self.baseURL)/files/\(GoogleURL.escapePathComponent(fileId))",
+            query: [("supportsAllDrives", "true")]
+        )
+        try await api.sendNoContent(method: "DELETE", url: url)
     }
 
     /// Gets the metadata of one file.
