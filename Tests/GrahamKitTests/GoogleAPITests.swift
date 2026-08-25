@@ -94,6 +94,62 @@ final class GoogleAPITests: XCTestCase {
         XCTAssertEqual(recorder.delays, [30])
     }
 
+    func testLogsResponseHeadersWhenNoRetryHint() async throws {
+        let transport = StubTransport()
+        transport.stubTokenEndpoint()
+        transport.stub(urlContains: "/files/f1", responses: [
+            HTTPResponse(
+                statusCode: 429,
+                headers: ["Content-Type": "application/json", "X-RateLimit-Scope": "write-per-minute"],
+                body: Data(#"{"error":{"code":429,"status":"RESOURCE_EXHAUSTED","message":"Quota exceeded"}}"#.utf8)
+            ),
+            StubTransport.json(fileJSON),
+        ])
+        let recorder = LogRecorder()
+        let previous = GrahamLog.handler
+        GrahamLog.handler = { recorder.record($0) }
+        defer { GrahamLog.handler = previous }
+        let api = TestSupport.makeAPI(transport: transport) { _ in }
+
+        let file = try await api.getJSON(DriveFile.self, from: fileURL)
+
+        XCTAssertEqual(file.id, "f1")
+        let dump = try XCTUnwrap(
+            recorder.lines.first { $0.contains("Response headers:") },
+            "Expected a header dump when no retry hint was found. Lines: \(recorder.lines)"
+        )
+        // The raw headers and body are both present, so a later look can spot a
+        // hint we failed to parse.
+        XCTAssertTrue(dump.contains("X-RateLimit-Scope: write-per-minute"), "Missing headers in: \(dump)")
+        XCTAssertTrue(dump.contains("Content-Type: application/json"), "Missing headers in: \(dump)")
+        XCTAssertTrue(dump.contains("RESOURCE_EXHAUSTED"), "Missing body in: \(dump)")
+    }
+
+    func testDoesNotDumpHeadersWhenServerGaveARetryHint() async throws {
+        let transport = StubTransport()
+        transport.stubTokenEndpoint()
+        transport.stub(urlContains: "/files/f1", responses: [
+            HTTPResponse(
+                statusCode: 429,
+                headers: ["Retry-After": "3", "X-RateLimit-Scope": "write-per-minute"],
+                body: Data()
+            ),
+            StubTransport.json(fileJSON),
+        ])
+        let recorder = LogRecorder()
+        let previous = GrahamLog.handler
+        GrahamLog.handler = { recorder.record($0) }
+        defer { GrahamLog.handler = previous }
+        let api = TestSupport.makeAPI(transport: transport) { _ in }
+
+        _ = try await api.getJSON(DriveFile.self, from: fileURL)
+
+        XCTAssertFalse(
+            recorder.lines.contains { $0.contains("Response headers:") },
+            "A parsed hint needs no diagnostic dump. Lines: \(recorder.lines)"
+        )
+    }
+
     func testHonorsRetryInfoDelayWithFractionalSeconds() {
         XCTAssertEqual(GoogleErrorEnvelope.parseDuration("1.500s"), 1.5)
         XCTAssertEqual(GoogleErrorEnvelope.parseDuration("42s"), 42)
@@ -310,5 +366,23 @@ final class SleepRecorder: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         recorded.append(delay)
+    }
+}
+
+/// Captures `GrahamLog` output so a test can assert on the logged lines.
+final class LogRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [String] = []
+
+    var lines: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recorded
+    }
+
+    func record(_ line: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        recorded.append(line)
     }
 }

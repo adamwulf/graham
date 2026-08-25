@@ -183,6 +183,16 @@ public final class GoogleAPI: @unchecked Sendable {
                 "Got status \(response.statusCode)\(status). Server retry hint: \(hint). "
                 + "Retrying in \(delay) seconds (attempt \(retryCount + 1) of \(maxRetries))."
             )
+            // When no hint parsed, dump the raw reply so a later investigation
+            // can see what the server actually sent — an unparsed `Retry-After`
+            // date, a quota header, or a `RetryInfo` variant we do not model.
+            if serverHint == nil {
+                GrahamLog.log(
+                    "No retry hint parsed; dumping the raw reply to diagnose. "
+                    + "Response headers: \(Self.formatHeaders(response.headers)). "
+                    + "Response body: \(Self.formatBody(response.body))."
+                )
+            }
             await sleep(delay)
             return try await send(request, retryCount: retryCount + 1, hasRefreshedToken: hasRefreshedToken)
         }
@@ -209,6 +219,31 @@ public final class GoogleAPI: @unchecked Sendable {
         let body = envelope?.retryDelaySeconds
         let hints = [header, body].compactMap { $0 }
         return hints.max()
+    }
+
+    /// Renders response headers on one line for diagnostic logging: names
+    /// sorted case-insensitively, joined as `name: value` pairs. Used when a
+    /// retryable reply carries no parseable retry hint, so a later look can see
+    /// exactly what the server sent (an unparsed `Retry-After` date, a quota
+    /// header, ...). Response headers hold no bearer token, so this is safe.
+    static func formatHeaders(_ headers: [String: String]) -> String {
+        guard !headers.isEmpty else { return "(none)" }
+        return headers
+            .sorted { $0.key.caseInsensitiveCompare($1.key) == .orderedAscending }
+            .map { "\($0.key): \($0.value)" }
+            .joined(separator: "; ")
+    }
+
+    /// A compact, single-line rendering of a diagnostic response body,
+    /// truncated so a large reply cannot flood the log. A `RetryInfo` variant
+    /// we do not model would show up here.
+    static func formatBody(_ body: Data, limit: Int = 2000) -> String {
+        guard !body.isEmpty else { return "(empty)" }
+        guard let text = String(data: body, encoding: .utf8) else {
+            return "(\(body.count) non-UTF-8 bytes)"
+        }
+        let collapsed = text.split(whereSeparator: { $0.isNewline }).joined(separator: " ")
+        return collapsed.count > limit ? String(collapsed.prefix(limit)) + "…(truncated)" : collapsed
     }
 
     func error(from response: HTTPResponse, envelope: GoogleErrorEnvelope? = nil) -> GrahamError {
