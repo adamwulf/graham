@@ -128,8 +128,9 @@ next to the model. Then any command can render it in all four formats.
 Drive file creation already uses `GoogleAPI.sendJSON`. Slides writes go
 through `SlidesClient.batchUpdate` and the `SlidesBatchUpdateRequest` union
 (`Models/SlidesBatchUpdateModels.swift`); a new Slides operation joins that
-union as a new case. Sheets and Docs also use batch-update-style POST
-endpoints, and will follow the same shape.
+union as a new case. Sheets has its own `SheetsBatchUpdateRequest` union in
+`Models/SheetsBatchUpdateModels.swift`, beginning with `addChart`. Docs will
+follow the same shape when its first batch write is added.
 
 1. Define typed request and response models under `Models/`. Request fields
    should be required when the operation requires them; response fields should

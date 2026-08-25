@@ -12,7 +12,8 @@ Named after Graham's number — a contrast to the googol that named Google.
   search across all drives, and filter by type; get metadata; export and
   download files; create empty Docs, Sheets, and Slides files; copy files;
   move files to trash; and permanently delete files.
-- **Sheets and Docs** — read a spreadsheet and its values; read a document.
+- **Sheets and Docs** — read a spreadsheet and its values; write cell values;
+  add a basic chart on its own sheet; read a document.
 - **Slides** — read presentation text; list every page element with its type,
   geometry, text, links, and alt text; list or download every image, including
   images nested in groups; add, move, and delete slides through the shared
@@ -99,6 +100,10 @@ graham drive delete <file-id> --force
 
 graham sheets get <spreadsheet-id>
 graham sheets values <spreadsheet-id> "Sheet1!A1:C10"
+# Write comma-separated rows (commas cannot be escaped in this first version).
+graham sheets set <spreadsheet-id> "Sheet1!A1:B3" --row "Label,Value" --row "A,10" --row "B,20"
+# Add a chart and print the chart id; pass it to `slides create chart --chart-id`.
+graham sheets chart add <spreadsheet-id> --range "Sheet1!A1:B3" --title "Sales" --type column
 
 graham docs cat <document-id>
 graham slides cat <presentation-id>
