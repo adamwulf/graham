@@ -58,7 +58,7 @@ Tests/CLITests/               argument-parsing tests only
   the longer of that backoff and any server-supplied hint. Three hint sources
   are read, and the largest wins: the `Retry-After` header, a
   `RetryInfo.retryDelay` in the error body, and — when neither is present — the
-  quota window a `google.rpc.ErrorInfo` names. The winning hint gets a one-second
+  quota window a `google.rpc.ErrorInfo` names. The winning hint gets a two-second
   boundary buffer added, so a retry lands just past Google's window rather than a
   hair before it (clock skew, network latency, and sub-second rounding otherwise
   burn a retry on the same 429). Pure backoff has no such boundary and keeps its
@@ -201,7 +201,7 @@ write. Tests remain offline and exercise the real encoding path.
   `GoogleErrorEnvelope.quotaWindowRetrySeconds(serverNow:)` computes the raw time
   left in that window (`window_start_time + windowLength - serverNow`), and
   `GoogleAPI.serverEpoch` reads `serverNow` from the response `Date` header so
-  the wait never depends on the local clock. The one-second boundary buffer is
+  the wait never depends on the local clock. The two-second boundary buffer is
   NOT baked into this value — `GoogleAPI.send` adds it once to whichever hint
   wins, so all three hint sources share a single buffer rather than each keeping
   its own.
