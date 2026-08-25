@@ -762,6 +762,84 @@ final class SlidesWriteTests: XCTestCase {
         try await client.deleteObject(presentationId: "p-1", objectId: "slide-2")
     }
 
+    // MARK: - Alt text
+
+    func testUpdatePageElementAltTextRequestEncodesBothFields() throws {
+        let request = SlidesBatchUpdateRequest.updatePageElementAltText(
+            UpdatePageElementAltTextRequest(
+                objectId: "el-1", title: "A cat", description: "A cat on a mat"))
+        XCTAssertEqual(
+            try encode(request),
+            #"{"updatePageElementAltText":{"description":"A cat on a mat","objectId":"el-1","title":"A cat"}}"#
+        )
+    }
+
+    func testUpdatePageElementAltTextRequestOmitsAnUnsetField() throws {
+        // A nil field is omitted entirely, so the API leaves it unchanged; the
+        // description key is absent from the encoded body.
+        let request = SlidesBatchUpdateRequest.updatePageElementAltText(
+            UpdatePageElementAltTextRequest(objectId: "el-1", title: "Only title"))
+        XCTAssertEqual(
+            try encode(request),
+            #"{"updatePageElementAltText":{"objectId":"el-1","title":"Only title"}}"#
+        )
+    }
+
+    func testUpdatePageElementAltTextRequestSendsAnEmptyStringToClear() throws {
+        // An empty string is present on the wire (it clears the field), unlike
+        // a nil field which is omitted.
+        let request = SlidesBatchUpdateRequest.updatePageElementAltText(
+            UpdatePageElementAltTextRequest(objectId: "el-1", title: "", description: ""))
+        XCTAssertEqual(
+            try encode(request),
+            #"{"updatePageElementAltText":{"description":"","objectId":"el-1","title":""}}"#
+        )
+    }
+
+    func testSetAltTextPostsBothFields() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        try await client.setAltText(
+            presentationId: "p-1", objectId: "el-1",
+            title: "A cat", description: "A cat on a mat")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-1:batchUpdate")
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updatePageElementAltText":{"description":"A cat on a mat","objectId":"el-1","title":"A cat"}}]}"#
+        )
+    }
+
+    func testSetAltTextClearsWithEmptyStrings() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        // Clearing both fields is the API's "delete alt text".
+        try await client.setAltText(
+            presentationId: "p-1", objectId: "el-1", title: "", description: "")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updatePageElementAltText":{"description":"","objectId":"el-1","title":""}}]}"#
+        )
+    }
+
+    func testSetAltTextRejectsBothNilWithoutARequest() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            try await client.setAltText(presentationId: "p-1", objectId: "el-1")
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
     // MARK: - Element-creation request encoding
 
     func testCreateImageRequestEncodesFullGeometryAndUrl() throws {

@@ -751,6 +751,36 @@ public struct SlidesClient: Sendable {
         )
     }
 
+    /// Sets or clears a page element's alt text (its title and description).
+    ///
+    /// The Slides `updatePageElementAltText` operation has no field mask: an
+    /// omitted field keeps its current value and an empty string clears it. So
+    /// `title` and `description` are each `String?` — `nil` omits the field
+    /// (leave it unchanged) and `""` clears it. Passing both `nil` has nothing
+    /// to do and throws ``GrahamError/invalidArgument(_:)`` before any request.
+    /// Clearing both fields (`title: "", description: ""`) is the API's way to
+    /// delete an element's alt text. The reply is empty.
+    public func setAltText(
+        presentationId: String,
+        objectId: String,
+        title: String? = nil,
+        description: String? = nil
+    ) async throws {
+        guard title != nil || description != nil else {
+            throw GrahamError.invalidArgument(
+                "set alt text requires a title or a description "
+                + "(each may be an empty string to clear it)")
+        }
+        _ = try await batchUpdate(
+            presentationId: presentationId,
+            requests: [.updatePageElementAltText(UpdatePageElementAltTextRequest(
+                objectId: objectId,
+                title: title,
+                description: description
+            ))]
+        )
+    }
+
     // MARK: - Element styles
     //
     // Every style method builds a typed style container together with a

@@ -7,8 +7,8 @@ struct Slides: AsyncParsableCommand {
         abstract: "Work with Google Slides presentations.",
         subcommands: [
             Cat.self, List.self, Images.self, Add.self, Create.self, Element.self,
-            Group.self, Ungroup.self, Move.self, Delete.self, Style.self, Table.self,
-            Text.self, Chart.self,
+            Group.self, Ungroup.self, Move.self, Delete.self, AltText.self,
+            Style.self, Table.self, Text.self, Chart.self,
         ]
     )
 
@@ -863,6 +863,69 @@ struct Slides: AsyncParsableCommand {
             try await client.deleteObject(
                 presentationId: presentationID, objectId: slideID)
             print(slideID)
+        }
+    }
+
+    struct AltText: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "alt-text",
+            abstract: "Set or clear a page element's alt text and print its object id.",
+            discussion: """
+                Sets the alt-text title and description of any page element. An \
+                omitted field is left unchanged; --clear-title and \
+                --clear-description each clear that field to empty. --title and \
+                --clear-title are mutually exclusive, as are --description and \
+                --clear-description, and at least one of the four is required. \
+                Clearing both fields deletes the element's alt text. Get object \
+                ids from `slides list --format json`.
+                """
+        )
+
+        @Argument(help: "The presentation ID.")
+        var presentationID: String
+
+        @Argument(help: "The object id of the page element.")
+        var objectID: String
+
+        @Option(help: "The alt-text title.")
+        var title: String?
+
+        @Flag(help: "Clear the alt-text title; cannot be combined with --title.")
+        var clearTitle = false
+
+        @Option(help: "The alt-text description.")
+        var description: String?
+
+        @Flag(help: "Clear the alt-text description; cannot be combined with --description.")
+        var clearDescription = false
+
+        func validate() throws {
+            if title != nil && clearTitle {
+                throw ValidationError("--title cannot be combined with --clear-title.")
+            }
+            if description != nil && clearDescription {
+                throw ValidationError(
+                    "--description cannot be combined with --clear-description.")
+            }
+            guard title != nil || clearTitle || description != nil || clearDescription else {
+                throw ValidationError(
+                    "Provide at least one of --title, --clear-title, --description, "
+                    + "or --clear-description.")
+            }
+        }
+
+        func run() async throws {
+            let client = SlidesClient(api: try CLI.makeAPI())
+            // A --clear-* flag sends the empty string, which the API reads as
+            // "clear this field"; an omitted value stays nil, which the encoder
+            // omits so the field keeps its current value.
+            try await client.setAltText(
+                presentationId: presentationID,
+                objectId: objectID,
+                title: clearTitle ? "" : title,
+                description: clearDescription ? "" : description
+            )
+            print(objectID)
         }
     }
 

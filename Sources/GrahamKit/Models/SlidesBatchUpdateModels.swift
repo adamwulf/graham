@@ -42,6 +42,8 @@ public enum SlidesBatchUpdateRequest: Encodable, Sendable, Equatable {
     case updatePageElementTransform(UpdatePageElementTransformRequest)
     /// Reorders page elements front-to-back on their slide.
     case updatePageElementsZOrder(UpdatePageElementsZOrderRequest)
+    /// Sets or clears a page element's alt text (its title and description).
+    case updatePageElementAltText(UpdatePageElementAltTextRequest)
     /// Sets a shape's fill, outline, shadow, and content alignment.
     case updateShapeProperties(UpdateShapePropertiesRequest)
     /// Sets an image's outline (the only appearance the API lets a write set).
@@ -99,6 +101,7 @@ public enum SlidesBatchUpdateRequest: Encodable, Sendable, Equatable {
         case updateSlidesPosition
         case updatePageElementTransform
         case updatePageElementsZOrder
+        case updatePageElementAltText
         case updateShapeProperties
         case updateImageProperties
         case updateLineProperties
@@ -151,6 +154,8 @@ public enum SlidesBatchUpdateRequest: Encodable, Sendable, Equatable {
             try container.encode(request, forKey: .updatePageElementTransform)
         case .updatePageElementsZOrder(let request):
             try container.encode(request, forKey: .updatePageElementsZOrder)
+        case .updatePageElementAltText(let request):
+            try container.encode(request, forKey: .updatePageElementAltText)
         case .updateShapeProperties(let request):
             try container.encode(request, forKey: .updateShapeProperties)
         case .updateImageProperties(let request):
@@ -743,6 +748,27 @@ public struct UpdatePageElementsZOrderRequest: Codable, Sendable, Equatable {
     public init(pageElementObjectIds: [String], operation: ZOrderOperation) {
         self.pageElementObjectIds = pageElementObjectIds
         self.operation = operation
+    }
+}
+
+/// The `updatePageElementAltText` operation.
+///
+/// This operation has **no field mask**: an omitted field keeps its current
+/// value, and an empty string clears that field. So ``title`` and
+/// ``description`` are each `String?` — `nil` is omitted by the encoder
+/// (leave the field unchanged) and `""` is sent (clear the field). Clearing
+/// both is the API's way to delete an element's alt text.
+public struct UpdatePageElementAltTextRequest: Codable, Sendable, Equatable {
+    public let objectId: String
+    /// The alt-text title. `nil` leaves it unchanged; `""` clears it.
+    public let title: String?
+    /// The alt-text description. `nil` leaves it unchanged; `""` clears it.
+    public let description: String?
+
+    public init(objectId: String, title: String? = nil, description: String? = nil) {
+        self.objectId = objectId
+        self.title = title
+        self.description = description
     }
 }
 

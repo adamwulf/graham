@@ -177,6 +177,59 @@ final class SlidesParsingTests: XCTestCase {
         XCTAssertThrowsError(try Slides.Delete.parse(["deck-id"]))
     }
 
+    // MARK: - alt-text
+
+    func testSlidesListsAltText() {
+        let names = Slides.configuration.subcommands.compactMap {
+            $0.configuration.commandName ?? "\($0)".lowercased()
+        }
+        XCTAssertTrue(names.contains("alt-text"))
+    }
+
+    func testSlidesAltTextParsesTitleAndDescription() throws {
+        let command = try Slides.AltText.parse([
+            "deck-id", "el-1", "--title", "A cat", "--description", "On a mat",
+        ])
+        XCTAssertEqual(command.presentationID, "deck-id")
+        XCTAssertEqual(command.objectID, "el-1")
+        XCTAssertEqual(command.title, "A cat")
+        XCTAssertEqual(command.description, "On a mat")
+        XCTAssertFalse(command.clearTitle)
+        XCTAssertFalse(command.clearDescription)
+    }
+
+    func testSlidesAltTextParsesClearFlags() throws {
+        let command = try Slides.AltText.parse([
+            "deck-id", "el-1", "--clear-title", "--clear-description",
+        ])
+        XCTAssertTrue(command.clearTitle)
+        XCTAssertTrue(command.clearDescription)
+        XCTAssertNil(command.title)
+        XCTAssertNil(command.description)
+    }
+
+    func testSlidesAltTextRejectsTitleWithClearTitle() {
+        XCTAssertThrowsError(try Slides.AltText.parse([
+            "deck-id", "el-1", "--title", "A cat", "--clear-title",
+        ]))
+    }
+
+    func testSlidesAltTextRejectsDescriptionWithClearDescription() {
+        XCTAssertThrowsError(try Slides.AltText.parse([
+            "deck-id", "el-1", "--description", "d", "--clear-description",
+        ]))
+    }
+
+    func testSlidesAltTextRequiresAtLeastOneField() {
+        // With neither a value nor a clear flag there is nothing to do.
+        XCTAssertThrowsError(try Slides.AltText.parse(["deck-id", "el-1"]))
+    }
+
+    func testSlidesAltTextRequiresBothIds() {
+        XCTAssertThrowsError(try Slides.AltText.parse([]))
+        XCTAssertThrowsError(try Slides.AltText.parse(["deck-id"]))
+    }
+
     // MARK: - create subcommand registry
 
     func testSlidesCreateListsEveryElementSubcommand() {
