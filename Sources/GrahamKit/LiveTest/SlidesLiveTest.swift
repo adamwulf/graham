@@ -229,15 +229,6 @@ public struct SlidesLiveTest: Sendable {
                 x: 300, y: 280, width: 360, height: 150
             )
         }
-        recorder.record(
-            name: "create-chart",
-            outcome: .skip(reason: "graham cannot create an embedded Sheets chart to link yet")
-        )
-        recorder.record(
-            name: "chart-refresh",
-            outcome: .skip(reason: "graham cannot create an embedded Sheets chart to link yet")
-        )
-
         let createdElementIDs = [textBox, image, video, line, table].compactMap { $0 }
         _ = await actionStep(
             "elements-list",
@@ -582,6 +573,37 @@ public struct SlidesLiveTest: Sendable {
             try await drive.create(
                 name: "graham test sheet \(label)", type: .sheets, parent: folderID)
         }
+        let sheetValuesSet = await actionStep(
+            "sheets-set-values", recorder: recorder,
+            skipReason: dependencyReason("sheets-create", value: sheet)
+        ) {
+            let response = try await sheets.setValues(
+                spreadsheetId: sheet!.id,
+                range: "A1:B4",
+                values: [
+                    ["Label", "Value"],
+                    ["Alpha", "10"],
+                    ["Beta", "20"],
+                    ["Gamma", "30"],
+                ]
+            )
+            guard let updatedCells = response.updatedCells, updatedCells > 0 else {
+                throw GrahamError.invalidResponse("setting chart data updated no cells")
+            }
+        }
+        let chartID = await valueStep(
+            "sheets-chart-add",
+            recorder: recorder,
+            skipReason: sheetValuesSet ? nil : "sheets-set-values failed",
+            createdIDs: { [String($0)] }
+        ) {
+            try await sheets.addChart(
+                spreadsheetId: sheet!.id,
+                title: "Graham live test",
+                type: .column,
+                range: "A1:B4"
+            )
+        }
         _ = await actionStep(
             "sheets-get", recorder: recorder,
             skipReason: dependencyReason("sheets-create", value: sheet)
@@ -606,6 +628,39 @@ public struct SlidesLiveTest: Sendable {
                 throw GrahamError.invalidResponse("document id did not round-trip")
             }
             _ = read.plainText
+        }
+        let chart = await valueStep(
+            "create-chart",
+            recorder: recorder,
+            skipReason: firstFailed([
+                ("sheets-chart-add", chartID != nil),
+                ("slides-add", primarySlide != nil),
+            ]),
+            createdIDs: { [$0] }
+        ) {
+            try await slides.createSheetsChart(
+                presentationId: presentationID,
+                slideId: primarySlide!,
+                spreadsheetId: sheet!.id,
+                chartId: chartID!,
+                linked: true
+            )
+        }
+        _ = await actionStep(
+            "chart-refresh", recorder: recorder,
+            skipReason: dependencyReason("create-chart", value: chart)
+        ) {
+            try await slides.refreshSheetsChart(
+                presentationId: presentationID, objectId: chart!)
+        }
+        _ = await actionStep(
+            "chart-verify", recorder: recorder,
+            skipReason: dependencyReason("create-chart", value: chart)
+        ) {
+            let rows = try await slides.presentation(id: presentationID).elementRows
+            guard rows.contains(where: { $0.objectId == chart! }) else {
+                throw GrahamError.invalidResponse("chart list is missing \(chart!)")
+            }
         }
 
         // Drive lifecycle. The copy is permanently deleted immediately; it is
