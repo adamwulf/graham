@@ -148,8 +148,12 @@ Drive file creation already uses `GoogleAPI.sendJSON`. Slides writes go
 through `SlidesClient.batchUpdate` and the `SlidesBatchUpdateRequest` union
 (`Models/SlidesBatchUpdateModels.swift`); a new Slides operation joins that
 union as a new case. Sheets has its own `SheetsBatchUpdateRequest` union in
-`Models/SheetsBatchUpdateModels.swift`, beginning with `addChart`. Docs will
-follow the same shape when its first batch write is added.
+`Models/SheetsBatchUpdateModels.swift`, beginning with `addChart`. Docs follows
+the same shape with `DocsBatchUpdateRequest` in
+`Models/DocsBatchUpdateModels.swift`, beginning with `insertText`,
+`deleteContentRange`, and `replaceAllText`; every Docs write type is prefixed
+`Docs` because `GrahamKit` is one module and bare names like `InsertText`
+already belong to Slides.
 
 1. Define typed request and response models under `Models/`. Request fields
    should be required when the operation requires them; response fields should

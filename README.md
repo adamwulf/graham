@@ -13,7 +13,9 @@ Named after Graham's number — a contrast to the googol that named Google.
   download files; create folders and empty Docs, Sheets, and Slides files; copy files;
   move files to trash; and permanently delete files.
 - **Sheets and Docs** — read a spreadsheet and its values; write cell values;
-  add a basic chart on its own sheet; read a document.
+  add a basic chart on its own sheet; read a document; and insert, delete, and
+  replace text in a document through the shared `documents.batchUpdate` write
+  path.
 - **Slides** — read presentation text; list every page element with its type,
   geometry, text, links, and alt text; list or download every image, including
   images nested in groups; add, move, and delete slides through the shared
@@ -109,6 +111,12 @@ graham sheets set <spreadsheet-id> "Sheet1!A1:B3" --row "Label,Value" --row "A,1
 graham sheets chart add <spreadsheet-id> --range "Sheet1!A1:B3" --title "Sales" --type column
 
 graham docs cat <document-id>
+# Edit document text (indices are zero-based UTF-16 code units, as the Docs API defines them).
+graham docs insert <document-id> --text "Hello" --at 1
+graham docs delete <document-id> --from 1 --to 6
+# Replace all matches and print how many were changed (case-insensitive unless --match-case).
+graham docs replace <document-id> --find "old" --replace "new" --match-case
+
 graham slides cat <presentation-id>
 # List every element; JSON includes raw geometry, links, alt text, and image URLs.
 graham slides list <presentation-id>
