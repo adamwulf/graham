@@ -1,8 +1,15 @@
 import Foundation
 import GrahamKit
+import Logging
 
 /// Shared wiring for all commands.
 enum CLI {
+    /// The swift-log logger the file backend (FellerBuncher) captures. It is a
+    /// lazy static so it binds to whatever `LoggingSystem` backend is installed
+    /// when it is first used; `Graham.main` bootstraps FellerBuncher before the
+    /// first `installLogHandler` call, so seam lines land in the log file.
+    private static let logger = Logger(label: "graham.api")
+
     /// Builds the API executor: resolve credentials once, then share one
     /// transport and one token provider.
     static func makeAPI() throws -> GoogleAPI {
@@ -13,11 +20,13 @@ enum CLI {
         return GoogleAPI(tokenProvider: tokenProvider, transport: transport)
     }
 
-    /// Sends library log lines (retries, token refreshes) to stderr, so they
-    /// do not mix with the command output on stdout.
+    /// Sends library log lines (retries, token refreshes) to two sinks: stderr,
+    /// so the user sees them live without polluting stdout, and a swift-log
+    /// logger the FellerBuncher backend persists to `~/Library/Logs/graham/`.
     static func installLogHandler() {
         GrahamLog.handler = { message in
             FileHandle.standardError.write(Data("graham: \(message)\n".utf8))
+            logger.notice("\(message)")
         }
     }
 

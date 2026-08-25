@@ -2,9 +2,10 @@ import ArgumentParser
 import Foundation
 import GrahamKit
 
-/// ANSI colouring for the live-test status lines: PASS green, SKIP yellow,
-/// FAIL red. Colour is applied only when stdout is a terminal, so redirected
-/// or piped output stays plain text.
+/// ANSI colouring for the live-test status word: PASS green, SKIP yellow,
+/// FAIL red. Only the leading status word is coloured; the rest of the line
+/// stays plain. Colour is applied only when stdout is a terminal, so
+/// redirected or piped output stays plain text.
 private enum StatusColor {
     case green, yellow, red
 
@@ -75,11 +76,11 @@ struct Slides: AsyncParsableCommand {
                         : " [\(step.createdIDs.joined(separator: ", "))]"
                     switch step.outcome {
                     case .pass:
-                        print(StatusColor.green.wrap("PASS \(step.name)\(ids)"))
+                        print("\(StatusColor.green.wrap("PASS")) \(step.name)\(ids)")
                     case .fail(let reason):
-                        print(StatusColor.red.wrap("FAIL \(step.name): \(reason)\(ids)"))
+                        print("\(StatusColor.red.wrap("FAIL")) \(step.name): \(reason)\(ids)")
                     case .skip(let reason):
-                        print(StatusColor.yellow.wrap("SKIP \(step.name): \(reason)\(ids)"))
+                        print("\(StatusColor.yellow.wrap("SKIP")) \(step.name): \(reason)\(ids)")
                     }
                 }
             )
