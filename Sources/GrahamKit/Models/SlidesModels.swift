@@ -13,6 +13,27 @@ public struct Presentation: Codable, Sendable {
     public let presentationId: String?
     public let title: String?
     public let slides: [SlidePage]?
+    /// The slide layouts a new slide can be created from.
+    public let layouts: [SlideLayoutPage]?
+}
+
+/// One slide layout in a presentation.
+///
+/// A layout is a template a slide can be created from. graham reads its object
+/// id and name; a layout id feeds `slides add --layout-id`.
+public struct SlideLayoutPage: Codable, Sendable {
+    public let objectId: String?
+    public let layoutProperties: SlideLayoutProperties?
+}
+
+/// The properties of a slide layout.
+public struct SlideLayoutProperties: Codable, Sendable {
+    /// The API name of the layout, for example `TITLE_AND_BODY`.
+    public let name: String?
+    /// The human-readable name of the layout.
+    public let displayName: String?
+    /// The object id of the master this layout belongs to.
+    public let masterObjectId: String?
 }
 
 /// One slide (a page) in a presentation.
@@ -712,6 +733,23 @@ public struct SlideSpeakerNotesRow: Codable, Sendable, Equatable {
     }
 }
 
+/// One slide layout, flattened for the CLI: its object id, API name, and
+/// display name. A layout id feeds `slides add --layout-id`.
+public struct SlideLayoutRow: Codable, Sendable, Equatable {
+    /// The object id of the layout.
+    public let objectId: String?
+    /// The API name of the layout, for example `TITLE_AND_BODY`.
+    public let name: String?
+    /// The human-readable name of the layout.
+    public let displayName: String?
+
+    public init(objectId: String?, name: String?, displayName: String?) {
+        self.objectId = objectId
+        self.name = name
+        self.displayName = displayName
+    }
+}
+
 // MARK: - Per-element extraction helpers
 
 extension PageElement {
@@ -846,6 +884,18 @@ extension Presentation {
             return element.shape?.text?.plainText ?? ""
         }
         return ""
+    }
+
+    /// Every slide layout, in the order the API returns them. See
+    /// ``SlideLayoutRow``.
+    public var layoutRows: [SlideLayoutRow] {
+        (layouts ?? []).map { layout in
+            SlideLayoutRow(
+                objectId: layout.objectId,
+                name: layout.layoutProperties?.name,
+                displayName: layout.layoutProperties?.displayName
+            )
+        }
     }
 
     /// Finds one page element anywhere in the presentation by its object id.
@@ -1016,6 +1066,18 @@ extension SlideSpeakerNotesRow: GrahamRow {
     }
 
     public var idValue: String { slideId ?? "" }
+}
+
+extension SlideLayoutRow: GrahamRow {
+    public static var tableColumns: [String] {
+        ["LAYOUT", "NAME", "DISPLAY_NAME"]
+    }
+
+    public var tableValues: [String] {
+        [objectId ?? "", name ?? "", displayName ?? ""]
+    }
+
+    public var idValue: String { objectId ?? "" }
 }
 
 // MARK: - Image download: filenames and results

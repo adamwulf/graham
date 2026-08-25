@@ -69,10 +69,13 @@ final class SlidesParsingTests: XCTestCase {
     // MARK: - add
 
     func testSlidesAddDefaultsToAppendingABlankSlide() throws {
+        // --layout is now optional; nil means unspecified, and the client
+        // applies the BLANK default when neither --layout nor --layout-id given.
         let command = try Slides.Add.parse(["deck-id"])
         XCTAssertEqual(command.presentationID, "deck-id")
         XCTAssertNil(command.at)
-        XCTAssertEqual(command.layout, "BLANK")
+        XCTAssertNil(command.layout)
+        XCTAssertNil(command.layoutId)
     }
 
     func testSlidesAddParsesPositionAndLayout() throws {
@@ -80,6 +83,20 @@ final class SlidesParsingTests: XCTestCase {
             ["deck-id", "--at", "3", "--layout", "TITLE_AND_BODY"])
         XCTAssertEqual(command.at, 3)
         XCTAssertEqual(command.layout, "TITLE_AND_BODY")
+        XCTAssertNil(command.layoutId)
+    }
+
+    func testSlidesAddParsesLayoutId() throws {
+        let command = try Slides.Add.parse(["deck-id", "--layout-id", "layout-7"])
+        XCTAssertEqual(command.layoutId, "layout-7")
+        XCTAssertNil(command.layout)
+    }
+
+    func testSlidesAddRejectsLayoutWithLayoutId() {
+        // The two layout selectors are mutually exclusive.
+        XCTAssertThrowsError(try Slides.Add.parse([
+            "deck-id", "--layout", "BLANK", "--layout-id", "layout-7",
+        ]))
     }
 
     func testSlidesAddRequiresAPresentationID() {
@@ -94,6 +111,30 @@ final class SlidesParsingTests: XCTestCase {
 
     func testSlidesAddRejectsANonNumericPosition() {
         XCTAssertThrowsError(try Slides.Add.parse(["deck-id", "--at", "first"]))
+    }
+
+    // MARK: - layouts
+
+    func testSlidesListsLayouts() {
+        let names = Slides.configuration.subcommands.compactMap {
+            $0.configuration.commandName ?? "\($0)".lowercased()
+        }
+        XCTAssertTrue(names.contains("layouts"))
+    }
+
+    func testSlidesLayoutsDefaults() throws {
+        let command = try Slides.Layouts.parse(["deck-id"])
+        XCTAssertEqual(command.presentationID, "deck-id")
+        XCTAssertEqual(command.format, .table)
+    }
+
+    func testSlidesLayoutsParsesFormat() throws {
+        let command = try Slides.Layouts.parse(["deck-id", "--format", "id"])
+        XCTAssertEqual(command.format, .id)
+    }
+
+    func testSlidesLayoutsRequiresAPresentationID() {
+        XCTAssertThrowsError(try Slides.Layouts.parse([]))
     }
 
     // MARK: - create textbox

@@ -406,6 +406,34 @@ final class SlidesWriteTests: XCTestCase {
         XCTAssertEqual(SlidesClient.normalizeLayout("TITLE_ONLY"), "TITLE_ONLY")
     }
 
+    func testCreateSlideWithLayoutIdEncodesTheLayoutId() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"replies":[{"createSlide":{"objectId":"x"}}]}"#
+        )
+
+        _ = try await client.createSlide(presentationId: "p-1", layoutId: "layout-7")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"createSlide":{"slideLayoutReference":{"layoutId":"layout-7"}}}]}"#
+        )
+    }
+
+    func testCreateSlideRejectsBothLayoutNameAndLayoutId() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            _ = try await client.createSlide(
+                presentationId: "p-1", layout: "BLANK", layoutId: "layout-7")
+        }
+        XCTAssertTrue(transport.requests.isEmpty, "no request should be sent")
+    }
+
     // MARK: - createTextBox and insertText
 
     func testCreateTextBoxPostsCreateThenInsertAtomicallyAndReturnsReplyId() async throws {

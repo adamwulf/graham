@@ -6,9 +6,9 @@ struct Slides: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Work with Google Slides presentations.",
         subcommands: [
-            Cat.self, List.self, Images.self, Add.self, Create.self, Element.self,
-            Group.self, Ungroup.self, Move.self, Delete.self, AltText.self,
-            Notes.self, Style.self, Table.self, Text.self, Chart.self,
+            Cat.self, List.self, Layouts.self, Images.self, Add.self, Create.self,
+            Element.self, Group.self, Ungroup.self, Move.self, Delete.self,
+            AltText.self, Notes.self, Style.self, Table.self, Text.self, Chart.self,
         ]
     )
 
@@ -69,15 +69,42 @@ struct Slides: AsyncParsableCommand {
         }
     }
 
+    struct Layouts: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "layouts",
+            abstract: "List the slide layouts in a presentation.",
+            discussion: """
+                Each row is one layout: its object id, API name, and display \
+                name. A layout id feeds `slides add --layout-id` to create a \
+                slide from that layout. Use --format json for the full detail.
+                """
+        )
+
+        @Argument(help: "The presentation ID.")
+        var presentationID: String
+
+        @Option(help: "The output format: table, json, jsonl, or id.")
+        var format: OutputFormat = .table
+
+        func run() async throws {
+            let client = SlidesClient(api: try CLI.makeAPI())
+            let presentation = try await client.presentation(id: presentationID)
+            print(try OutputFormatter.render(presentation.layoutRows, format: format))
+        }
+    }
+
     struct Add: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Add a new slide and print its object id.",
             discussion: """
                 Without --at, the slide is appended at the end. Positions are \
                 one-based and match the slide numbers of `slides cat` and \
-                `slides list`. The layout is a predefined layout name such as \
-                BLANK, TITLE, TITLE_AND_BODY, or SECTION_HEADER; the name is \
-                case-insensitive and accepts - for _.
+                `slides list`. --layout is a predefined layout name such as \
+                BLANK, TITLE, TITLE_AND_BODY, or SECTION_HEADER (case- \
+                insensitive, - accepted for _); omitting it defaults to BLANK. \
+                --layout-id instead names a layout in this presentation by its \
+                object id, from `slides layouts`. --layout and --layout-id are \
+                mutually exclusive.
                 """
         )
 
@@ -87,19 +114,25 @@ struct Slides: AsyncParsableCommand {
         @Option(help: "The one-based position of the new slide; omit to append.")
         var at: Int?
 
-        @Option(help: "The predefined layout of the new slide.")
-        var layout: String = "BLANK"
+        @Option(help: "The predefined layout of the new slide; omit for BLANK.")
+        var layout: String?
+
+        @Option(help: "The object id of a layout in the presentation, from `slides layouts`.")
+        var layoutId: String?
 
         func validate() throws {
             if let at, at < 1 {
                 throw ValidationError("--at must be 1 or greater.")
+            }
+            if layout != nil && layoutId != nil {
+                throw ValidationError("--layout cannot be combined with --layout-id.")
             }
         }
 
         func run() async throws {
             let client = SlidesClient(api: try CLI.makeAPI())
             let objectId = try await client.createSlide(
-                presentationId: presentationID, at: at, layout: layout)
+                presentationId: presentationID, at: at, layout: layout, layoutId: layoutId)
             print(objectId)
         }
     }

@@ -88,23 +88,41 @@ public struct SlidesClient: Sendable {
     ///   - layout: A predefined layout name, for example `BLANK` or
     ///     `TITLE_AND_BODY`. The name is normalized (trimmed, uppercased, `-`
     ///     and spaces become `_`), so `title-and-body` also works. Google
-    ///     rejects a name it does not know.
+    ///     rejects a name it does not know. `nil` means unspecified: with no
+    ///     `layoutId` either, the slide defaults to the `BLANK` predefined
+    ///     layout.
+    ///   - layoutId: The object id of a layout in the presentation (from
+    ///     ``Presentation/layoutRows``). Mutually exclusive with `layout`:
+    ///     providing both throws ``GrahamError/invalidArgument(_:)``.
     public func createSlide(
         presentationId: String,
         at position: Int? = nil,
-        layout: String = "BLANK"
+        layout: String? = nil,
+        layoutId: String? = nil
     ) async throws -> String {
         if let position, position < 1 {
             throw GrahamError.invalidArgument(
                 "slide position must be 1 or greater, got \(position)")
         }
-        let normalized = Self.normalizeLayout(layout)
-        guard !normalized.isEmpty else {
-            throw GrahamError.invalidArgument("the layout name is empty")
+        // Exclusivity is checked on what the caller actually provided, so the
+        // BLANK default (applied only when neither is given) never collides.
+        if layout != nil && layoutId != nil {
+            throw GrahamError.invalidArgument(
+                "a slide cannot take both a layout name and a layout id")
+        }
+        let layoutReference: SlideLayoutReference
+        if let layoutId {
+            layoutReference = SlideLayoutReference(layoutId: layoutId)
+        } else {
+            let normalized = Self.normalizeLayout(layout ?? "BLANK")
+            guard !normalized.isEmpty else {
+                throw GrahamError.invalidArgument("the layout name is empty")
+            }
+            layoutReference = SlideLayoutReference(predefinedLayout: normalized)
         }
         let request = CreateSlideRequest(
             insertionIndex: position.map { $0 - 1 },
-            slideLayoutReference: SlideLayoutReference(predefinedLayout: normalized)
+            slideLayoutReference: layoutReference
         )
         let response = try await batchUpdate(
             presentationId: presentationId,
