@@ -54,8 +54,9 @@ public struct DocsClient: Sendable {
         guard !text.isEmpty else {
             throw GrahamError.invalidArgument("text must not be empty")
         }
-        guard index >= 0 else {
-            throw GrahamError.invalidArgument("index must be zero or greater")
+        guard index >= 1 else {
+            throw GrahamError.invalidArgument(
+                "index must be 1 or greater; the document body starts at index 1")
         }
         let request = DocsBatchUpdateRequest.insertText(DocsInsertTextRequest(
             text: text,
@@ -73,8 +74,9 @@ public struct DocsClient: Sendable {
         startIndex: Int,
         endIndex: Int
     ) async throws -> DocsBatchUpdateResponse {
-        guard startIndex >= 0 else {
-            throw GrahamError.invalidArgument("startIndex must be zero or greater")
+        guard startIndex >= 1 else {
+            throw GrahamError.invalidArgument(
+                "startIndex must be 1 or greater; the document body starts at index 1")
         }
         guard endIndex > startIndex else {
             throw GrahamError.invalidArgument(

@@ -45,13 +45,13 @@ struct Docs: AsyncParsableCommand {
         @Option(help: "The text to insert.")
         var text: String
 
-        @Option(help: "The zero-based UTF-16 index to insert at.")
+        @Option(help: "The zero-based UTF-16 index to insert at (minimum 1; the body starts at 1).")
         var at: Int
 
         func run() async throws {
             let client = DocsClient(api: try CLI.makeAPI())
             _ = try await client.insertText(documentId: documentID, text: text, index: at)
-            print("Inserted \(text.count) characters at index \(at).")
+            print("Inserted \(text.utf16.count) UTF-16 code units at index \(at).")
         }
     }
 
@@ -68,7 +68,7 @@ struct Docs: AsyncParsableCommand {
         @Argument(help: "The document ID.")
         var documentID: String
 
-        @Option(help: "The zero-based UTF-16 start index (inclusive).")
+        @Option(help: "The zero-based UTF-16 start index (inclusive; minimum 1; the body starts at 1).")
         var from: Int
 
         @Option(help: "The zero-based UTF-16 end index (exclusive).")

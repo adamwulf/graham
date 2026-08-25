@@ -59,6 +59,11 @@ final class DocsWriteTests: XCTestCase {
         await assertInvalidArgument {
             _ = try await client.insertText(documentId: "doc-1", text: "", index: 1)
         }
+        // Index 0 lands inside the initial section break, which the body cannot
+        // edit; the guard rejects it before any request goes out.
+        await assertInvalidArgument {
+            _ = try await client.insertText(documentId: "doc-1", text: "Hi", index: 0)
+        }
         await assertInvalidArgument {
             _ = try await client.insertText(documentId: "doc-1", text: "Hi", index: -1)
         }
@@ -122,6 +127,12 @@ final class DocsWriteTests: XCTestCase {
         let transport = StubTransport()
         let client = makeClient(transport: transport)
 
+        // startIndex 0 lands inside the initial section break; the guard
+        // rejects it before any request goes out.
+        await assertInvalidArgument {
+            _ = try await client.deleteContentRange(
+                documentId: "doc-1", startIndex: 0, endIndex: 4)
+        }
         await assertInvalidArgument {
             _ = try await client.deleteContentRange(
                 documentId: "doc-1", startIndex: -1, endIndex: 4)
