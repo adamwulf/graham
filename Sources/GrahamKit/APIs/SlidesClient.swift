@@ -327,7 +327,7 @@ public struct SlidesClient: Sendable {
         let sentObjectId = objectId ?? "graham-\(UUID().uuidString)"
         let request = CreateSheetsChartRequest(
             objectId: sentObjectId,
-            elementProperties: try makeElementProperties(
+            elementProperties: try makeChartElementProperties(
                 slideId: slideId, x: x, y: y, width: width, height: height),
             spreadsheetId: spreadsheetId,
             chartId: chartId,
@@ -676,6 +676,35 @@ public struct SlidesClient: Sendable {
             pageObjectId: slideId,
             size: size,
             transform: transform
+        )
+    }
+
+    /// Builds element properties for `createSheetsChart`, always carrying an
+    /// explicit size and transform.
+    ///
+    /// Unlike the other create operations, Slides rejects a `createSheetsChart`
+    /// request whose `elementProperties` omit a size: it defaults the dimension
+    /// to `UNIT_UNSPECIFIED` and returns "Unknown dimension unit
+    /// UNIT_UNSPECIFIED". A default chart box (measured in points) is filled in
+    /// when the caller omits geometry so the request always validates.
+    private func makeChartElementProperties(
+        slideId: String,
+        x: Double?,
+        y: Double?,
+        width: Double?,
+        height: Double?
+    ) throws -> PageElementProperties {
+        // Validate before defaulting so partial geometry is still rejected;
+        // once both are nil we substitute the whole default box.
+        guard (width == nil) == (height == nil) else {
+            throw GrahamError.invalidArgument("width and height must be provided together")
+        }
+        return try makeElementProperties(
+            slideId: slideId,
+            x: x ?? 50,
+            y: y ?? 50,
+            width: width ?? 480,
+            height: height ?? 300
         )
     }
 

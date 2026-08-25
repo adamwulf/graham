@@ -1504,10 +1504,12 @@ final class SlidesWriteTests: XCTestCase {
             presentationId: "p-1", slideId: "s1", spreadsheetId: "sheet-1",
             chartId: 7, linked: true, objectId: "chart-1")
 
+        // With no geometry the client fills in a default chart box; Slides
+        // rejects createSheetsChart element properties that omit a size.
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
             Self.bodyString(request),
-            #"{"requests":[{"createSheetsChart":{"chartId":7,"elementProperties":{"pageObjectId":"s1"},"linkingMode":"LINKED","objectId":"chart-1","spreadsheetId":"sheet-1"}}]}"#
+            #"{"requests":[{"createSheetsChart":{"chartId":7,"elementProperties":{"pageObjectId":"s1","size":{"height":{"magnitude":300,"unit":"PT"},"width":{"magnitude":480,"unit":"PT"}},"transform":{"scaleX":1,"scaleY":1,"translateX":50,"translateY":50,"unit":"PT"}},"linkingMode":"LINKED","objectId":"chart-1","spreadsheetId":"sheet-1"}}]}"#
         )
     }
 
