@@ -465,8 +465,10 @@ struct Slides: AsyncParsableCommand {
     struct Element: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "element",
-            abstract: "Edit a page element: move, scale, rotate, or reorder it.",
-            subcommands: [Move.self, Scale.self, Rotate.self, Transform.self, Reorder.self]
+            abstract: "Edit a page element: move, scale, rotate, reorder, or delete it.",
+            subcommands: [
+                Move.self, Scale.self, Rotate.self, Transform.self, Reorder.self, Delete.self,
+            ]
         )
 
         struct Move: AsyncParsableCommand {
@@ -787,6 +789,32 @@ struct Slides: AsyncParsableCommand {
                 for objectID in objectIDs {
                     print(objectID)
                 }
+            }
+        }
+
+        struct Delete: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "delete",
+                abstract: "Delete a page element by its exact object id and print the id.",
+                discussion: """
+                    Deletes any page element by its exact object id; deleting a \
+                    group deletes its children too. The id is sent exactly as \
+                    given; nothing is inferred or expanded. Get object ids from \
+                    `slides list --format json`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the page element to delete.")
+            var objectID: String
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.deleteObject(
+                    presentationId: presentationID, objectId: objectID)
+                print(objectID)
             }
         }
     }

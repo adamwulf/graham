@@ -576,7 +576,20 @@ final class SlidesParsingTests: XCTestCase {
         let names = Slides.Element.configuration.subcommands.compactMap {
             $0.configuration.commandName ?? "\($0)".lowercased()
         }
-        XCTAssertEqual(names, ["move", "scale", "rotate", "transform", "reorder"])
+        XCTAssertEqual(names, ["move", "scale", "rotate", "transform", "reorder", "delete"])
+    }
+
+    // MARK: - element delete
+
+    func testSlidesElementDeleteParsesItsArguments() throws {
+        let command = try Slides.Element.Delete.parse(["deck-id", "obj-1"])
+        XCTAssertEqual(command.presentationID, "deck-id")
+        XCTAssertEqual(command.objectID, "obj-1")
+    }
+
+    func testSlidesElementDeleteRequiresBothIds() {
+        XCTAssertThrowsError(try Slides.Element.Delete.parse([]))
+        XCTAssertThrowsError(try Slides.Element.Delete.parse(["deck-id"]))
     }
 
     // MARK: - element move
