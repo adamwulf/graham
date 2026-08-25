@@ -67,6 +67,19 @@ public struct DriveFileCreateRequest: Codable, Sendable, Equatable {
     }
 }
 
+/// The request body for `files.copy`: an optional new name for the copy.
+///
+/// When `name` is nil the key is omitted entirely, so Drive keeps its default
+/// naming ("Copy of <original>"). The name is carried in the body, never in
+/// the URL, so any character encodes safely.
+public struct DriveFileCopyRequest: Codable, Sendable, Equatable {
+    public let name: String?
+
+    public init(name: String? = nil) {
+        self.name = name
+    }
+}
+
 /// One shared drive the user can see.
 ///
 /// `id` is the only invariant; `name` is optional so the model decodes even

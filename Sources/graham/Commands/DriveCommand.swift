@@ -5,7 +5,7 @@ import GrahamKit
 struct Drive: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Work with Google Drive files.",
-        subcommands: [List.self, Get.self, Create.self, Export.self]
+        subcommands: [List.self, Get.self, Create.self, Copy.self, Export.self]
     )
 
     struct List: AsyncParsableCommand {
@@ -73,6 +73,27 @@ struct Drive: AsyncParsableCommand {
         func run() async throws {
             let client = DriveClient(api: try CLI.makeAPI())
             let file = try await client.create(name: name, type: type)
+            print(try OutputFormatter.render([file], format: format))
+        }
+    }
+
+    struct Copy: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Copy a file, optionally giving the copy a new name."
+        )
+
+        @Argument(help: "The Drive file ID to copy.")
+        var fileID: String
+
+        @Option(help: "A name for the copy. Without it, Drive names it \"Copy of <original>\".")
+        var name: String?
+
+        @Option(help: "The output format: table, json, jsonl, or id.")
+        var format: OutputFormat = .id
+
+        func run() async throws {
+            let client = DriveClient(api: try CLI.makeAPI())
+            let file = try await client.copy(fileId: fileID, name: name)
             print(try OutputFormatter.render([file], format: format))
         }
     }
