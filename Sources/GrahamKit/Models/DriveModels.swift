@@ -70,16 +70,18 @@ public struct DriveFileCreateRequest: Codable, Sendable, Equatable {
     }
 }
 
-/// The request body for `files.copy`: an optional new name for the copy.
+/// The request body for `files.copy`: an optional new name and destination.
 ///
 /// When `name` is nil the key is omitted entirely, so Drive keeps its default
-/// naming ("Copy of <original>"). The name is carried in the body, never in
-/// the URL, so any character encodes safely.
+/// naming ("Copy of <original>"). A one-item `parents` array keeps a copy in a
+/// caller-selected folder. Both are carried in the body, never in the URL.
 public struct DriveFileCopyRequest: Codable, Sendable, Equatable {
     public let name: String?
+    public let parents: [String]?
 
-    public init(name: String? = nil) {
+    public init(name: String? = nil, parents: [String]? = nil) {
         self.name = name
+        self.parents = parents
     }
 }
 

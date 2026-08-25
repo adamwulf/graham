@@ -9,8 +9,68 @@ struct Slides: AsyncParsableCommand {
             Cat.self, List.self, Layouts.self, Images.self, Add.self, Create.self,
             Element.self, Group.self, Ungroup.self, Move.self, Delete.self,
             AltText.self, Notes.self, Style.self, Table.self, Text.self, Chart.self,
+            Test.self,
         ]
     )
+
+    struct Test: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Run the live end-to-end Slides smoke test.",
+            discussion: """
+                Creates a presentation and companion files inside a folder in \
+                My Drive, exercises graham's API surface, and trashes the files \
+                afterward. The folder remains. Use --keep to retain the files \
+                for inspection. The command exits nonzero when any step fails.
+                """
+        )
+
+        @Flag(help: "Keep the presentation, spreadsheet, and document after the run.")
+        var keep = false
+
+        @Option(help: "The root-level My Drive folder to find or create.")
+        var folder = "graham test"
+
+        @Option(name: .customLong("image-url"), help: "The public image URL used by create-image.")
+        var imageURL = SlidesLiveTest.defaultImageURL
+
+        func run() async throws {
+            let api = try CLI.makeAPI()
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime]
+            let label = formatter.string(from: Date())
+            let runner = SlidesLiveTest(
+                drive: DriveClient(api: api),
+                slides: SlidesClient(api: api),
+                sheets: SheetsClient(api: api),
+                docs: DocsClient(api: api),
+                folderName: folder,
+                imageURL: imageURL,
+                keep: keep,
+                label: label,
+                onStep: { step in
+                    let ids = step.createdIDs.isEmpty
+                        ? ""
+                        : " [\(step.createdIDs.joined(separator: ", "))]"
+                    switch step.outcome {
+                    case .pass:
+                        print("PASS \(step.name)\(ids)")
+                    case .fail(let reason):
+                        print("FAIL \(step.name): \(reason)\(ids)")
+                    case .skip(let reason):
+                        print("SKIP \(step.name): \(reason)\(ids)")
+                    }
+                }
+            )
+            let summary = await runner.run()
+            print(
+                "Summary: \(summary.passed) passed, \(summary.failed) failed, "
+                    + "\(summary.skipped) skipped"
+            )
+            if summary.failed > 0 {
+                throw ExitCode.failure
+            }
+        }
+    }
 
     struct Cat: AsyncParsableCommand {
         static let configuration = CommandConfiguration(

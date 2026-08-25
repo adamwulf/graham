@@ -17,6 +17,27 @@ final class SlidesParsingTests: XCTestCase {
         XCTAssertTrue(names.contains("create"))
         XCTAssertTrue(names.contains("move"))
         XCTAssertTrue(names.contains("delete"))
+        XCTAssertTrue(names.contains("test"))
+    }
+
+    // MARK: - live test
+
+    func testSlidesTestDefaults() throws {
+        let command = try Slides.Test.parse([])
+        XCTAssertFalse(command.keep)
+        XCTAssertEqual(command.folder, "graham test")
+        XCTAssertEqual(command.imageURL, SlidesLiveTest.defaultImageURL)
+    }
+
+    func testSlidesTestParsesEveryOption() throws {
+        let command = try Slides.Test.parse([
+            "--keep",
+            "--folder", "smoke folder",
+            "--image-url", "https://example.com/image.png",
+        ])
+        XCTAssertTrue(command.keep)
+        XCTAssertEqual(command.folder, "smoke folder")
+        XCTAssertEqual(command.imageURL, "https://example.com/image.png")
     }
 
     // MARK: - list

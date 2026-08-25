@@ -31,6 +31,7 @@ final class DriveCopyTests: XCTestCase {
         // The name is carried in the body, never in the URL.
         let body = try Self.body(request)
         XCTAssertEqual(body.name, "My Copy")
+        XCTAssertNil(body.parents)
         // The response is decoded and returned as the new file.
         XCTAssertEqual(file.id, "copy-1")
         XCTAssertEqual(file.name, "My Copy")
@@ -68,6 +69,21 @@ final class DriveCopyTests: XCTestCase {
         // open a new path segment.
         XCTAssertEqual(Self.path(request.url), "/drive/v3/files/a b/c/copy")
         XCTAssertTrue(request.url.absoluteString.contains("/files/a%20b%2Fc/copy"))
+    }
+
+    func testCopyWithParentEncodesTheDestinationInTheBody() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: "/drive/v3/files/f1/copy",
+            json: #"{"id":"copy-1","name":"My Copy"}"#
+        )
+
+        _ = try await client.copy(fileId: "f1", name: "My Copy", parent: "folder-7")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: "/drive/v3/files/f1/copy").first)
+        XCTAssertEqual(try Self.body(request).parents, ["folder-7"])
+        XCTAssertFalse(request.url.absoluteString.contains("folder-7"))
     }
 
     func testCopyReturnsTheNewFilesId() async throws {

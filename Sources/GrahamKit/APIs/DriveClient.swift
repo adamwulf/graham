@@ -189,18 +189,23 @@ public struct DriveClient: Sendable {
     }
 
     /// Copies a file via `files.copy`. With a `name`, the copy takes that name;
-    /// without one, Drive names it "Copy of <original>". Returns the new file,
-    /// whose `id` is the value the `copy` command prints.
+    /// without one, Drive names it "Copy of <original>". An optional `parent`
+    /// places the copy in that folder. Returns the new file, whose `id` is the
+    /// value the `copy` command prints.
     ///
     /// The optional name travels in a JSON request body, not in the URL, so it
     /// is encoded safely no matter what characters it holds. The request spans
     /// shared drives.
-    public func copy(fileId: String, name: String? = nil) async throws -> DriveFile {
+    public func copy(
+        fileId: String,
+        name: String? = nil,
+        parent: String? = nil
+    ) async throws -> DriveFile {
         let url = try GoogleURL.build(
             "\(Self.baseURL)/files/\(GoogleURL.escapePathComponent(fileId))/copy",
             query: [("supportsAllDrives", "true")]
         )
-        let body = DriveFileCopyRequest(name: name)
+        let body = DriveFileCopyRequest(name: name, parents: parent.map { [$0] })
         return try await api.sendJSON(DriveFile.self, method: "POST", url: url, body: body)
     }
 

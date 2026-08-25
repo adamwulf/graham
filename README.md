@@ -10,7 +10,7 @@ Named after Graham's number — a contrast to the googol that named Google.
   check.
 - **Drive** — navigate the top-level drives, list a folder or shared drive,
   search across all drives, and filter by type; get metadata; export and
-  download files; create empty Docs, Sheets, and Slides files; copy files;
+  download files; create folders and empty Docs, Sheets, and Slides files; copy files;
   move files to trash; and permanently delete files.
 - **Sheets and Docs** — read a spreadsheet and its values; write cell values;
   add a basic chart on its own sheet; read a document.
@@ -24,7 +24,8 @@ Named after Graham's number — a contrast to the googol that named Google.
   borders; refresh linked charts; and insert, delete, and style text and
   paragraphs, manage bullets, and set links; set or clear element alt text;
   read, set, and clear speaker notes; list presentation layouts and create
-  slides from an exact layout id; and delete any page element by exact id.
+  slides from an exact layout id; delete any page element by exact id; and run
+  a live end-to-end smoke test of the complete command surface.
 
 See `ROADMAP.md` for future work.
 
@@ -92,6 +93,8 @@ graham drive get <file-id> --format json
 graham drive export <file-id> --mime application/pdf -o report.pdf
 # Create an empty Google Workspace file and print its new id.
 graham drive create "Quarterly Report" --type docs
+# Create a folder.
+graham drive create "Project Files" --type folder
 # Copy a file, optionally renaming the copy, and print its new id.
 graham drive copy <file-id> --name "Quarterly Report Copy"
 # Move a file to trash (reversible in Drive), or permanently delete it.
@@ -179,6 +182,10 @@ graham slides chart refresh <presentation-id> <object-id>
 graham slides move <presentation-id> <slide-id> --to 1
 # Delete one slide by its exact object id.
 graham slides delete <presentation-id> <slide-id>
+# Exercise the complete live API surface inside the root-level "graham test" folder.
+# Created files are trashed afterward; --keep retains them. Any failed step exits nonzero.
+graham slides test
+graham slides test --keep --folder "graham test" --image-url https://example.com/image.png
 ```
 
 `graham drive list [<id>]` has three forms:
