@@ -55,7 +55,11 @@ Tests/CLITests/               argument-parsing tests only
   backoff, and decoding. It refreshes the token once after a 401, retries
   429/5xx (and 403 rate-limit envelopes) with exponential backoff, and waits
   the longer of that backoff and any server-supplied hint — both the
-  `Retry-After` header and a `RetryInfo.retryDelay` in the error body.
+  `Retry-After` header and a `RetryInfo.retryDelay` in the error body. When no
+  hint parses, it also logs the raw response headers and body, so a rate limit
+  that arrived without a server hint can be diagnosed after the fact (Slides'
+  per-minute *write* quota, for example, returns a bare `429
+  RESOURCE_EXHAUSTED`).
 - The service clients (`DriveClient`, ...) build URLs, hold pagination loops,
   and return typed models. Pagination lives ONLY here. Every list method
   threads a client-side `limit` guard through the page loop.
