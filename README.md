@@ -10,7 +10,8 @@ Named after Graham's number — a contrast to the googol that named Google.
   check.
 - **Drive** — navigate the top-level drives, list a folder or shared drive,
   search across all drives, and filter by type; get metadata; export and
-  download files; create empty Docs, Sheets, and Slides files.
+  download files; create empty Docs, Sheets, and Slides files; copy files;
+  move files to trash; and permanently delete files.
 - **Sheets and Docs** — read a spreadsheet and its values; read a document.
 - **Slides** — read presentation text; list every page element with its type,
   geometry, text, links, and alt text; list or download every image, including
@@ -20,10 +21,11 @@ Named after Graham's number — a contrast to the googol that named Google.
   rotate, transform, and reorder elements; style shape fills, outlines, and
   shadows; style lines and videos; edit table rows, columns, merged cells, and
   borders; refresh linked charts; and insert, delete, and style text and
-  paragraphs, manage bullets, and set links.
+  paragraphs, manage bullets, and set links; set or clear element alt text;
+  read, set, and clear speaker notes; list presentation layouts and create
+  slides from an exact layout id; and delete any page element by exact id.
 
-See `ROADMAP.md` for the remaining Slides editing work. The next milestones are
-element alt text and presenter notes.
+See `ROADMAP.md` for future work.
 
 ## Install
 
@@ -89,6 +91,11 @@ graham drive get <file-id> --format json
 graham drive export <file-id> --mime application/pdf -o report.pdf
 # Create an empty Google Workspace file and print its new id.
 graham drive create "Quarterly Report" --type docs
+# Copy a file, optionally renaming the copy, and print its new id.
+graham drive copy <file-id> --name "Quarterly Report Copy"
+# Move a file to trash (reversible in Drive), or permanently delete it.
+graham drive trash <file-id>
+graham drive delete <file-id> --force
 
 graham sheets get <spreadsheet-id>
 graham sheets values <spreadsheet-id> "Sheet1!A1:C10"
@@ -104,6 +111,9 @@ graham slides images <presentation-id> --download ./images
 # Add a slide (a BLANK slide at the end by default) and print its object id.
 graham slides add <presentation-id>
 graham slides add <presentation-id> --at 2 --layout TITLE_AND_BODY
+# List the deck's exact layout ids, or add a slide using one.
+graham slides layouts <presentation-id>
+graham slides add <presentation-id> --layout-id <layout-id>
 # Create a text box (empty by default) and print its object id.
 graham slides create textbox <presentation-id> <slide-id> --text "Hello"
 # Create other elements on a slide (geometry is in points; slide ids come from `slides list --format json`).
@@ -121,6 +131,15 @@ graham slides element scale <presentation-id> <object-id> --by 1.5
 graham slides element rotate <presentation-id> <object-id> --by 90
 graham slides element transform <presentation-id> <object-id> --translate-x 10 --unit pt
 graham slides element reorder <presentation-id> <object-id> --to front
+# Delete any page element by exact id (deleting a group deletes its children too).
+graham slides element delete <presentation-id> <object-id>
+# Set or clear either alt-text field; clearing both removes the element's alt text.
+graham slides alt-text <presentation-id> <object-id> --title "Chart" --description "Quarterly revenue"
+graham slides alt-text <presentation-id> <object-id> --clear-title --clear-description
+# Read, set, or clear presenter speaker notes by slide id.
+graham slides notes show <presentation-id>
+graham slides notes set <presentation-id> <slide-id> --text "Discuss the forecast"
+graham slides notes clear <presentation-id> <slide-id>
 # Style a shape's fill, outline, and drop shadow (colors are hex like #FF0000 or theme names like accent1).
 graham slides style shape <presentation-id> <object-id> --fill "#FFCC00" --outline accent1 --outline-weight 2
 graham slides style shape <presentation-id> <object-id> --no-fill --shadow-color "#000000" --shadow-blur 4 --align middle
