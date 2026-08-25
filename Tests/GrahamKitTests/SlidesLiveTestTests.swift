@@ -55,8 +55,23 @@ final class SlidesLiveTestTests: XCTestCase {
         XCTAssertEqual(summary.steps.map(\.name), Self.expectedStepNames)
         XCTAssertEqual(callback.steps, summary.steps)
         XCTAssertEqual(summary.failed, 0)
-        XCTAssertEqual(summary.skipped, 2)
-        XCTAssertEqual(summary.passed, Self.expectedStepNames.count - 2)
+        XCTAssertEqual(summary.skipped, 0)
+        XCTAssertEqual(summary.passed, Self.expectedStepNames.count)
+        XCTAssertEqual(
+            summary.steps.first(where: { $0.name == "sheets-chart-add" })?.createdIDs,
+            ["314"])
+        XCTAssertEqual(
+            summary.steps.first(where: { $0.name == "create-chart" })?.createdIDs,
+            ["chart-1"])
+        XCTAssertEqual(fixture.sheetsValueRequests.count, 1)
+        XCTAssertTrue(fixture.sheetsValueRequests.allSatisfy {
+            fixture.bodyString($0).contains(#"["Label","Value"]"#)
+        })
+        XCTAssertTrue(fixture.slidesBatchRequests.contains {
+            let body = fixture.bodyString($0)
+            return body.contains(#""createSheetsChart""#)
+                && body.contains(#""linkingMode":"LINKED""#)
+        })
         XCTAssertEqual(fixture.trashRequests.count, 3)
         XCTAssertEqual(fixture.deleteRequests.count, 1)
         XCTAssertTrue(fixture.copyRequests.allSatisfy {
@@ -70,7 +85,7 @@ final class SlidesLiveTestTests: XCTestCase {
 
         XCTAssertEqual(summary.steps.map(\.name), Self.expectedStepNames)
         XCTAssertEqual(summary.failed, 1)
-        XCTAssertEqual(summary.skipped, 5)
+        XCTAssertEqual(summary.skipped, 3)
         XCTAssertEqual(summary.steps.first(where: { $0.name == "create-image" })?.outcome,
                        .fail(reason: "Google API error 400 (INVALID_ARGUMENT): image rejected"))
         XCTAssertEqual(summary.steps.first(where: { $0.name == "images-list" })?.outcome,
@@ -81,12 +96,37 @@ final class SlidesLiveTestTests: XCTestCase {
         XCTAssertEqual(fixture.trashRequests.count, 3)
     }
 
+    func testChartAddFailureSkipsChartDependentsButContinuesUnrelatedSteps() async {
+        let fixture = LiveTestFixture(failChartAdd: true)
+        let summary = await fixture.makeRunner().run()
+
+        XCTAssertEqual(summary.steps.map(\.name), Self.expectedStepNames)
+        XCTAssertEqual(summary.failed, 1)
+        XCTAssertEqual(summary.skipped, 3)
+        XCTAssertEqual(
+            summary.steps.first(where: { $0.name == "sheets-chart-add" })?.outcome,
+            .fail(reason: "Google API error 400 (INVALID_ARGUMENT): chart rejected"))
+        XCTAssertEqual(
+            summary.steps.first(where: { $0.name == "create-chart" })?.outcome,
+            .skip(reason: "sheets-chart-add failed"))
+        XCTAssertEqual(
+            summary.steps.first(where: { $0.name == "chart-refresh" })?.outcome,
+            .skip(reason: "create-chart failed"))
+        XCTAssertEqual(
+            summary.steps.first(where: { $0.name == "chart-verify" })?.outcome,
+            .skip(reason: "create-chart failed"))
+        XCTAssertEqual(summary.steps.first(where: { $0.name == "sheets-get" })?.outcome, .pass)
+        XCTAssertEqual(summary.steps.first(where: { $0.name == "docs-cat" })?.outcome, .pass)
+        XCTAssertEqual(summary.steps.first(where: { $0.name == "drive-copy" })?.outcome, .pass)
+        XCTAssertEqual(fixture.trashRequests.count, 3)
+    }
+
     func testKeepSkipsCleanupWithoutSendingTrashRequests() async {
         let fixture = LiveTestFixture()
         let summary = await fixture.makeRunner(keep: true).run()
 
         XCTAssertEqual(summary.failed, 0)
-        XCTAssertEqual(summary.skipped, 5)
+        XCTAssertEqual(summary.skipped, 3)
         let cleanup = summary.steps.suffix(3)
         XCTAssertEqual(cleanup.map(\.name), [
             "drive-trash-presentation", "drive-trash-sheet", "drive-trash-doc",
@@ -102,7 +142,7 @@ final class SlidesLiveTestTests: XCTestCase {
         "slides-add", "slides-add-at-layout", "layouts-read", "slides-add-layout-id",
         "slides-move", "slides-delete",
         "create-textbox", "create-image", "create-video", "create-line", "create-table",
-        "create-chart", "chart-refresh", "elements-list", "images-list",
+        "elements-list", "images-list",
         "element-move", "element-scale", "element-rotate", "element-transform",
         "element-reorder", "group", "ungroup",
         "style-shape", "style-image", "style-line", "style-video",
@@ -113,7 +153,8 @@ final class SlidesLiveTestTests: XCTestCase {
         "text-unbullet", "text-delete", "text-insert-cell",
         "alt-text-set", "alt-text-verify", "alt-text-clear",
         "notes-set", "notes-verify", "notes-clear", "element-delete",
-        "sheets-create", "sheets-get", "docs-create", "docs-cat",
+        "sheets-create", "sheets-set-values", "sheets-chart-add", "sheets-get",
+        "docs-create", "docs-cat", "create-chart", "chart-refresh", "chart-verify",
         "drive-copy", "drive-delete-copy",
         "drive-trash-presentation", "drive-trash-sheet", "drive-trash-doc",
     ]
@@ -143,21 +184,25 @@ private final class LiveTestFixture: @unchecked Sendable {
     let existingFolder: Bool
     let failPresentationCreate: Bool
     let failImageCreate: Bool
+    let failChartAdd: Bool
 
     private var slideDeleted = false
     private var lineDeleted = false
     private var altTitle: String?
     private var altDescription: String?
     private var notes = ""
+    private var chartCreated = false
 
     init(
         existingFolder: Bool = true,
         failPresentationCreate: Bool = false,
-        failImageCreate: Bool = false
+        failImageCreate: Bool = false,
+        failChartAdd: Bool = false
     ) {
         self.existingFolder = existingFolder
         self.failPresentationCreate = failPresentationCreate
         self.failImageCreate = failImageCreate
+        self.failChartAdd = failChartAdd
         transport.stubTokenEndpoint()
         transport.stub(matching: { _ in true }, responding: { [self] request in
             response(to: request)
@@ -190,6 +235,19 @@ private final class LiveTestFixture: @unchecked Sendable {
 
     var copyRequests: [HTTPRequest] {
         transport.requests.filter { $0.url.path.hasSuffix("/copy") }
+    }
+
+    var sheetsValueRequests: [HTTPRequest] {
+        transport.requests.filter {
+            $0.method == "PUT" && $0.url.path.contains("/values/")
+        }
+    }
+
+    var slidesBatchRequests: [HTTPRequest] {
+        transport.requests.filter {
+            $0.method == "POST" && $0.url.path.hasSuffix(":batchUpdate")
+                && $0.url.host == "slides.googleapis.com"
+        }
     }
 
     func makeRunner(
@@ -267,8 +325,29 @@ private final class LiveTestFixture: @unchecked Sendable {
         if path == "/v1/presentations/deck-1:batchUpdate", request.method == "POST" {
             return batchResponse(request)
         }
-        if path == "/v4/spreadsheets/sheet-1" {
-            return json(["spreadsheetId": "sheet-1", "properties": ["title": "sheet"]])
+        if path.hasPrefix("/v4/spreadsheets/sheet-1/values/"), request.method == "PUT" {
+            return json([
+                "updatedRange": "A1:B4",
+                "updatedRows": 4,
+                "updatedColumns": 2,
+                "updatedCells": 8,
+            ])
+        }
+        if path == "/v4/spreadsheets/sheet-1", request.method == "GET" {
+            return json([
+                "spreadsheetId": "sheet-1",
+                "properties": ["title": "sheet"],
+                "sheets": [["properties": ["sheetId": 0, "title": "Sheet1"]]],
+            ])
+        }
+        if path == "/v4/spreadsheets/sheet-1:batchUpdate", request.method == "POST" {
+            if failChartAdd {
+                return googleError(message: "chart rejected")
+            }
+            return json([
+                "spreadsheetId": "sheet-1",
+                "replies": [["addChart": ["chart": ["chartId": 314]]]],
+            ])
         }
         if path == "/v1/documents/doc-1" {
             return json(["documentId": "doc-1", "title": "doc", "body": ["content": []]])
@@ -301,6 +380,10 @@ private final class LiveTestFixture: @unchecked Sendable {
         }
         if body.contains("notes-1"), body.contains("\"deleteText\"") {
             notes = ""
+        }
+        if body.contains("\"createSheetsChart\"") {
+            chartCreated = true
+            return json(["replies": [["createSheetsChart": ["objectId": "chart-1"]]]])
         }
 
         if body.contains("\"createSlide\"") {
@@ -364,6 +447,12 @@ private final class LiveTestFixture: @unchecked Sendable {
                 "size": size(width: 220, height: 1),
                 "transform": transform(x: 40, y: 260),
                 "line": ["lineCategory": "STRAIGHT"],
+            ])
+        }
+        if chartCreated {
+            elements.append([
+                "objectId": "chart-1",
+                "sheetsChart": ["spreadsheetId": "sheet-1", "chartId": 314],
             ])
         }
         if let altTitle { elements[0]["title"] = altTitle }
