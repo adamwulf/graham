@@ -9,6 +9,13 @@ import Foundation
 /// `{"error": {"code": 429, "status": "RESOURCE_EXHAUSTED",
 ///   "details": [{"@type": "type.googleapis.com/google.rpc.RetryInfo",
 ///   "retryDelay": "30s"}]}}`
+///
+/// Some quota limits carry no `RetryInfo` at all. Slides' per-minute *write*
+/// quota returns a bare 429 whose only hint is a `google.rpc.ErrorInfo` naming
+/// the quota window in its `metadata` — `quota_unit` (for example
+/// `"1/min/{project}/{user}"`) and `window_start_time` (epoch seconds). The
+/// window resets at `window_start_time + windowLength`, so the client can wait
+/// out the time still left in the window instead of guessing with backoff.
 struct GoogleErrorEnvelope: Decodable {
     struct Detail: Decodable {
         let code: Int?
@@ -17,15 +24,20 @@ struct GoogleErrorEnvelope: Decodable {
         let details: [ErrorDetail]?
     }
 
-    /// One entry in `error.details`. Only the `@type` discriminator and the
-    /// `RetryInfo.retryDelay` are modelled; other detail payloads decode to nil.
+    /// One entry in `error.details`. Only the `@type` discriminator, the
+    /// `RetryInfo.retryDelay`, and the `ErrorInfo` quota fields (`reason` plus
+    /// the `metadata` map) are modelled; other detail payloads decode to nil.
     struct ErrorDetail: Decodable {
         let type: String?
         let retryDelay: String?
+        let reason: String?
+        let metadata: [String: String]?
 
         enum CodingKeys: String, CodingKey {
             case type = "@type"
             case retryDelay
+            case reason
+            case metadata
         }
     }
 
@@ -62,6 +74,59 @@ struct GoogleErrorEnvelope: Decodable {
         let trimmed = raw.hasSuffix("s") ? String(raw.dropLast()) : raw
         return TimeInterval(trimmed)
     }
+
+    /// The wait implied by a quota-window rate limit that carries a
+    /// `google.rpc.ErrorInfo` but no `RetryInfo`. Slides' per-minute *write*
+    /// quota returns exactly this: a bare 429 whose `ErrorInfo.metadata` names
+    /// the window (`quota_unit`, for example `"1/min/{project}/{user}"`) and
+    /// the window's start (`window_start_time`, epoch seconds). The window
+    /// resets at `window_start_time + windowLength`, so this returns the time
+    /// still left in the window.
+    ///
+    /// - Parameter serverNow: the server's clock in epoch seconds, read from
+    ///   the `Date` response header, used to measure how much of the window is
+    ///   left. When nil (no readable clock), the full window length is returned
+    ///   instead — it always outlasts the window, whatever the clock skew.
+    /// - Returns: the seconds to wait, or nil when the reply carries no quota
+    ///   window, or names a window too long to wait out inside a CLI run (an
+    ///   hourly or daily quota will not clear before the run ends).
+    func quotaWindowRetrySeconds(serverNow: TimeInterval?) -> TimeInterval? {
+        guard let details = error.details else { return nil }
+        for detail in details {
+            guard let metadata = detail.metadata,
+                  let unit = metadata["quota_unit"],
+                  let windowLength = Self.windowSeconds(forQuotaUnit: unit) else {
+                continue
+            }
+            // Land just past the reset so a coarse server clock does not
+            // throttle the very first retry all over again.
+            let buffer: TimeInterval = 1
+            if let serverNow,
+               let startRaw = metadata["window_start_time"],
+               let start = TimeInterval(startRaw) {
+                let remaining = (start + windowLength) - serverNow
+                return max(0, remaining) + buffer
+            }
+            return windowLength + buffer
+        }
+        return nil
+    }
+
+    /// Maps a Google `quota_unit` to the length of its window in seconds, for
+    /// the short windows worth waiting out. The unit looks like
+    /// `"1/min/{project}/{user}"`; its second `/`-separated segment names the
+    /// period. Per-hour and per-day quotas return nil: they will not clear
+    /// inside a CLI run, so the caller falls back to plain backoff and fails
+    /// fast rather than blocking the process for hours.
+    static func windowSeconds(forQuotaUnit unit: String) -> TimeInterval? {
+        let segments = unit.split(separator: "/")
+        guard segments.count >= 2 else { return nil }
+        switch segments[1] {
+        case "s": return 1
+        case "min": return 60
+        default: return nil
+        }
+    }
 }
 
 /// The low-level executor for all Google API requests.
@@ -70,8 +135,10 @@ struct GoogleErrorEnvelope: Decodable {
 /// - adds the `Authorization` header,
 /// - refreshes the access token after a 401 (one time per request),
 /// - retries rate-limit and transient errors (429, 5xx, and 403 rate-limit
-///   envelopes) with exponential backoff, honoring the `Retry-After` header
-///   and any `RetryInfo.retryDelay` the error body carries,
+///   envelopes) with exponential backoff, honoring the `Retry-After` header,
+///   any `RetryInfo.retryDelay` the error body carries, and — when neither is
+///   present — the quota window an `ErrorInfo` names (Slides' per-minute write
+///   quota returns only this),
 /// - decodes JSON and the Google error envelope.
 ///
 /// The service clients (``DriveClient``, ``SheetsClient``, ``DocsClient``,
@@ -211,15 +278,38 @@ public final class GoogleAPI: @unchecked Sendable {
         }
     }
 
-    /// The wait the server explicitly asked for, taking the larger of the
-    /// `Retry-After` header and any `RetryInfo.retryDelay` in the body. Returns
-    /// nil when the server gave no hint, so the caller falls back to backoff.
+    /// The wait the server explicitly asked for, taking the largest of three
+    /// hints: the `Retry-After` header, any `RetryInfo.retryDelay` in the body,
+    /// and the time left in the quota window an `ErrorInfo` names (measured
+    /// against the server's own `Date` header). Returns nil when the server
+    /// gave no hint, so the caller falls back to backoff.
     private func serverRetryHint(response: HTTPResponse, envelope: GoogleErrorEnvelope?) -> TimeInterval? {
         let header = TimeInterval(response.value(forHeader: "Retry-After") ?? "")
         let body = envelope?.retryDelaySeconds
-        let hints = [header, body].compactMap { $0 }
+        let window = envelope?.quotaWindowRetrySeconds(serverNow: Self.serverEpoch(from: response))
+        let hints = [header, body, window].compactMap { $0 }
         return hints.max()
     }
+
+    /// The server's clock in epoch seconds, parsed from the RFC 7231 `Date`
+    /// response header (for example `"Tue, 25 Aug 2026 21:27:10 GMT"`). Used to
+    /// measure how much of a quota window is still left, so the wait does not
+    /// depend on the local clock. Returns nil when the header is absent or
+    /// unparseable.
+    static func serverEpoch(from response: HTTPResponse) -> TimeInterval? {
+        guard let raw = response.value(forHeader: "Date") else { return nil }
+        return httpDateFormatter.date(from: raw)?.timeIntervalSince1970
+    }
+
+    /// Parses an RFC 7231 IMF-fixdate. Fixed to `en_US_POSIX` and GMT so it
+    /// never drifts with the machine's locale or time zone.
+    private static let httpDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "GMT")
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+        return formatter
+    }()
 
     /// Renders response headers on one line for diagnostic logging: names
     /// sorted case-insensitively, joined as `name: value` pairs. Used when a

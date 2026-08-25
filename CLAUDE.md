@@ -33,7 +33,8 @@ Sources/GrahamKit/            the library — ALL logic lives here
   APIs/
     GoogleAPI.swift           LOW-LEVEL: auth header, 401 refresh-retry,
                               429/5xx + 403 rate-limit backoff (honors
-                              Retry-After + RetryInfo), decode, error envelope
+                              Retry-After + RetryInfo + ErrorInfo quota
+                              window), decode, error envelope
     DriveClient.swift         HIGH-LEVEL facades: endpoints + pagination
     SheetsClient.swift
     DocsClient.swift
@@ -54,12 +55,18 @@ Tests/CLITests/               argument-parsing tests only
 - `GoogleAPI` (low-level) is the only place that touches auth headers, retry,
   backoff, and decoding. It refreshes the token once after a 401, retries
   429/5xx (and 403 rate-limit envelopes) with exponential backoff, and waits
-  the longer of that backoff and any server-supplied hint — both the
-  `Retry-After` header and a `RetryInfo.retryDelay` in the error body. When no
-  hint parses, it also logs the raw response headers and body, so a rate limit
-  that arrived without a server hint can be diagnosed after the fact (Slides'
-  per-minute *write* quota, for example, returns a bare `429
-  RESOURCE_EXHAUSTED`).
+  the longer of that backoff and any server-supplied hint. Three hint sources
+  are read, and the largest wins: the `Retry-After` header, a
+  `RetryInfo.retryDelay` in the error body, and — when neither is present — the
+  quota window a `google.rpc.ErrorInfo` names. Slides' per-minute *write* quota
+  returns exactly that third shape: a bare `429 RESOURCE_EXHAUSTED` whose only
+  hint is an `ErrorInfo` with `quota_unit` (`1/min/...`) and `window_start_time`
+  in its `metadata`. The client waits out the time left in that window, measured
+  against the server's own `Date` header (falling back to the full window when no
+  `Date` is readable). Only per-second and per-minute windows are waited out; a
+  per-hour or per-day quota will not clear inside a CLI run, so those fall
+  through to backoff. When no hint parses at all, it still logs the raw response
+  headers and body so the miss can be diagnosed after the fact.
 - The service clients (`DriveClient`, ...) build URLs, hold pagination loops,
   and return typed models. Pagination lives ONLY here. Every list method
   threads a client-side `limit` guard through the page loop.
@@ -183,6 +190,19 @@ write. Tests remain offline and exercise the real encoding path.
   `GoogleAPI.send` now inspects the envelope status and retries those 403s just
   like a 429; `GoogleErrorEnvelope.isRateLimit` holds the status check and
   `retryDelaySeconds` parses any `RetryInfo` the body carries.
+- Not every rate limit carries a `RetryInfo`. Slides' per-minute *write* quota
+  returns a bare `429` whose only timing hint is a `google.rpc.ErrorInfo`
+  naming the quota window in its `metadata`: `quota_unit` (`1/min/...`) and
+  `window_start_time` (epoch seconds).
+  `GoogleErrorEnvelope.quotaWindowRetrySeconds(serverNow:)` computes the time
+  left in that window (`window_start_time + windowLength - serverNow`), and
+  `GoogleAPI.serverEpoch` reads `serverNow` from the response `Date` header so
+  the wait never depends on the local clock.
+  `GoogleErrorEnvelope.windowSeconds(forQuotaUnit:)` only maps `s`/`min` (the
+  short windows worth waiting out) — a per-hour or per-day quota stays `nil` and
+  falls back to backoff. The old 1s/2s/4s exponential backoff never cleared this
+  quota, because its window is a full minute; the client now waits out the
+  window instead.
 - Output is deterministic: JSON encoders sort keys, tables pad all but the
   last column (no trailing whitespace).
 - Shared-drive items are invisible to `files.list` unless the request sets
