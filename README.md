@@ -183,6 +183,7 @@ graham slides move <presentation-id> <slide-id> --to 1
 # Delete one slide by its exact object id.
 graham slides delete <presentation-id> <slide-id>
 # Exercise the complete live API surface inside the root-level "graham test" folder.
+# The run builds a live Sheets chart and embeds it linked in the test deck.
 # Created files are trashed afterward; --keep retains them. Any failed step exits nonzero.
 graham slides test
 graham slides test --keep --folder "graham test" --image-url https://example.com/image.png
