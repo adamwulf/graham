@@ -153,10 +153,10 @@ public final class GoogleAPI: @unchecked Sendable {
     /// boundary, not just before it. A hint names the moment Google clears the
     /// quota window; waiting the exact amount risks retrying a hair too early
     /// (clock skew between our clock and Google's, network latency, sub-second
-    /// rounding) and burning a retry on the same 429. One extra second lands us
+    /// rounding) and burning a retry on the same 429. Two extra seconds land us
     /// safely past the boundary. Pure backoff has no such boundary, so it gets
     /// no buffer.
-    private let boundaryBuffer: TimeInterval = 1
+    private let boundaryBuffer: TimeInterval = 2
     private let sleep: @Sendable (TimeInterval) async -> Void
 
     public init(

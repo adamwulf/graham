@@ -70,9 +70,9 @@ final class GoogleAPITests: XCTestCase {
         let file = try await api.getJSON(DriveFile.self, from: fileURL)
 
         XCTAssertEqual(file.id, "f1")
-        // 7s hint plus the 1s boundary buffer so the retry lands just after
+        // 7s hint plus the 2s boundary buffer so the retry lands just after
         // Google's window, not on its edge.
-        XCTAssertEqual(recorder.delays, [8])
+        XCTAssertEqual(recorder.delays, [9])
     }
 
     func testHonorsRetryInfoDelayOn429() async throws {
@@ -93,8 +93,8 @@ final class GoogleAPITests: XCTestCase {
 
         XCTAssertEqual(file.id, "f1")
         // The 30s RetryInfo hint beats the 1s exponential backoff floor, then
-        // the 1s boundary buffer lands the retry just past the window.
-        XCTAssertEqual(recorder.delays, [31])
+        // the 2s boundary buffer lands the retry just past the window.
+        XCTAssertEqual(recorder.delays, [32])
     }
 
     func testLogsResponseHeadersWhenNoRetryHint() async throws {
@@ -186,7 +186,7 @@ final class GoogleAPITests: XCTestCase {
         transport.stubTokenEndpoint()
         // The window opened at 1787693188, so the one-minute window resets at
         // 1787693248. The server's own Date header reads 1787693230, leaving
-        // 18s in the window; the client adds a 1s buffer to land past the reset.
+        // 18s in the window; the client adds a 2s buffer to land past the reset.
         transport.stub(urlContains: "/files/f1", responses: [
             HTTPResponse(
                 statusCode: 429,
@@ -201,9 +201,9 @@ final class GoogleAPITests: XCTestCase {
         let file = try await api.getJSON(DriveFile.self, from: fileURL)
 
         XCTAssertEqual(file.id, "f1")
-        // 18s left in the window plus the 1s boundary buffer = 19s, which beats
+        // 18s left in the window plus the 2s boundary buffer = 20s, which beats
         // the 1s exponential-backoff floor.
-        XCTAssertEqual(recorder.delays, [19])
+        XCTAssertEqual(recorder.delays, [20])
     }
 
     func testWaitsTheFullQuotaWindowWhenNoServerClock() async throws {
@@ -220,7 +220,7 @@ final class GoogleAPITests: XCTestCase {
 
         _ = try await api.getJSON(DriveFile.self, from: fileURL)
 
-        XCTAssertEqual(recorder.delays, [61])
+        XCTAssertEqual(recorder.delays, [62])
     }
 
     func testDoesNotWaitOutADailyQuotaWindow() async throws {
