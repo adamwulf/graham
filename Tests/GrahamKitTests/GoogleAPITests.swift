@@ -156,6 +156,127 @@ final class GoogleAPITests: XCTestCase {
         XCTAssertNil(GoogleErrorEnvelope.parseDuration("nonsense"))
     }
 
+    // MARK: - Quota-window rate limit (ErrorInfo, no RetryInfo)
+
+    /// A realistic Slides per-minute write-quota 429: an `ErrorInfo` names the
+    /// window, but the reply carries no `RetryInfo` and no `Retry-After`
+    /// header. `window_start_time` is the epoch second the one-minute window
+    /// opened, so the window resets at `windowStart + 60`.
+    private func quotaWindowBody(windowStart: Int) -> String {
+        """
+        {"error":{"code":429,"status":"RESOURCE_EXHAUSTED",\
+        "message":"Quota exceeded for quota metric 'Write requests' and limit \
+        'Write requests per minute per user' of service 'slides.googleapis.com'.",\
+        "details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo",\
+        "reason":"RATE_LIMIT_EXCEEDED","domain":"googleapis.com","metadata":{\
+        "quota_limit":"WriteRequestsPerMinutePerUser",\
+        "service":"slides.googleapis.com",\
+        "quota_unit":"1/min/{project}/{user}",\
+        "window_start_time":"\(windowStart)",\
+        "quota_limit_value":"60",\
+        "quota_metric":"slides.googleapis.com/write_requests"}}]}}
+        """
+    }
+
+    func testHonorsQuotaWindowFromErrorInfoWhenServerGaveNoOtherHint() async throws {
+        let transport = StubTransport()
+        transport.stubTokenEndpoint()
+        // The window opened at 1787693188, so the one-minute window resets at
+        // 1787693248. The server's own Date header reads 1787693230, leaving
+        // 18s in the window; the client adds a 1s buffer to land past the reset.
+        transport.stub(urlContains: "/files/f1", responses: [
+            HTTPResponse(
+                statusCode: 429,
+                headers: ["Date": "Tue, 25 Aug 2026 21:27:10 GMT"],
+                body: Data(quotaWindowBody(windowStart: 1787693188).utf8)
+            ),
+            StubTransport.json(fileJSON),
+        ])
+        let recorder = SleepRecorder()
+        let api = TestSupport.makeAPI(transport: transport) { recorder.record($0) }
+
+        let file = try await api.getJSON(DriveFile.self, from: fileURL)
+
+        XCTAssertEqual(file.id, "f1")
+        // The 19s window wait beats the 1s exponential-backoff floor.
+        XCTAssertEqual(recorder.delays, [19])
+    }
+
+    func testWaitsTheFullQuotaWindowWhenNoServerClock() async throws {
+        let transport = StubTransport()
+        transport.stubTokenEndpoint()
+        // With no Date header the client cannot measure the window, so it waits
+        // the whole minute (plus buffer), which always outlasts the window.
+        transport.stub(urlContains: "/files/f1", responses: [
+            StubTransport.json(quotaWindowBody(windowStart: 1787693188), status: 429),
+            StubTransport.json(fileJSON),
+        ])
+        let recorder = SleepRecorder()
+        let api = TestSupport.makeAPI(transport: transport) { recorder.record($0) }
+
+        _ = try await api.getJSON(DriveFile.self, from: fileURL)
+
+        XCTAssertEqual(recorder.delays, [61])
+    }
+
+    func testDoesNotWaitOutADailyQuotaWindow() async throws {
+        let transport = StubTransport()
+        transport.stubTokenEndpoint()
+        let body = """
+            {"error":{"code":429,"status":"RESOURCE_EXHAUSTED","message":"Daily limit exceeded",\
+            "details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo",\
+            "reason":"RATE_LIMIT_EXCEEDED","metadata":{\
+            "quota_unit":"1/d/{project}","window_start_time":"1787693188"}}]}}
+            """
+        transport.stub(urlContains: "/files/f1", responses: [
+            StubTransport.json(body, status: 429),
+            StubTransport.json(fileJSON),
+        ])
+        let recorder = SleepRecorder()
+        let api = TestSupport.makeAPI(transport: transport) { recorder.record($0) }
+
+        _ = try await api.getJSON(DriveFile.self, from: fileURL)
+
+        // A per-day quota will not clear inside a CLI run, so it is not waited
+        // out: the client falls back to the 1s exponential-backoff floor.
+        XCTAssertEqual(recorder.delays, [1])
+    }
+
+    func testWindowSecondsMapsOnlyShortQuotaUnits() {
+        XCTAssertEqual(GoogleErrorEnvelope.windowSeconds(forQuotaUnit: "1/min/{project}/{user}"), 60)
+        XCTAssertEqual(GoogleErrorEnvelope.windowSeconds(forQuotaUnit: "1/s/{project}"), 1)
+        XCTAssertNil(GoogleErrorEnvelope.windowSeconds(forQuotaUnit: "1/h/{project}"))
+        XCTAssertNil(GoogleErrorEnvelope.windowSeconds(forQuotaUnit: "1/d/{project}"))
+        XCTAssertNil(GoogleErrorEnvelope.windowSeconds(forQuotaUnit: "garbage"))
+    }
+
+    func testQuotaWindowRetrySecondsComputesRemainingTime() throws {
+        let envelope = try GoogleJSON.decoder.decode(
+            GoogleErrorEnvelope.self,
+            from: Data(quotaWindowBody(windowStart: 1787693188).utf8)
+        )
+        // 1787693188 window start + 60s window - 1787693230 now = 18s left, +1s buffer.
+        XCTAssertEqual(envelope.quotaWindowRetrySeconds(serverNow: 1787693230), 19)
+        // No clock: fall back to the full window plus buffer.
+        XCTAssertEqual(envelope.quotaWindowRetrySeconds(serverNow: nil), 61)
+    }
+
+    func testQuotaWindowRetrySecondsIsNilWithoutQuotaMetadata() throws {
+        let body = #"{"error":{"code":429,"status":"RESOURCE_EXHAUSTED","message":"x"}}"#
+        let envelope = try GoogleJSON.decoder.decode(GoogleErrorEnvelope.self, from: Data(body.utf8))
+        XCTAssertNil(envelope.quotaWindowRetrySeconds(serverNow: 1787693230))
+    }
+
+    func testServerEpochParsesTheHTTPDateHeader() {
+        let response = HTTPResponse(
+            statusCode: 429,
+            headers: ["Date": "Tue, 25 Aug 2026 21:27:10 GMT"]
+        )
+        XCTAssertEqual(GoogleAPI.serverEpoch(from: response), 1787693230)
+        // No header, no clock.
+        XCTAssertNil(GoogleAPI.serverEpoch(from: HTTPResponse(statusCode: 429)))
+    }
+
     func testRetriesOn403RateLimitEnvelope() async throws {
         let transport = StubTransport()
         transport.stubTokenEndpoint()
