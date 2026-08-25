@@ -32,7 +32,8 @@ Sources/GrahamKit/            the library — ALL logic lives here
     LoopbackServer.swift      127.0.0.1 listener for the OAuth redirect
   APIs/
     GoogleAPI.swift           LOW-LEVEL: auth header, 401 refresh-retry,
-                              429/5xx backoff, decode, error envelope
+                              429/5xx + 403 rate-limit backoff (honors
+                              Retry-After + RetryInfo), decode, error envelope
     DriveClient.swift         HIGH-LEVEL facades: endpoints + pagination
     SheetsClient.swift
     DocsClient.swift
@@ -40,7 +41,8 @@ Sources/GrahamKit/            the library — ALL logic lives here
   Models/                     trimmed Codable models, one file per service
   Helpers/                    GoogleURL, GoogleJSON, OutputFormatter, GrahamLog
 Sources/graham/               the thin CLI
-  Graham.swift                @main root command
+  Graham.swift                @main root command; bootstraps + drains logging
+  GrahamFileLog.swift         installs the FellerBuncher file backend
   CLISupport.swift            builds the shared GoogleAPI, log handler
   Commands/                   one file per subcommand group
 Tests/GrahamKitTests/         offline tests; StubTransport + inline fixtures
@@ -51,7 +53,9 @@ Tests/CLITests/               argument-parsing tests only
 
 - `GoogleAPI` (low-level) is the only place that touches auth headers, retry,
   backoff, and decoding. It refreshes the token once after a 401, retries
-  429/5xx with exponential backoff, and honors `Retry-After`.
+  429/5xx (and 403 rate-limit envelopes) with exponential backoff, and waits
+  the longer of that backoff and any server-supplied hint — both the
+  `Retry-After` header and a `RetryInfo.retryDelay` in the error body.
 - The service clients (`DriveClient`, ...) build URLs, hold pagination loops,
   and return typed models. Pagination lives ONLY here. Every list method
   threads a client-side `limit` guard through the page loop.
@@ -162,11 +166,19 @@ write. Tests remain offline and exercise the real encoding path.
   JSON path of the failing field. Keep this working; it pays for itself the
   first time Google adds a field.
 - The library never prints. It logs through `GrahamLog.handler`; the CLI
-  sends that to stderr so stdout stays clean for piping.
+  installs a handler (`CLI.installLogHandler`) that fans each line to two
+  sinks: stderr (so the lines are live and stdout stays clean for piping) and
+  a swift-log `Logger` that the FellerBuncher backend persists to
+  `~/Library/Logs/graham/graham.log` (logfmt, size-rotated). Only the
+  executable links swift-log/FellerBuncher; the library keeps the seam. The
+  `@main` `Graham.main` bootstraps the file backend first and `drain()`s it on
+  both the success and error exit paths — a short-lived CLI loses the buffered
+  tail otherwise.
 - Google rate-limit errors can also arrive as 403 with status
-  `rateLimitExceeded`/`userRateLimitExceeded` in the error envelope. The
-  current retry loop only handles 429/5xx; if 403 rate limits show up in
-  practice, extend `GoogleAPI.send` to inspect the envelope status.
+  `rateLimitExceeded`/`userRateLimitExceeded` in the error envelope.
+  `GoogleAPI.send` now inspects the envelope status and retries those 403s just
+  like a 429; `GoogleErrorEnvelope.isRateLimit` holds the status check and
+  `retryDelaySeconds` parses any `RetryInfo` the body carries.
 - Output is deterministic: JSON encoders sort keys, tables pad all but the
   last column (no trailing whitespace).
 - Shared-drive items are invisible to `files.list` unless the request sets

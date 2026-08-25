@@ -1,12 +1,39 @@
 {
   "pins" : [
     {
+      "identity" : "fellerbuncher",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/adamwulf/FellerBuncher.git",
+      "state" : {
+        "branch" : "main",
+        "revision" : "39a70d805ceaa33f76c9e08c6371c4776ecc73f6"
+      }
+    },
+    {
+      "identity" : "logfmt",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/adamwulf/Logfmt.git",
+      "state" : {
+        "branch" : "main",
+        "revision" : "a6d6eb29177f65f3e252610a2176d318026d634c"
+      }
+    },
+    {
       "identity" : "swift-argument-parser",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-argument-parser",
       "state" : {
         "revision" : "6a52f3251125d74daf04fcbd5e6f08a75d074382",
         "version" : "1.8.2"
+      }
+    },
+    {
+      "identity" : "swift-log",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-log.git",
+      "state" : {
+        "revision" : "3ffafb9722d5d918c614feb496c8789a3b59d222",
+        "version" : "1.15.0"
       }
     }
   ],

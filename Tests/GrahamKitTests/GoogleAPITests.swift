@@ -73,6 +73,76 @@ final class GoogleAPITests: XCTestCase {
         XCTAssertEqual(recorder.delays, [7])
     }
 
+    func testHonorsRetryInfoDelayOn429() async throws {
+        let transport = StubTransport()
+        transport.stubTokenEndpoint()
+        let body = """
+            {"error":{"code":429,"status":"RESOURCE_EXHAUSTED","message":"Quota exceeded",\
+            "details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"30s"}]}}
+            """
+        transport.stub(urlContains: "/files/f1", responses: [
+            StubTransport.json(body, status: 429),
+            StubTransport.json(fileJSON),
+        ])
+        let recorder = SleepRecorder()
+        let api = TestSupport.makeAPI(transport: transport) { recorder.record($0) }
+
+        let file = try await api.getJSON(DriveFile.self, from: fileURL)
+
+        XCTAssertEqual(file.id, "f1")
+        // The 30s RetryInfo hint beats the 1s exponential backoff floor.
+        XCTAssertEqual(recorder.delays, [30])
+    }
+
+    func testHonorsRetryInfoDelayWithFractionalSeconds() {
+        XCTAssertEqual(GoogleErrorEnvelope.parseDuration("1.500s"), 1.5)
+        XCTAssertEqual(GoogleErrorEnvelope.parseDuration("42s"), 42)
+        XCTAssertNil(GoogleErrorEnvelope.parseDuration("nonsense"))
+    }
+
+    func testRetriesOn403RateLimitEnvelope() async throws {
+        let transport = StubTransport()
+        transport.stubTokenEndpoint()
+        let body = #"{"error":{"code":403,"status":"rateLimitExceeded","message":"Rate limit exceeded"}}"#
+        transport.stub(urlContains: "/files/f1", responses: [
+            StubTransport.json(body, status: 403),
+            StubTransport.json(fileJSON),
+        ])
+        let recorder = SleepRecorder()
+        let api = TestSupport.makeAPI(transport: transport) { recorder.record($0) }
+
+        let file = try await api.getJSON(DriveFile.self, from: fileURL)
+
+        XCTAssertEqual(file.id, "f1")
+        XCTAssertEqual(recorder.delays, [1])
+        XCTAssertEqual(transport.requests(urlContains: "/files/f1").count, 2)
+    }
+
+    func testDoesNotRetryNonRateLimit403() async {
+        let transport = StubTransport()
+        transport.stubTokenEndpoint()
+        transport.stub(
+            urlContains: "/files/f1",
+            json: #"{"error":{"code":403,"message":"No permission.","status":"PERMISSION_DENIED"}}"#,
+            status: 403
+        )
+        let recorder = SleepRecorder()
+        let api = TestSupport.makeAPI(transport: transport) { recorder.record($0) }
+
+        do {
+            _ = try await api.getJSON(DriveFile.self, from: fileURL)
+            XCTFail("Expected an error")
+        } catch {
+            guard case GrahamError.googleAPIError(let code, _, _) = error else {
+                return XCTFail("Wrong error: \(error)")
+            }
+            XCTAssertEqual(code, 403)
+        }
+        // A permission 403 is terminal: no retry and no backoff.
+        XCTAssertEqual(transport.requests(urlContains: "/files/f1").count, 1)
+        XCTAssertEqual(recorder.delays, [])
+    }
+
     func testUsesExponentialBackoffOn5xx() async throws {
         let transport = StubTransport()
         transport.stubTokenEndpoint()
