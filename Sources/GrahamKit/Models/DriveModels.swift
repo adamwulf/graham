@@ -54,16 +54,19 @@ public struct DriveFileList: Codable, Sendable {
 
 /// The request body for `files.create`: the metadata of a new, empty file.
 ///
-/// Only the name and the MIME type are sent; Drive fills in everything else.
+/// The name and MIME type are always sent. `parents` is included when the
+/// caller wants the new file placed in a particular folder.
 /// Encoding through ``GoogleJSON`` escapes the name safely, so a name with a
 /// quote, a backslash, or a newline never breaks the JSON.
 public struct DriveFileCreateRequest: Codable, Sendable, Equatable {
     public let name: String
     public let mimeType: String
+    public let parents: [String]?
 
-    public init(name: String, mimeType: String) {
+    public init(name: String, mimeType: String, parents: [String]? = nil) {
         self.name = name
         self.mimeType = mimeType
+        self.parents = parents
     }
 }
 

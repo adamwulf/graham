@@ -58,13 +58,13 @@ struct Drive: AsyncParsableCommand {
 
     struct Create: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Create a new, empty Doc, Sheet, or Slides file."
+            abstract: "Create a new, empty Doc, Sheet, Slides file, or folder."
         )
 
         @Argument(help: "The name of the new file.")
         var name: String
 
-        @Option(help: "The file type to create: docs, sheets, or slides.")
+        @Option(help: "The file type to create: docs, sheets, slides, or folder.")
         var type: DriveCreateType
 
         @Option(help: "The output format: table, json, jsonl, or id.")

@@ -164,19 +164,27 @@ public struct DriveClient: Sendable {
             .replacingOccurrences(of: "'", with: "\\'")
     }
 
-    /// Creates a new, empty Google Doc, Sheet, or Slides file, via
-    /// `files.create`. The file lands in "My Drive" with the given name, and
-    /// its type is set by the MIME on ``DriveCreateType``. Returns the created
-    /// file's metadata (the same `fields` as ``file(id:)``).
+    /// Creates a new, empty Google Doc, Sheet, Slides file, or folder via
+    /// `files.create`. With no `parent`, the file lands in "My Drive". When a
+    /// parent id is supplied, Drive places the file directly in that folder.
+    /// Returns the created file's metadata (the same `fields` as ``file(id:)``).
     ///
     /// The name is carried in a JSON request body, not in the URL, so it is
     /// encoded safely no matter what characters it holds.
-    public func create(name: String, type: DriveCreateType) async throws -> DriveFile {
+    public func create(
+        name: String,
+        type: DriveCreateType,
+        parent: String? = nil
+    ) async throws -> DriveFile {
         let url = try GoogleURL.build(
             "\(Self.baseURL)/files",
             query: [("fields", Self.fileFields)]
         )
-        let body = DriveFileCreateRequest(name: name, mimeType: type.mimeType)
+        let body = DriveFileCreateRequest(
+            name: name,
+            mimeType: type.mimeType,
+            parents: parent.map { [$0] }
+        )
         return try await api.sendJSON(DriveFile.self, method: "POST", url: url, body: body)
     }
 

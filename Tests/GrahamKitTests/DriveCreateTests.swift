@@ -30,6 +30,7 @@ final class DriveCreateTests: XCTestCase {
         let body = try Self.body(request)
         XCTAssertEqual(body.name, "My Doc")
         XCTAssertEqual(body.mimeType, "application/vnd.google-apps.document")
+        XCTAssertNil(body.parents)
         // The response is decoded and returned.
         XCTAssertEqual(file.id, "new-1")
         XCTAssertEqual(file.name, "My Doc")
@@ -53,6 +54,7 @@ final class DriveCreateTests: XCTestCase {
             (.docs, "application/vnd.google-apps.document"),
             (.sheets, "application/vnd.google-apps.spreadsheet"),
             (.slides, "application/vnd.google-apps.presentation"),
+            (.folder, "application/vnd.google-apps.folder"),
         ]
         for (type, mime) in expected {
             let transport = StubTransport()
@@ -101,26 +103,43 @@ final class DriveCreateTests: XCTestCase {
         XCTAssertEqual(Self.path(request.url), "/drive/v3/files")
     }
 
+    func testCreateWithParentEncodesOneParentInTheBody() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: "/drive/v3/files", json: #"{"id":"x","name":"n"}"#)
+
+        _ = try await client.create(name: "Inside", type: .slides, parent: "folder-7")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: "/drive/v3/files").first)
+        XCTAssertEqual(try Self.body(request).parents, ["folder-7"])
+        XCTAssertFalse(request.url.absoluteString.contains("folder-7"))
+    }
+
     // MARK: - DriveCreateType
 
     func testDriveCreateTypeMimeTypes() {
         XCTAssertEqual(DriveCreateType.docs.mimeType, "application/vnd.google-apps.document")
         XCTAssertEqual(DriveCreateType.sheets.mimeType, "application/vnd.google-apps.spreadsheet")
         XCTAssertEqual(DriveCreateType.slides.mimeType, "application/vnd.google-apps.presentation")
+        XCTAssertEqual(DriveCreateType.folder.mimeType, "application/vnd.google-apps.folder")
     }
 
     func testDriveCreateTypeShortNamesRoundTrip() {
         XCTAssertEqual(DriveCreateType.docs.shortName, "docs")
         XCTAssertEqual(DriveCreateType(shortName: "sheets"), .sheets)
         XCTAssertEqual(DriveCreateType(shortName: "slides"), .slides)
-        // "all" and "folders" are listing filters, not creatable types.
+        XCTAssertEqual(DriveCreateType(shortName: "folder"), .folder)
+        // "all" and the plural listing spelling are not creatable types.
         XCTAssertNil(DriveCreateType(shortName: "all"))
         XCTAssertNil(DriveCreateType(shortName: "folders"))
         XCTAssertNil(DriveCreateType(shortName: "images"))
     }
 
-    func testDriveCreateTypeCoversDocsSheetsSlides() {
-        XCTAssertEqual(DriveCreateType.allCases.map(\.shortName), ["docs", "sheets", "slides"])
+    func testDriveCreateTypeCoversDocsSheetsSlidesAndFolder() {
+        XCTAssertEqual(
+            DriveCreateType.allCases.map(\.shortName),
+            ["docs", "sheets", "slides", "folder"]
+        )
     }
 
     // MARK: - DriveFileCreateRequest
