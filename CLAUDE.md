@@ -58,7 +58,11 @@ Tests/CLITests/               argument-parsing tests only
   the longer of that backoff and any server-supplied hint. Three hint sources
   are read, and the largest wins: the `Retry-After` header, a
   `RetryInfo.retryDelay` in the error body, and — when neither is present — the
-  quota window a `google.rpc.ErrorInfo` names. Slides' per-minute *write* quota
+  quota window a `google.rpc.ErrorInfo` names. The winning hint gets a one-second
+  boundary buffer added, so a retry lands just past Google's window rather than a
+  hair before it (clock skew, network latency, and sub-second rounding otherwise
+  burn a retry on the same 429). Pure backoff has no such boundary and keeps its
+  bare schedule. Slides' per-minute *write* quota
   returns exactly that third shape: a bare `429 RESOURCE_EXHAUSTED` whose only
   hint is an `ErrorInfo` with `quota_unit` (`1/min/...`) and `window_start_time`
   in its `metadata`. The client waits out the time left in that window, measured
@@ -194,10 +198,13 @@ write. Tests remain offline and exercise the real encoding path.
   returns a bare `429` whose only timing hint is a `google.rpc.ErrorInfo`
   naming the quota window in its `metadata`: `quota_unit` (`1/min/...`) and
   `window_start_time` (epoch seconds).
-  `GoogleErrorEnvelope.quotaWindowRetrySeconds(serverNow:)` computes the time
+  `GoogleErrorEnvelope.quotaWindowRetrySeconds(serverNow:)` computes the raw time
   left in that window (`window_start_time + windowLength - serverNow`), and
   `GoogleAPI.serverEpoch` reads `serverNow` from the response `Date` header so
-  the wait never depends on the local clock.
+  the wait never depends on the local clock. The one-second boundary buffer is
+  NOT baked into this value — `GoogleAPI.send` adds it once to whichever hint
+  wins, so all three hint sources share a single buffer rather than each keeping
+  its own.
   `GoogleErrorEnvelope.windowSeconds(forQuotaUnit:)` only maps `s`/`min` (the
   short windows worth waiting out) — a per-hour or per-day quota stays `nil` and
   falls back to backoff. The old 1s/2s/4s exponential backoff never cleared this
