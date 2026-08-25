@@ -98,16 +98,17 @@ struct GoogleErrorEnvelope: Decodable {
                   let windowLength = Self.windowSeconds(forQuotaUnit: unit) else {
                 continue
             }
-            // Land just past the reset so a coarse server clock does not
-            // throttle the very first retry all over again.
-            let buffer: TimeInterval = 1
+            // Return the raw time left in the window. The caller adds a single
+            // boundary buffer to whichever hint wins, so a coarse server clock
+            // does not throttle the very first retry all over again — the
+            // buffer lives in one place rather than in each hint source.
             if let serverNow,
                let startRaw = metadata["window_start_time"],
                let start = TimeInterval(startRaw) {
                 let remaining = (start + windowLength) - serverNow
-                return max(0, remaining) + buffer
+                return max(0, remaining)
             }
-            return windowLength + buffer
+            return windowLength
         }
         return nil
     }
@@ -148,6 +149,14 @@ public final class GoogleAPI: @unchecked Sendable {
     private let transport: any HTTPTransport
     private let maxRetries: Int
     private let maxBackoff: TimeInterval = 60
+    /// Added to a server-supplied wait so a retry lands just after Google's
+    /// boundary, not just before it. A hint names the moment Google clears the
+    /// quota window; waiting the exact amount risks retrying a hair too early
+    /// (clock skew between our clock and Google's, network latency, sub-second
+    /// rounding) and burning a retry on the same 429. One extra second lands us
+    /// safely past the boundary. Pure backoff has no such boundary, so it gets
+    /// no buffer.
+    private let boundaryBuffer: TimeInterval = 1
     private let sleep: @Sendable (TimeInterval) async -> Void
 
     public init(
@@ -243,7 +252,9 @@ public final class GoogleAPI: @unchecked Sendable {
             }
             let serverHint = serverRetryHint(response: response, envelope: envelope)
             let backoff = min(maxBackoff, pow(2.0, Double(retryCount)))
-            let delay = max(backoff, serverHint ?? 0)
+            // Overshoot a server-supplied boundary by `boundaryBuffer`; pure
+            // backoff has no boundary and keeps its bare schedule.
+            let delay = max(backoff, serverHint.map { $0 + boundaryBuffer } ?? 0)
             let status = envelope?.error.status.map { " (\($0))" } ?? ""
             let hint = serverHint.map { String(format: "%.0fs", $0) } ?? "none"
             GrahamLog.log(

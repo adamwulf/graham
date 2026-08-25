@@ -70,7 +70,9 @@ final class GoogleAPITests: XCTestCase {
         let file = try await api.getJSON(DriveFile.self, from: fileURL)
 
         XCTAssertEqual(file.id, "f1")
-        XCTAssertEqual(recorder.delays, [7])
+        // 7s hint plus the 1s boundary buffer so the retry lands just after
+        // Google's window, not on its edge.
+        XCTAssertEqual(recorder.delays, [8])
     }
 
     func testHonorsRetryInfoDelayOn429() async throws {
@@ -90,8 +92,9 @@ final class GoogleAPITests: XCTestCase {
         let file = try await api.getJSON(DriveFile.self, from: fileURL)
 
         XCTAssertEqual(file.id, "f1")
-        // The 30s RetryInfo hint beats the 1s exponential backoff floor.
-        XCTAssertEqual(recorder.delays, [30])
+        // The 30s RetryInfo hint beats the 1s exponential backoff floor, then
+        // the 1s boundary buffer lands the retry just past the window.
+        XCTAssertEqual(recorder.delays, [31])
     }
 
     func testLogsResponseHeadersWhenNoRetryHint() async throws {
@@ -198,7 +201,8 @@ final class GoogleAPITests: XCTestCase {
         let file = try await api.getJSON(DriveFile.self, from: fileURL)
 
         XCTAssertEqual(file.id, "f1")
-        // The 19s window wait beats the 1s exponential-backoff floor.
+        // 18s left in the window plus the 1s boundary buffer = 19s, which beats
+        // the 1s exponential-backoff floor.
         XCTAssertEqual(recorder.delays, [19])
     }
 
@@ -255,10 +259,12 @@ final class GoogleAPITests: XCTestCase {
             GoogleErrorEnvelope.self,
             from: Data(quotaWindowBody(windowStart: 1787693188).utf8)
         )
-        // 1787693188 window start + 60s window - 1787693230 now = 18s left, +1s buffer.
-        XCTAssertEqual(envelope.quotaWindowRetrySeconds(serverNow: 1787693230), 19)
-        // No clock: fall back to the full window plus buffer.
-        XCTAssertEqual(envelope.quotaWindowRetrySeconds(serverNow: nil), 61)
+        // 1787693188 window start + 60s window - 1787693230 now = 18s left. The
+        // boundary buffer is added by the caller, not here, so this is the raw
+        // remaining time.
+        XCTAssertEqual(envelope.quotaWindowRetrySeconds(serverNow: 1787693230), 18)
+        // No clock: fall back to the full raw window length.
+        XCTAssertEqual(envelope.quotaWindowRetrySeconds(serverNow: nil), 60)
     }
 
     func testQuotaWindowRetrySecondsIsNilWithoutQuotaMetadata() throws {
