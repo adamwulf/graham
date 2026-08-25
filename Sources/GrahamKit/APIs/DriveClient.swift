@@ -181,8 +181,8 @@ public struct DriveClient: Sendable {
     }
 
     /// Copies a file via `files.copy`. With a `name`, the copy takes that name;
-    /// without one, Drive names it "Copy of <original>". Returns the new file's
-    /// metadata (the same `fields` as ``file(id:)``).
+    /// without one, Drive names it "Copy of <original>". Returns the new file,
+    /// whose `id` is the value the `copy` command prints.
     ///
     /// The optional name travels in a JSON request body, not in the URL, so it
     /// is encoded safely no matter what characters it holds. The request spans
@@ -190,7 +190,7 @@ public struct DriveClient: Sendable {
     public func copy(fileId: String, name: String? = nil) async throws -> DriveFile {
         let url = try GoogleURL.build(
             "\(Self.baseURL)/files/\(GoogleURL.escapePathComponent(fileId))/copy",
-            query: [("supportsAllDrives", "true"), ("fields", Self.fileFields)]
+            query: [("supportsAllDrives", "true")]
         )
         let body = DriveFileCopyRequest(name: name)
         return try await api.sendJSON(DriveFile.self, method: "POST", url: url, body: body)
@@ -204,7 +204,7 @@ public struct DriveClient: Sendable {
     public func trash(fileId: String) async throws -> DriveFile {
         let url = try GoogleURL.build(
             "\(Self.baseURL)/files/\(GoogleURL.escapePathComponent(fileId))",
-            query: [("supportsAllDrives", "true"), ("fields", Self.fileFields)]
+            query: [("supportsAllDrives", "true")]
         )
         let body = DriveTrashRequest(trashed: true)
         return try await api.sendJSON(DriveFile.self, method: "PATCH", url: url, body: body)

@@ -88,13 +88,10 @@ struct Drive: AsyncParsableCommand {
         @Option(help: "A name for the copy. Without it, Drive names it \"Copy of <original>\".")
         var name: String?
 
-        @Option(help: "The output format: table, json, jsonl, or id.")
-        var format: OutputFormat = .id
-
         func run() async throws {
             let client = DriveClient(api: try CLI.makeAPI())
             let file = try await client.copy(fileId: fileID, name: name)
-            print(try OutputFormatter.render([file], format: format))
+            print(file.id)
         }
     }
 
@@ -124,13 +121,16 @@ struct Drive: AsyncParsableCommand {
         @Flag(help: "Confirm the permanent deletion. Required, because it cannot be undone.")
         var force = false
 
-        func run() async throws {
+        func validate() throws {
             guard force else {
                 throw ValidationError(
                     "Deleting is permanent and bypasses the trash. Pass --force to confirm, "
                     + "or use \"graham drive trash\" for a reversible move to the trash."
                 )
             }
+        }
+
+        func run() async throws {
             let client = DriveClient(api: try CLI.makeAPI())
             try await client.delete(fileId: fileID)
             print(fileID)

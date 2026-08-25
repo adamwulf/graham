@@ -8,8 +8,6 @@ final class DriveCopyParsingTests: XCTestCase {
         let command = try Drive.Copy.parse(["file-123"])
         XCTAssertEqual(command.fileID, "file-123")
         XCTAssertNil(command.name)
-        // The default output is just the id, so scripts can capture it directly.
-        XCTAssertEqual(command.format, .id)
     }
 
     func testCopyParsesAnOptionalName() throws {
@@ -18,9 +16,9 @@ final class DriveCopyParsingTests: XCTestCase {
         XCTAssertEqual(command.name, "My Copy")
     }
 
-    func testCopyAcceptsAnExplicitFormat() throws {
-        let command = try Drive.Copy.parse(["file-123", "--format", "json"])
-        XCTAssertEqual(command.format, .json)
+    func testCopyRejectsAFormatOption() {
+        // copy always prints the new id; it exposes no --format option.
+        XCTAssertThrowsError(try Drive.Copy.parse(["file-123", "--format", "json"]))
     }
 
     func testCopyRequiresAFileID() {

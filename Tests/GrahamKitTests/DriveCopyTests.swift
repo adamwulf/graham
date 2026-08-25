@@ -26,8 +26,8 @@ final class DriveCopyTests: XCTestCase {
         XCTAssertEqual(request.method, "POST")
         XCTAssertEqual(Self.path(request.url), "/drive/v3/files/f1/copy")
         XCTAssertEqual(request.headers["Content-Type"], "application/json")
-        // The request spans shared drives, like the other Drive calls.
-        XCTAssertTrue(request.url.absoluteString.contains("supportsAllDrives=true"))
+        // The one and only query item is supportsAllDrives=true; nothing else.
+        XCTAssertEqual(Self.queryItems(request.url), [URLQueryItem(name: "supportsAllDrives", value: "true")])
         // The name is carried in the body, never in the URL.
         let body = try Self.body(request)
         XCTAssertEqual(body.name, "My Copy")
@@ -56,18 +56,6 @@ final class DriveCopyTests: XCTestCase {
         XCTAssertNil(body.name)
     }
 
-    func testCopyRequestsTheFullFieldSet() async throws {
-        let transport = StubTransport()
-        let client = makeClient(transport: transport)
-        transport.stub(urlContains: "/drive/v3/files/f1/copy", json: #"{"id":"x","name":"n"}"#)
-
-        _ = try await client.copy(fileId: "f1")
-
-        let request = try XCTUnwrap(transport.requests(urlContains: "/drive/v3/files/f1/copy").first)
-        // The same fields as a metadata fetch, so JSON/table output is populated.
-        XCTAssertTrue(request.url.absoluteString.contains("fields=id,name,mimeType"))
-    }
-
     func testCopyEscapesTheFileIDInThePath() async throws {
         let transport = StubTransport()
         let client = makeClient(transport: transport)
@@ -82,7 +70,7 @@ final class DriveCopyTests: XCTestCase {
         XCTAssertTrue(request.url.absoluteString.contains("/files/a%20b%2Fc/copy"))
     }
 
-    func testCopiedFileRendersJustItsIdByDefault() async throws {
+    func testCopyReturnsTheNewFilesId() async throws {
         let transport = StubTransport()
         let client = makeClient(transport: transport)
         transport.stub(
@@ -92,9 +80,8 @@ final class DriveCopyTests: XCTestCase {
 
         let file = try await client.copy(fileId: "f1", name: "Deck copy")
 
-        // The `copy` command prints with the `.id` format by default, so the
-        // output is exactly the new file's id, ready to pipe.
-        XCTAssertEqual(try OutputFormatter.render([file], format: .id), "copy-99")
+        // The `copy` command prints exactly this id, ready to pipe.
+        XCTAssertEqual(file.id, "copy-99")
     }
 
     // MARK: - Safe encoding
@@ -144,5 +131,10 @@ final class DriveCopyTests: XCTestCase {
     /// The path of a URL, with no query, for endpoint assertions.
     private static func path(_ url: URL) -> String? {
         URLComponents(url: url, resolvingAgainstBaseURL: false)?.path
+    }
+
+    /// The decoded query items of a URL, for exact query assertions.
+    private static func queryItems(_ url: URL) -> [URLQueryItem] {
+        URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
     }
 }

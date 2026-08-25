@@ -26,26 +26,14 @@ final class DriveTrashDeleteTests: XCTestCase {
         XCTAssertEqual(request.method, "PATCH")
         XCTAssertEqual(Self.path(request.url), "/drive/v3/files/f1")
         XCTAssertEqual(request.headers["Content-Type"], "application/json")
-        // The request spans shared drives, like the other Drive calls.
-        XCTAssertTrue(request.url.absoluteString.contains("supportsAllDrives=true"))
+        // The one and only query item is supportsAllDrives=true; nothing else.
+        XCTAssertEqual(Self.queryItems(request.url), [URLQueryItem(name: "supportsAllDrives", value: "true")])
         // The body is exactly the trashed flag.
         let data = try XCTUnwrap(request.body, "the trash request should have a JSON body")
         XCTAssertEqual(String(data: data, encoding: .utf8), #"{"trashed":true}"#)
         // The updated file is decoded and returned.
         XCTAssertEqual(file.id, "f1")
         XCTAssertEqual(file.name, "Report")
-    }
-
-    func testTrashRequestsTheFullFieldSet() async throws {
-        let transport = StubTransport()
-        let client = makeClient(transport: transport)
-        transport.stub(urlContains: "/drive/v3/files/f1", json: #"{"id":"f1","name":"n"}"#)
-
-        _ = try await client.trash(fileId: "f1")
-
-        let request = try XCTUnwrap(transport.requests(urlContains: "/drive/v3/files/f1").first)
-        // The same fields as a metadata fetch, so the returned file is complete.
-        XCTAssertTrue(request.url.absoluteString.contains("fields=id,name,mimeType"))
     }
 
     func testTrashEscapesTheFileIDInThePath() async throws {
@@ -82,8 +70,8 @@ final class DriveTrashDeleteTests: XCTestCase {
         XCTAssertEqual(Self.path(request.url), "/drive/v3/files/f1")
         // No JSON body is sent for a delete.
         XCTAssertNil(request.body)
-        // The request spans shared drives.
-        XCTAssertTrue(request.url.absoluteString.contains("supportsAllDrives=true"))
+        // The one and only query item is supportsAllDrives=true; nothing else.
+        XCTAssertEqual(Self.queryItems(request.url), [URLQueryItem(name: "supportsAllDrives", value: "true")])
     }
 
     func testDeleteEscapesTheFileIDInThePath() async throws {
@@ -125,5 +113,10 @@ final class DriveTrashDeleteTests: XCTestCase {
     /// The path of a URL, with no query, for endpoint assertions.
     private static func path(_ url: URL) -> String? {
         URLComponents(url: url, resolvingAgainstBaseURL: false)?.path
+    }
+
+    /// The decoded query items of a URL, for exact query assertions.
+    private static func queryItems(_ url: URL) -> [URLQueryItem] {
+        URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
     }
 }
