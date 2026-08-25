@@ -196,6 +196,32 @@ public struct DriveClient: Sendable {
         return try await api.sendJSON(DriveFile.self, method: "POST", url: url, body: body)
     }
 
+    /// Moves a file to the trash via `files.update` (a PATCH that sets
+    /// `trashed = true`). Returns the updated file metadata. Trashing is
+    /// reversible from the Drive UI. The request spans shared drives.
+    ///
+    /// The `trashed` flag travels in a JSON request body, not in the URL.
+    public func trash(fileId: String) async throws -> DriveFile {
+        let url = try GoogleURL.build(
+            "\(Self.baseURL)/files/\(GoogleURL.escapePathComponent(fileId))",
+            query: [("supportsAllDrives", "true"), ("fields", Self.fileFields)]
+        )
+        let body = DriveTrashRequest(trashed: true)
+        return try await api.sendJSON(DriveFile.self, method: "PATCH", url: url, body: body)
+    }
+
+    /// Permanently deletes a file via `files.delete` (an HTTP DELETE that
+    /// replies with 204 and an empty body). This BYPASSES the trash: the file
+    /// is not recoverable from the Drive UI, unlike ``trash(fileId:)``. The
+    /// request spans shared drives.
+    public func delete(fileId: String) async throws {
+        let url = try GoogleURL.build(
+            "\(Self.baseURL)/files/\(GoogleURL.escapePathComponent(fileId))",
+            query: [("supportsAllDrives", "true")]
+        )
+        try await api.sendNoContent(method: "DELETE", url: url)
+    }
+
     /// Gets the metadata of one file.
     public func file(id: String) async throws -> DriveFile {
         let url = try GoogleURL.build(

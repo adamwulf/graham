@@ -5,7 +5,7 @@ import GrahamKit
 struct Drive: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Work with Google Drive files.",
-        subcommands: [List.self, Get.self, Create.self, Copy.self, Export.self]
+        subcommands: [List.self, Get.self, Create.self, Copy.self, Trash.self, Delete.self, Export.self]
     )
 
     struct List: AsyncParsableCommand {
@@ -95,6 +95,45 @@ struct Drive: AsyncParsableCommand {
             let client = DriveClient(api: try CLI.makeAPI())
             let file = try await client.copy(fileId: fileID, name: name)
             print(try OutputFormatter.render([file], format: format))
+        }
+    }
+
+    struct Trash: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Move a file to the trash. Reversible in the Drive UI."
+        )
+
+        @Argument(help: "The Drive file ID to trash.")
+        var fileID: String
+
+        func run() async throws {
+            let client = DriveClient(api: try CLI.makeAPI())
+            let file = try await client.trash(fileId: fileID)
+            print(file.id)
+        }
+    }
+
+    struct Delete: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Permanently delete a file. This bypasses the trash and cannot be undone."
+        )
+
+        @Argument(help: "The Drive file ID to delete.")
+        var fileID: String
+
+        @Flag(help: "Confirm the permanent deletion. Required, because it cannot be undone.")
+        var force = false
+
+        func run() async throws {
+            guard force else {
+                throw ValidationError(
+                    "Deleting is permanent and bypasses the trash. Pass --force to confirm, "
+                    + "or use \"graham drive trash\" for a reversible move to the trash."
+                )
+            }
+            let client = DriveClient(api: try CLI.makeAPI())
+            try await client.delete(fileId: fileID)
+            print(fileID)
         }
     }
 

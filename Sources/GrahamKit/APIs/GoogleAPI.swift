@@ -74,6 +74,14 @@ public final class GoogleAPI: @unchecked Sendable {
         return try decode(type, from: response.body)
     }
 
+    /// Sends a request that returns no body to decode, such as a `DELETE` that
+    /// replies with HTTP 204 and an empty body. The token refresh after a 401
+    /// and the 429/5xx retry and backoff behave exactly as for every other
+    /// request; only the (empty) response body is ignored.
+    public func sendNoContent(method: String, url: URL) async throws {
+        _ = try await send(HTTPRequest(method: method, url: url))
+    }
+
     func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
         do {
             return try GoogleJSON.decoder.decode(type, from: data)

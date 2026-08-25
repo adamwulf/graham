@@ -80,6 +80,18 @@ public struct DriveFileCopyRequest: Codable, Sendable, Equatable {
     }
 }
 
+/// The request body for trashing a file via `files.update`: sets `trashed`.
+///
+/// Trashing is a metadata update, so it is a PATCH with this one field. Setting
+/// `trashed = true` moves the file to the trash, which the Drive UI can undo.
+public struct DriveTrashRequest: Codable, Sendable, Equatable {
+    public let trashed: Bool
+
+    public init(trashed: Bool) {
+        self.trashed = trashed
+    }
+}
+
 /// One shared drive the user can see.
 ///
 /// `id` is the only invariant; `name` is optional so the model decodes even
