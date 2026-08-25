@@ -230,6 +230,66 @@ final class SlidesParsingTests: XCTestCase {
         XCTAssertThrowsError(try Slides.AltText.parse(["deck-id"]))
     }
 
+    // MARK: - notes
+
+    func testSlidesListsNotes() {
+        let names = Slides.configuration.subcommands.compactMap {
+            $0.configuration.commandName ?? "\($0)".lowercased()
+        }
+        XCTAssertTrue(names.contains("notes"))
+    }
+
+    func testSlidesNotesListsEverySubcommand() {
+        let names = Slides.Notes.configuration.subcommands.compactMap {
+            $0.configuration.commandName ?? "\($0)".lowercased()
+        }
+        XCTAssertEqual(names, ["show", "set", "clear"])
+    }
+
+    func testSlidesNotesShowParsesDefaults() throws {
+        let command = try Slides.Notes.Show.parse(["deck-id"])
+        XCTAssertEqual(command.presentationID, "deck-id")
+        XCTAssertEqual(command.format, .table)
+    }
+
+    func testSlidesNotesShowParsesFormat() throws {
+        let command = try Slides.Notes.Show.parse(["deck-id", "--format", "json"])
+        XCTAssertEqual(command.format, .json)
+    }
+
+    func testSlidesNotesShowRequiresAPresentationID() {
+        XCTAssertThrowsError(try Slides.Notes.Show.parse([]))
+    }
+
+    func testSlidesNotesSetParsesArguments() throws {
+        let command = try Slides.Notes.Set.parse([
+            "deck-id", "slide-1", "--text", "Remember to smile",
+        ])
+        XCTAssertEqual(command.presentationID, "deck-id")
+        XCTAssertEqual(command.slideID, "slide-1")
+        XCTAssertEqual(command.text, "Remember to smile")
+    }
+
+    func testSlidesNotesSetRequiresText() {
+        XCTAssertThrowsError(try Slides.Notes.Set.parse(["deck-id", "slide-1"]))
+    }
+
+    func testSlidesNotesSetRequiresBothIds() {
+        XCTAssertThrowsError(try Slides.Notes.Set.parse([]))
+        XCTAssertThrowsError(try Slides.Notes.Set.parse(["deck-id", "--text", "x"]))
+    }
+
+    func testSlidesNotesClearParsesArguments() throws {
+        let command = try Slides.Notes.Clear.parse(["deck-id", "slide-1"])
+        XCTAssertEqual(command.presentationID, "deck-id")
+        XCTAssertEqual(command.slideID, "slide-1")
+    }
+
+    func testSlidesNotesClearRequiresBothIds() {
+        XCTAssertThrowsError(try Slides.Notes.Clear.parse([]))
+        XCTAssertThrowsError(try Slides.Notes.Clear.parse(["deck-id"]))
+    }
+
     // MARK: - create subcommand registry
 
     func testSlidesCreateListsEveryElementSubcommand() {

@@ -781,6 +781,79 @@ public struct SlidesClient: Sendable {
         )
     }
 
+    // MARK: - Speaker notes
+    //
+    // A slide's notes live in a shape on its read-only notes page, named by
+    // `slideProperties.notesPage.notesProperties.speakerNotesObjectId`. Notes
+    // are read from that page and edited through the ordinary text operations
+    // against that shape id, in the same `presentations.batchUpdate` as any
+    // other write. The shape may not exist on the notes page until text is
+    // first inserted; inserting text with its id creates it.
+
+    /// The mask that limits a notes read to the slide id and its notes page.
+    private static let speakerNotesFields = "slides.objectId,slides.slideProperties.notesPage"
+
+    /// Reads every slide's speaker notes, one row per slide.
+    ///
+    /// This is a single `presentations.get`, masked to the slide ids and their
+    /// notes pages. The notes shape id and text come from each slide's
+    /// `slideProperties.notesPage`; see ``Presentation/speakerNotesRows``.
+    public func speakerNotes(presentationId: String) async throws -> [SlideSpeakerNotesRow] {
+        let presentation = try await self.presentation(
+            id: presentationId, fields: Self.speakerNotesFields)
+        return presentation.speakerNotesRows
+    }
+
+    /// Sets one slide's speaker notes to `text`, replacing any existing notes.
+    ///
+    /// This first reads the presentation to find the slide and its speaker-notes
+    /// shape id, then sends ONE atomic batch built from the current state: a
+    /// `deleteText(.all)` only when the notes shape currently has text, plus an
+    /// `insertText` only when `text` is non-empty. Setting empty text on an
+    /// already-empty shape sends no write (the no-op precedent of
+    /// ``moveSlide(presentationId:slideId:to:)``).
+    ///
+    /// Throws ``GrahamError/invalidArgument(_:)`` when no slide has `slideId`
+    /// (before any write) and ``GrahamError/invalidResponse(_:)`` when the API
+    /// returns no speaker-notes shape id for the slide.
+    public func setSpeakerNotes(
+        presentationId: String,
+        slideId: String,
+        text: String
+    ) async throws {
+        let presentation = try await self.presentation(
+            id: presentationId, fields: Self.speakerNotesFields)
+        guard let slide = (presentation.slides ?? []).first(where: { $0.objectId == slideId })
+        else {
+            throw GrahamError.invalidArgument(
+                "no slide with id \"\(slideId)\" in presentation \(presentationId)")
+        }
+        let notesPage = slide.slideProperties?.notesPage
+        guard let shapeId = notesPage?.notesProperties?.speakerNotesObjectId else {
+            throw GrahamError.invalidResponse(
+                "slide \"\(slideId)\" has no speaker-notes shape id in its notes page")
+        }
+        let currentText = Presentation.speakerNotesText(notesPage: notesPage, shapeId: shapeId)
+
+        var requests: [SlidesBatchUpdateRequest] = []
+        if !currentText.isEmpty {
+            requests.append(.deleteText(DeleteTextRequest(objectId: shapeId, textRange: .all)))
+        }
+        if !text.isEmpty {
+            requests.append(.insertText(InsertTextRequest(
+                objectId: shapeId, text: text, insertionIndex: 0)))
+        }
+        // Empty text on an already-empty shape has nothing to do.
+        guard !requests.isEmpty else { return }
+        _ = try await batchUpdate(presentationId: presentationId, requests: requests)
+    }
+
+    /// Clears one slide's speaker notes. This is ``setSpeakerNotes`` with empty
+    /// text, so an already-empty shape sends no write.
+    public func clearSpeakerNotes(presentationId: String, slideId: String) async throws {
+        try await setSpeakerNotes(presentationId: presentationId, slideId: slideId, text: "")
+    }
+
     // MARK: - Element styles
     //
     // Every style method builds a typed style container together with a

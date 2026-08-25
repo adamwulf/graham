@@ -8,7 +8,7 @@ struct Slides: AsyncParsableCommand {
         subcommands: [
             Cat.self, List.self, Images.self, Add.self, Create.self, Element.self,
             Group.self, Ungroup.self, Move.self, Delete.self, AltText.self,
-            Style.self, Table.self, Text.self, Chart.self,
+            Notes.self, Style.self, Table.self, Text.self, Chart.self,
         ]
     )
 
@@ -926,6 +926,91 @@ struct Slides: AsyncParsableCommand {
                 description: clearDescription ? "" : description
             )
             print(objectID)
+        }
+    }
+
+    struct Notes: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "notes",
+            abstract: "Read, set, or clear slide speaker notes.",
+            subcommands: [Show.self, Set.self, Clear.self]
+        )
+
+        struct Show: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "show",
+                abstract: "Show each slide's speaker notes.",
+                discussion: """
+                    Lists one row per slide: its one-based number, slide id, \
+                    notes shape id, and the notes text. Use --format json for \
+                    the full detail.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Option(help: "The output format: table, json, jsonl, or id.")
+            var format: OutputFormat = .table
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                let rows = try await client.speakerNotes(presentationId: presentationID)
+                print(try OutputFormatter.render(rows, format: format))
+            }
+        }
+
+        struct Set: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "set",
+                abstract: "Set a slide's speaker notes and print the slide id.",
+                discussion: """
+                    Replaces the slide's speaker notes with --text. graham reads \
+                    the presentation to find the slide's notes shape, then \
+                    replaces its text in a single batch update. Get slide ids \
+                    from `slides list --format json` or `slides notes show`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the slide.")
+            var slideID: String
+
+            @Option(help: "The speaker-notes text.")
+            var text: String
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.setSpeakerNotes(
+                    presentationId: presentationID, slideId: slideID, text: text)
+                print(slideID)
+            }
+        }
+
+        struct Clear: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "clear",
+                abstract: "Clear a slide's speaker notes and print the slide id.",
+                discussion: """
+                    Removes all speaker-notes text from the slide. Get slide ids \
+                    from `slides list --format json` or `slides notes show`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the slide.")
+            var slideID: String
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.clearSpeakerNotes(
+                    presentationId: presentationID, slideId: slideID)
+                print(slideID)
+            }
         }
     }
 
