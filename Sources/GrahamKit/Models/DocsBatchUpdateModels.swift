@@ -646,6 +646,35 @@ public enum DocsSpacingMode: String, Codable, Sendable, Equatable {
     case collapseLists = "COLLAPSE_LISTS"
 }
 
+/// The writable subset of a Docs `ParagraphBorder`: the color, width, padding,
+/// and dash style of one side of a paragraph.
+///
+/// Every field is optional, but graham always fills all four when it sets a
+/// border (see ``DocsClient/styleParagraphs(documentId:startIndex:endIndex:segmentId:namedStyleType:alignment:direction:lineSpacing:spaceAbove:spaceBelow:indentStart:indentEnd:indentFirstLine:keepLinesTogether:keepWithNext:avoidWidowAndOrphan:pageBreakBefore:shadingBackgroundColor:spacingMode:outerBorderColor:betweenBorderColor:borderWidth:borderDash:borderPadding:requiredRevisionId:)``):
+/// the Docs API forbids a partial paragraph-border update ("the new border must
+/// be specified in its entirety"), so a border requires a color and defaults its
+/// width to 1 pt, its padding to 0 pt, and its dash to solid. `color` is a
+/// ``DocsOptionalColor``; `width` and `padding` are ``DocsDimension`` values in
+/// points; `dashStyle` reuses the shared ``DocsDashStyle``.
+public struct DocsParagraphBorder: Codable, Sendable, Equatable {
+    public let color: DocsOptionalColor?
+    public let width: DocsDimension?
+    public let padding: DocsDimension?
+    public let dashStyle: DocsDashStyle?
+
+    public init(
+        color: DocsOptionalColor? = nil,
+        width: DocsDimension? = nil,
+        padding: DocsDimension? = nil,
+        dashStyle: DocsDashStyle? = nil
+    ) {
+        self.color = color
+        self.width = width
+        self.padding = padding
+        self.dashStyle = dashStyle
+    }
+}
+
 /// The writable subset of a Docs `ParagraphStyle`.
 ///
 /// Every field is optional; the request's `fields` mask, not this container,
@@ -654,7 +683,10 @@ public enum DocsSpacingMode: String, Codable, Sendable, Equatable {
 /// `keepLinesTogether`, `keepWithNext`, `avoidWidowAndOrphan`, and
 /// `pageBreakBefore` are the pagination toggles; `shading` sets the paragraph
 /// background fill; `spacingMode` chooses how the space-above/below collapse.
-/// Paragraph borders and tab stops are out of this slice.
+/// `borderTop`, `borderBottom`, `borderLeft`, and `borderRight` are the four
+/// outer borders and `borderBetween` is the border rendered between adjacent
+/// paragraphs; each is a ``DocsParagraphBorder``. Tab stops are out of this
+/// slice.
 public struct DocsParagraphStyle: Codable, Sendable, Equatable {
     public let namedStyleType: DocsNamedStyleType?
     public let alignment: DocsParagraphAlignment?
@@ -671,6 +703,11 @@ public struct DocsParagraphStyle: Codable, Sendable, Equatable {
     public let pageBreakBefore: Bool?
     public let shading: DocsShading?
     public let spacingMode: DocsSpacingMode?
+    public let borderTop: DocsParagraphBorder?
+    public let borderBottom: DocsParagraphBorder?
+    public let borderLeft: DocsParagraphBorder?
+    public let borderRight: DocsParagraphBorder?
+    public let borderBetween: DocsParagraphBorder?
 
     public init(
         namedStyleType: DocsNamedStyleType? = nil,
@@ -687,7 +724,12 @@ public struct DocsParagraphStyle: Codable, Sendable, Equatable {
         avoidWidowAndOrphan: Bool? = nil,
         pageBreakBefore: Bool? = nil,
         shading: DocsShading? = nil,
-        spacingMode: DocsSpacingMode? = nil
+        spacingMode: DocsSpacingMode? = nil,
+        borderTop: DocsParagraphBorder? = nil,
+        borderBottom: DocsParagraphBorder? = nil,
+        borderLeft: DocsParagraphBorder? = nil,
+        borderRight: DocsParagraphBorder? = nil,
+        borderBetween: DocsParagraphBorder? = nil
     ) {
         self.namedStyleType = namedStyleType
         self.alignment = alignment
@@ -704,6 +746,11 @@ public struct DocsParagraphStyle: Codable, Sendable, Equatable {
         self.pageBreakBefore = pageBreakBefore
         self.shading = shading
         self.spacingMode = spacingMode
+        self.borderTop = borderTop
+        self.borderBottom = borderBottom
+        self.borderLeft = borderLeft
+        self.borderRight = borderRight
+        self.borderBetween = borderBetween
     }
 }
 
