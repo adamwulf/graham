@@ -270,6 +270,10 @@ final class DocsTableWriteTests: XCTestCase {
         // No index and no end-of-segment: nothing to target.
         await assertInvalid { _ = try await client.insertTable(
             documentId: "doc-1", rows: 2, columns: 2) }
+        // Both an index and end-of-segment is ambiguous; rejected, not silently
+        // resolved to one.
+        await assertInvalid { _ = try await client.insertTable(
+            documentId: "doc-1", rows: 2, columns: 2, index: 1, endOfSegment: true) }
 
         XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
     }

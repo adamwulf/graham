@@ -1400,7 +1400,7 @@ struct Docs: AsyncParsableCommand {
         @Option(help: "The zero-based UTF-16 body index to insert at (minimum 1). Not needed with --end.")
         var at: Int?
 
-        @Flag(help: "Append the page break to the end of the body; --at is ignored.")
+        @Flag(help: "Append the page break to the end of the body. Mutually exclusive with --at; give exactly one.")
         var end = false
 
         @Option(help: "Require the document be at this revision id; the write fails otherwise.")
@@ -1473,7 +1473,7 @@ struct Docs: AsyncParsableCommand {
             @Option(help: "The zero-based UTF-16 index to insert at (body minimum 1; segment minimum 0). Not needed with --end.")
             var at: Int?
 
-            @Flag(help: "Append the image to the end of the body or segment; --at is ignored.")
+            @Flag(help: "Append the image to the end of the body or segment. Mutually exclusive with --at; give exactly one.")
             var end = false
 
             @Option(parsing: .unconditional, help: "The display width in points (greater than zero).")
@@ -1631,7 +1631,7 @@ struct Docs: AsyncParsableCommand {
         @Option(help: "The zero-based UTF-16 body index to insert at (minimum 1). Not needed with --end.")
         var at: Int?
 
-        @Flag(help: "Append the section break to the end of the body; --at is ignored.")
+        @Flag(help: "Append the section break to the end of the body. Mutually exclusive with --at; give exactly one.")
         var end = false
 
         @Option(help: "Require the document be at this revision id; the write fails otherwise.")

@@ -50,15 +50,28 @@ final class DocsStructureWriteTests: XCTestCase {
         let client = makeClient(transport: transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
 
-        _ = try await client.insertPageBreak(documentId: "doc-1", index: 999, endOfSegment: true)
+        // End-of-body alone (no index): the destination is the end of the body
+        // with no segment id.
+        _ = try await client.insertPageBreak(documentId: "doc-1", endOfSegment: true)
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
-        // The passed index is ignored on the append path; the destination is the
-        // end of the body with no segment id.
         XCTAssertEqual(
             Self.bodyString(request),
             #"{"requests":[{"insertPageBreak":{"endOfSegmentLocation":{}}}]}"#
         )
+    }
+
+    func testInsertPageBreakRejectsBothIndexAndEndOfBodyWithoutSendingARequest() async {
+        // Passing both an index and end-of-body is ambiguous; the client rejects
+        // it instead of silently picking one, and sends nothing.
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            _ = try await client.insertPageBreak(
+                documentId: "doc-1", index: 5, endOfSegment: true)
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
     }
 
     func testInsertPageBreakDecodesEmptyReply() async throws {
@@ -212,6 +225,19 @@ final class DocsStructureWriteTests: XCTestCase {
             Self.bodyString(request),
             #"{"requests":[{"insertInlineImage":{"endOfSegmentLocation":{"segmentId":"ftr-2"},"uri":"\#(Self.escapedURI)"}}]}"#
         )
+    }
+
+    func testInsertInlineImageRejectsBothIndexAndEndOfSegmentWithoutSendingARequest() async {
+        // Passing both an index and end-of-segment is ambiguous; the client
+        // rejects it instead of silently picking one, and sends nothing.
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            _ = try await client.insertInlineImage(
+                documentId: "doc-1", uri: Self.uri, index: 5, endOfSegment: true)
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
     }
 
     func testInsertInlineImageEmptySegmentIdEncodesNoSegmentId() async throws {
@@ -580,6 +606,19 @@ final class DocsStructureWriteTests: XCTestCase {
         XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
     }
 
+    func testInsertSectionBreakRejectsBothIndexAndEndOfBodyWithoutSendingARequest() async {
+        // Passing both an index and end-of-body is ambiguous; the client rejects
+        // it instead of silently picking one, and sends nothing.
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            _ = try await client.insertSectionBreak(
+                documentId: "doc-1", sectionType: "CONTINUOUS", index: 3, endOfSegment: true)
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
     func testInsertSectionBreakPropagatesGoogleErrorEnvelope() async {
         let transport = StubTransport()
         let client = makeClient(transport: transport)
@@ -597,6 +636,30 @@ final class DocsStructureWriteTests: XCTestCase {
 
     // MARK: - Enum wire spellings and union discriminators
 
+    /// The body-only page-break and section-break requests are body-only by
+    /// construction: their public entry points build a location / end-of-segment
+    /// with no segment id, so no illegal non-body request is representable.
+    func testBodyOnlyRequestsCarryNoSegmentId() {
+        let pageIndex = DocsInsertPageBreakRequest(bodyIndex: 5)
+        XCTAssertEqual(pageIndex.location?.index, 5)
+        XCTAssertNil(pageIndex.location?.segmentId)
+        XCTAssertNil(pageIndex.endOfSegmentLocation)
+
+        let pageEnd = DocsInsertPageBreakRequest.endOfBody
+        XCTAssertNil(pageEnd.location)
+        XCTAssertNil(pageEnd.endOfSegmentLocation?.segmentId)
+
+        let sectionIndex = DocsInsertSectionBreakRequest(sectionType: .continuous, bodyIndex: 3)
+        XCTAssertEqual(sectionIndex.location?.index, 3)
+        XCTAssertNil(sectionIndex.location?.segmentId)
+        XCTAssertNil(sectionIndex.endOfSegmentLocation)
+
+        let sectionEnd = DocsInsertSectionBreakRequest.endOfBody(sectionType: .nextPage)
+        XCTAssertNil(sectionEnd.location)
+        XCTAssertNil(sectionEnd.endOfSegmentLocation?.segmentId)
+        XCTAssertEqual(sectionEnd.sectionType, .nextPage)
+    }
+
     /// The section-type and image-replace-method raw values match the discovery
     /// document exactly, so the enums never drift from the wire spellings.
     func testStructureEnumRawValuesMatchTheWireSpellings() {
@@ -610,8 +673,7 @@ final class DocsStructureWriteTests: XCTestCase {
     func testEveryStructureRequestTypeEncodesUnderItsOwnKey() throws {
         let cases: [(DocsBatchUpdateRequest, String)] = [
             (
-                .insertPageBreak(DocsInsertPageBreakRequest(
-                    location: DocsLocation(index: 5))),
+                .insertPageBreak(DocsInsertPageBreakRequest(bodyIndex: 5)),
                 #"{"insertPageBreak":{"location":{"index":5}}}"#
             ),
             (
@@ -630,7 +692,7 @@ final class DocsStructureWriteTests: XCTestCase {
             ),
             (
                 .insertSectionBreak(DocsInsertSectionBreakRequest(
-                    sectionType: .continuous, location: DocsLocation(index: 3))),
+                    sectionType: .continuous, bodyIndex: 3)),
                 #"{"insertSectionBreak":{"location":{"index":3},"sectionType":"CONTINUOUS"}}"#
             ),
         ]

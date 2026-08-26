@@ -602,8 +602,8 @@ public struct DocsClient: Sendable {
     ///     `endOfSegment` is set. The body's first editable index is 1 (index 0
     ///     lands inside the initial section break); a named segment starts at 0.
     ///   - endOfSegment: append to the end of the body (or the segment named by
-    ///     `segmentId`) without computing an index. `index` is ignored, and no
-    ///     index guard applies.
+    ///     `segmentId`) without computing an index. Mutually exclusive with
+    ///     `index`; provide exactly one.
     ///   - segmentId: a header or footer segment (a footnote cannot hold a
     ///     table); nil or an empty string targets the body.
     public func insertTable(
@@ -621,6 +621,13 @@ public struct DocsClient: Sendable {
         guard columns >= 1 else {
             throw GrahamError.invalidArgument(
                 "table columns must be 1 or greater, got \(columns)")
+        }
+        // The destination is exactly one of an explicit index or the end of the
+        // segment: providing both is ambiguous (never silently pick one), and the
+        // "neither" case is caught by the guard in the index branch below.
+        if endOfSegment, index != nil {
+            throw GrahamError.invalidArgument(
+                "provide either an index or the end of the segment, not both")
         }
         // The Docs API reads an empty segment id as the document body, so
         // normalize "" to nil before choosing the guard and building the target.
@@ -1187,17 +1194,24 @@ public struct DocsClient: Sendable {
     ///     `endOfSegment` is set. The body's first editable index is 1 (index 0
     ///     lands inside the initial section break).
     ///   - endOfSegment: append the page break to the end of the body without
-    ///     computing an index. `index` is ignored, and no index guard applies.
+    ///     computing an index. Mutually exclusive with `index`; provide exactly
+    ///     one.
     public func insertPageBreak(
         documentId: String,
         index: Int? = nil,
         endOfSegment: Bool = false,
         requiredRevisionId: String? = nil
     ) async throws -> DocsBatchUpdateResponse {
+        // The destination is exactly one of an explicit index or the end of the
+        // body: providing both is ambiguous (never silently pick one), and the
+        // "neither" case is caught by the guard in the index branch below.
+        if endOfSegment, index != nil {
+            throw GrahamError.invalidArgument(
+                "provide either an index or the end of the body, not both")
+        }
         let insert: DocsInsertPageBreakRequest
         if endOfSegment {
-            insert = DocsInsertPageBreakRequest(
-                endOfSegmentLocation: DocsEndOfSegmentLocation())
+            insert = .endOfBody
         } else {
             guard let index else {
                 throw GrahamError.invalidArgument(
@@ -1207,7 +1221,7 @@ public struct DocsClient: Sendable {
                 throw GrahamError.invalidArgument(
                     "index must be 1 or greater; the document body starts at index 1")
             }
-            insert = DocsInsertPageBreakRequest(location: DocsLocation(index: index))
+            insert = DocsInsertPageBreakRequest(bodyIndex: index)
         }
         let request = DocsBatchUpdateRequest.insertPageBreak(insert)
         return try await batchUpdate(
@@ -1229,8 +1243,8 @@ public struct DocsClient: Sendable {
     ///     `endOfSegment` is set. The body's first editable index is 1; a named
     ///     segment starts at 0.
     ///   - endOfSegment: append to the end of the body (or the segment named by
-    ///     `segmentId`) without computing an index. `index` is ignored, and no
-    ///     index guard applies.
+    ///     `segmentId`) without computing an index. Mutually exclusive with
+    ///     `index`; provide exactly one.
     ///   - segmentId: a header or footer segment (an inline image cannot go in a
     ///     footnote); nil or an empty string targets the body.
     ///   - width / height: the optional display size in points; each must be
@@ -1249,6 +1263,13 @@ public struct DocsClient: Sendable {
     ) async throws -> (response: DocsBatchUpdateResponse, objectId: String?) {
         guard !uri.isEmpty else {
             throw GrahamError.invalidArgument("the image URI must not be empty")
+        }
+        // The destination is exactly one of an explicit index or the end of the
+        // segment: providing both is ambiguous (never silently pick one), and the
+        // "neither" case is caught by the guard in the index branch below.
+        if endOfSegment, index != nil {
+            throw GrahamError.invalidArgument(
+                "provide either an index or the end of the segment, not both")
         }
         if let width {
             guard width > 0 else {
@@ -1374,7 +1395,8 @@ public struct DocsClient: Sendable {
     ///     `endOfSegment` is set. The body's first editable index is 1 (index 0
     ///     lands inside the initial section break).
     ///   - endOfSegment: append the section break to the end of the body without
-    ///     computing an index. `index` is ignored, and no index guard applies.
+    ///     computing an index. Mutually exclusive with `index`; provide exactly
+    ///     one.
     public func insertSectionBreak(
         documentId: String,
         sectionType: String,
@@ -1386,10 +1408,16 @@ public struct DocsClient: Sendable {
             throw GrahamError.invalidArgument(
                 "unknown section type \"\(sectionType)\"; use CONTINUOUS or NEXT_PAGE")
         }
+        // The destination is exactly one of an explicit index or the end of the
+        // body: providing both is ambiguous (never silently pick one), and the
+        // "neither" case is caught by the guard in the index branch below.
+        if endOfSegment, index != nil {
+            throw GrahamError.invalidArgument(
+                "provide either an index or the end of the body, not both")
+        }
         let insert: DocsInsertSectionBreakRequest
         if endOfSegment {
-            insert = DocsInsertSectionBreakRequest(
-                sectionType: type, endOfSegmentLocation: DocsEndOfSegmentLocation())
+            insert = .endOfBody(sectionType: type)
         } else {
             guard let index else {
                 throw GrahamError.invalidArgument(
@@ -1399,8 +1427,7 @@ public struct DocsClient: Sendable {
                 throw GrahamError.invalidArgument(
                     "index must be 1 or greater; the document body starts at index 1")
             }
-            insert = DocsInsertSectionBreakRequest(
-                sectionType: type, location: DocsLocation(index: index))
+            insert = DocsInsertSectionBreakRequest(sectionType: type, bodyIndex: index)
         }
         let request = DocsBatchUpdateRequest.insertSectionBreak(insert)
         return try await batchUpdate(

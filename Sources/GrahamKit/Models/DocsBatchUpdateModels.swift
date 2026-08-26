@@ -1112,25 +1112,34 @@ public enum DocsImageReplaceMethod: String, Codable, Sendable, Equatable {
     case centerCrop = "CENTER_CROP"
 }
 
-/// The `insertPageBreak` operation. The destination is exactly one of a
-/// ``DocsLocation`` (an explicit body index) or a ``DocsEndOfSegmentLocation``
-/// (the end of the body). Page breaks are body-only in the API — the location's
-/// segment id must be empty — so neither init sets a segment id. The two inits
-/// keep the destinations mutually exclusive: only the chosen one is set, and the
-/// other stays nil and is omitted when encoded.
+/// The `insertPageBreak` operation. The destination is exactly one of a body
+/// index or the end of the body. Page breaks are body-only in the API — the
+/// location's segment id must be empty — so this type is body-only **by
+/// construction**: its public entry points take only a bare index or select the
+/// end of the body, and build a ``DocsLocation`` / ``DocsEndOfSegmentLocation``
+/// with no segment id internally. A caller therefore cannot smuggle in an
+/// illegal non-body request through the public ``DocsClient/batchUpdate(documentId:requests:requiredRevisionId:)``.
+/// The two entry points keep the destinations mutually exclusive: only the
+/// chosen one is set, and the other stays nil and is omitted when encoded.
 public struct DocsInsertPageBreakRequest: Codable, Sendable, Equatable {
     public let location: DocsLocation?
     public let endOfSegmentLocation: DocsEndOfSegmentLocation?
 
-    public init(location: DocsLocation) {
+    private init(location: DocsLocation?, endOfSegmentLocation: DocsEndOfSegmentLocation?) {
         self.location = location
-        self.endOfSegmentLocation = nil
-    }
-
-    public init(endOfSegmentLocation: DocsEndOfSegmentLocation) {
-        self.location = nil
         self.endOfSegmentLocation = endOfSegmentLocation
     }
+
+    /// Inserts the page break at a zero-based body index. The location carries
+    /// no segment id.
+    public init(bodyIndex: Int) {
+        self.init(location: DocsLocation(index: bodyIndex), endOfSegmentLocation: nil)
+    }
+
+    /// A page break at the end of the document body. The end-of-segment location
+    /// carries no segment id.
+    public static let endOfBody = DocsInsertPageBreakRequest(
+        location: nil, endOfSegmentLocation: DocsEndOfSegmentLocation())
 }
 
 /// The `insertInlineImage` operation. The `uri` is required and must be a
@@ -1193,27 +1202,46 @@ public struct DocsDeletePositionedObjectRequest: Codable, Sendable, Equatable {
 }
 
 /// The `insertSectionBreak` operation. `sectionType` is required. The
-/// destination is exactly one of a ``DocsLocation`` (an explicit body index) or
-/// a ``DocsEndOfSegmentLocation`` (the end of the body). Section breaks are
-/// body-only in the API — the location's segment id must be empty — so neither
-/// init sets a segment id. The two inits keep the destinations mutually
-/// exclusive: only the chosen one is set, and the other stays nil and is omitted
-/// when encoded.
+/// destination is exactly one of a body index or the end of the body. Section
+/// breaks are body-only in the API — the location's segment id must be empty —
+/// so this type is body-only **by construction**: its public entry points take
+/// only a bare index or select the end of the body, and build a ``DocsLocation``
+/// / ``DocsEndOfSegmentLocation`` with no segment id internally, so a caller
+/// cannot smuggle in an illegal non-body request through the public
+/// ``DocsClient/batchUpdate(documentId:requests:requiredRevisionId:)``. The two
+/// entry points keep the destinations mutually exclusive: only the chosen one is
+/// set, and the other stays nil and is omitted when encoded.
 public struct DocsInsertSectionBreakRequest: Codable, Sendable, Equatable {
     public let sectionType: DocsSectionType
     public let location: DocsLocation?
     public let endOfSegmentLocation: DocsEndOfSegmentLocation?
 
-    public init(sectionType: DocsSectionType, location: DocsLocation) {
+    private init(
+        sectionType: DocsSectionType,
+        location: DocsLocation?,
+        endOfSegmentLocation: DocsEndOfSegmentLocation?
+    ) {
         self.sectionType = sectionType
         self.location = location
-        self.endOfSegmentLocation = nil
+        self.endOfSegmentLocation = endOfSegmentLocation
     }
 
-    public init(sectionType: DocsSectionType, endOfSegmentLocation: DocsEndOfSegmentLocation) {
-        self.sectionType = sectionType
-        self.location = nil
-        self.endOfSegmentLocation = endOfSegmentLocation
+    /// Inserts the section break at a zero-based body index. The location
+    /// carries no segment id.
+    public init(sectionType: DocsSectionType, bodyIndex: Int) {
+        self.init(
+            sectionType: sectionType,
+            location: DocsLocation(index: bodyIndex),
+            endOfSegmentLocation: nil)
+    }
+
+    /// A section break at the end of the document body. The end-of-segment
+    /// location carries no segment id.
+    public static func endOfBody(sectionType: DocsSectionType) -> DocsInsertSectionBreakRequest {
+        DocsInsertSectionBreakRequest(
+            sectionType: sectionType,
+            location: nil,
+            endOfSegmentLocation: DocsEndOfSegmentLocation())
     }
 }
 
