@@ -76,6 +76,11 @@ struct Docs: AsyncParsableCommand {
         var requireRevision: String?
 
         func validate() throws {
+            if end && at != nil {
+                throw ValidationError(
+                    "Pass either --at <index> or --end, not both: --end appends to the "
+                    + "end of the segment and takes no index.")
+            }
             guard end || at != nil else {
                 throw ValidationError(
                     "Provide --at <index>, or pass --end to append to the end of the segment.")

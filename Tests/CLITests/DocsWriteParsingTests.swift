@@ -55,6 +55,16 @@ final class DocsWriteParsingTests: XCTestCase {
         XCTAssertThrowsError(try Docs.Insert.parse(["doc-1", "--text", "hi"]))
     }
 
+    func testDocsInsertWithBothIndexAndEndIsRejectedAtParse() {
+        // --at and --end conflict: --end takes no index. Exactly one is allowed.
+        XCTAssertThrowsError(
+            try Docs.Insert.parse(["doc-1", "--text", "hi", "--at", "1", "--end"])
+        ) { error in
+            let message = Docs.Insert.message(for: error)
+            XCTAssertTrue(message.contains("not both"), "Expected a conflict message: \(message)")
+        }
+    }
+
     func testDocsInsertDefaultsSegmentToNilAndEndToFalse() throws {
         let command = try Docs.Insert.parse(["doc-1", "--text", "hi", "--at", "1"])
         XCTAssertNil(command.segment)

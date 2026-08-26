@@ -50,16 +50,26 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
 /// `requiredRevisionId` makes the write apply only if the document is still at
 /// that revision, failing otherwise so a concurrent edit is never silently
 /// overwritten. `targetRevisionId` applies the write against an older revision,
-/// transforming it forward. The two are mutually exclusive; graham sets only
-/// `requiredRevisionId`. Both encode only when set, so a body with no write
-/// control omits the field entirely. The document's current revision is
-/// `Document.revisionId` (populated by the richer read phase).
+/// transforming it forward. The two are a Google `oneof` (mutually exclusive),
+/// so the two dedicated inits set exactly one; the other stays nil and is
+/// omitted when encoded, and a dual-field body is unrepresentable. graham sets
+/// only `requiredRevisionId`. Both stay optional so the response, which echoes
+/// one, still decodes. The document's current revision is `Document.revisionId`
+/// (populated by the richer read phase).
 public struct DocsWriteControl: Codable, Sendable, Equatable {
     public let requiredRevisionId: String?
     public let targetRevisionId: String?
 
-    public init(requiredRevisionId: String? = nil, targetRevisionId: String? = nil) {
+    /// Require the document be at this revision; the write fails otherwise.
+    public init(requiredRevisionId: String) {
         self.requiredRevisionId = requiredRevisionId
+        self.targetRevisionId = nil
+    }
+
+    /// Apply the write against this (possibly older) revision, transforming it
+    /// forward.
+    public init(targetRevisionId: String) {
+        self.requiredRevisionId = nil
         self.targetRevisionId = targetRevisionId
     }
 }
@@ -127,14 +137,19 @@ public struct DocsRange: Codable, Sendable, Equatable {
 
 /// The end of a document segment, as a target for appending content without
 /// computing an index. `segmentId` names a header, footer, or footnote segment;
-/// when omitted, the target is the end of the document body. The Docs API's
+/// when omitted, the target is the end of the document body. `tabId` names the
+/// tab the segment lives in; when omitted, it refers to the singular tab of a
+/// document with no explicit tabs. Both optionals encode only when set, so the
+/// common append-to-body target stays `{}`. The Docs API's
 /// `EndOfSegmentLocation`; an `insertText` uses either this or a
 /// ``DocsLocation``, never both.
 public struct DocsEndOfSegmentLocation: Codable, Sendable, Equatable {
     public let segmentId: String?
+    public let tabId: String?
 
-    public init(segmentId: String? = nil) {
+    public init(segmentId: String? = nil, tabId: String? = nil) {
         self.segmentId = segmentId
+        self.tabId = tabId
     }
 }
 

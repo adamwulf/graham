@@ -75,12 +75,12 @@ public struct DocsClient: Sendable {
     /// tables.
     /// - Parameters:
     ///   - segmentId: names a header, footer, or footnote segment to insert
-    ///     into; when nil, the insert targets the document body. A named segment
-    ///     starts its content at index 0, so the body-only `index >= 1` guard
-    ///     does not apply to it.
+    ///     into; when nil or empty, the insert targets the document body. A
+    ///     named segment starts its content at index 0, so the body-only
+    ///     `index >= 1` guard does not apply to it.
     ///   - endOfSegment: append to the end of the segment (or the body, when
-    ///     `segmentId` is nil) without computing an index. `index` is ignored in
-    ///     this mode, and no index guard applies. This encodes an
+    ///     `segmentId` is nil or empty) without computing an index. `index` is
+    ///     ignored in this mode, and no index guard applies. This encodes an
     ///     ``DocsEndOfSegmentLocation`` instead of a ``DocsLocation``.
     public func insertText(
         documentId: String,
@@ -93,6 +93,11 @@ public struct DocsClient: Sendable {
         guard !text.isEmpty else {
             throw GrahamError.invalidArgument("text must not be empty")
         }
+        // The Docs API reads an empty segment id as the document body, so
+        // normalize "" to nil before choosing the guard and building the
+        // target: an empty or nil segmentId uses the body guard and encodes no
+        // segmentId; only a non-empty id is treated as a named segment.
+        let segmentId = segmentId.flatMap { $0.isEmpty ? nil : $0 }
         let insert: DocsInsertTextRequest
         if endOfSegment {
             // Appending needs no index; the destination is the end of the
@@ -132,8 +137,8 @@ public struct DocsClient: Sendable {
     /// Both indices are zero-based offsets in UTF-16 code units into the
     /// document (see ``DocsRange``).
     /// - Parameter segmentId: names a header, footer, or footnote segment whose
-    ///   content is deleted; when nil, the range refers to the document body. A
-    ///   named segment starts its content at index 0, so its minimum
+    ///   content is deleted; when nil or empty, the range refers to the document
+    ///   body. A named segment starts its content at index 0, so its minimum
     ///   `startIndex` is 0; the body's minimum stays 1.
     public func deleteContentRange(
         documentId: String,
@@ -142,6 +147,11 @@ public struct DocsClient: Sendable {
         segmentId: String? = nil,
         requiredRevisionId: String? = nil
     ) async throws -> DocsBatchUpdateResponse {
+        // The Docs API reads an empty segment id as the document body, so
+        // normalize "" to nil before choosing the guard and building the range:
+        // an empty or nil segmentId uses the body guard and encodes no
+        // segmentId; only a non-empty id is treated as a named segment.
+        let segmentId = segmentId.flatMap { $0.isEmpty ? nil : $0 }
         // The body's first editable index is 1; a named segment starts at 0.
         let minStart = segmentId == nil ? 1 : 0
         guard startIndex >= minStart else {

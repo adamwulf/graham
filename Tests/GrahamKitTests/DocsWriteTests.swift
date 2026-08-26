@@ -348,6 +348,79 @@ final class DocsWriteTests: XCTestCase {
         XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
     }
 
+    // MARK: - Empty segment id means the body
+
+    func testInsertTextEmptySegmentIdUsesTheBodyGuardAndEncodesNoSegmentId() async {
+        // The Docs API reads an empty segment id as the body, so the body guard
+        // applies: index 0 is rejected before any request goes out.
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            _ = try await client.insertText(
+                documentId: "doc-1", text: "Hi", index: 0, segmentId: "")
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testInsertTextEmptySegmentIdEncodesLocationWithoutSegmentId() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
+
+        // An empty segment id at a body-legal index encodes a plain body
+        // location — no empty segmentId leaks into the request.
+        _ = try await client.insertText(
+            documentId: "doc-1", text: "Hi", index: 1, segmentId: "")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"insertText":{"location":{"index":1},"text":"Hi"}}]}"#
+        )
+    }
+
+    func testInsertTextEndOfSegmentEmptySegmentIdEncodesEmptyEndOfSegment() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
+
+        // An empty segment id on the append path means the end of the body,
+        // encoding an empty endOfSegmentLocation with no segmentId.
+        _ = try await client.insertText(
+            documentId: "doc-1", text: "Hi", index: 0, segmentId: "", endOfSegment: true)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"insertText":{"endOfSegmentLocation":{},"text":"Hi"}}]}"#
+        )
+    }
+
+    func testDeleteContentRangeEmptySegmentIdUsesTheBodyGuardAndEncodesNoSegmentId() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
+
+        // Empty segment id: the body guard rejects startIndex 0.
+        await assertInvalidArgument {
+            _ = try await client.deleteContentRange(
+                documentId: "doc-1", startIndex: 0, endIndex: 4, segmentId: "")
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+
+        // A body-legal range with an empty segment id encodes a plain body
+        // range — no empty segmentId leaks into the request.
+        _ = try await client.deleteContentRange(
+            documentId: "doc-1", startIndex: 1, endIndex: 4, segmentId: "")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"deleteContentRange":{"range":{"endIndex":4,"startIndex":1}}}]}"#
+        )
+    }
+
     // MARK: - WriteControl
 
     func testInsertTextWithRequiredRevisionCarriesWriteControl() async throws {
@@ -443,11 +516,19 @@ final class DocsWriteTests: XCTestCase {
                 DocsWriteControl(targetRevisionId: "t")), encoding: .utf8),
             #"{"targetRevisionId":"t"}"#
         )
-        // An empty write control encodes to an empty object.
-        XCTAssertEqual(
-            String(data: try GoogleJSON.encoder.encode(DocsWriteControl()), encoding: .utf8),
-            "{}"
-        )
+    }
+
+    func testWriteControlIsAOneOfConstructibleWithExactlyOneField() throws {
+        // Each dedicated init sets exactly one field and leaves the other nil,
+        // so a dual-field body is unrepresentable.
+        XCTAssertNil(DocsWriteControl(requiredRevisionId: "r").targetRevisionId)
+        XCTAssertNil(DocsWriteControl(targetRevisionId: "t").requiredRevisionId)
+        // Both properties stay optional so the response — which may echo either,
+        // or an empty object — still decodes.
+        let decoded = try GoogleJSON.decoder.decode(
+            DocsWriteControl.self, from: Data("{}".utf8))
+        XCTAssertNil(decoded.requiredRevisionId)
+        XCTAssertNil(decoded.targetRevisionId)
     }
 
     // MARK: - Encoding a mixed batch

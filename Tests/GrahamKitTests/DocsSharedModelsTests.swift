@@ -68,6 +68,17 @@ final class DocsSharedModelsTests: XCTestCase {
         )
     }
 
+    func testEndOfSegmentEncodesTabIdOnlyWhenSet() throws {
+        XCTAssertEqual(
+            try encoded(DocsEndOfSegmentLocation(tabId: "tab-2")),
+            #"{"tabId":"tab-2"}"#
+        )
+        XCTAssertEqual(
+            try encoded(DocsEndOfSegmentLocation(segmentId: "hdr-7", tabId: "tab-2")),
+            #"{"segmentId":"hdr-7","tabId":"tab-2"}"#
+        )
+    }
+
     // MARK: - DocsTableCellLocation
 
     func testTableCellLocationEncodesZeroBasedRowAndColumn() throws {
