@@ -58,14 +58,6 @@ keep the styling change reviewable:
   `HEADING_2` looks like document-wide); the mask must include
   `named_style_type`. CLI `docs named-style`.
 
-### Named-range discovery (useful follow-up)
-
-- **`docs range list`** *(useful)* — surface `Document.namedRanges` (id, name,
-  ranges) so `docs range delete`/`fill` by id are usable for pre-existing
-  ranges. The read model already decodes `namedRanges`; add a `GrahamRow` facade
-  and a thin command. Until this lands, ids come only from a `docs range create`
-  reply.
-
 ### Tabs, smart chips, suggestions (advanced, beyond the cut line)
 
 - **`addDocumentTab`** *(advanced)* — add a tab; the reply returns
