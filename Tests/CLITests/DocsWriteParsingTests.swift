@@ -3,6 +3,20 @@ import GrahamKit
 @testable import graham
 
 final class DocsWriteParsingTests: XCTestCase {
+    func testDocsCreateParsesTheTitle() throws {
+        let command = try Docs.Create.parse(["My New Doc"])
+        XCTAssertEqual(command.title, "My New Doc")
+    }
+
+    func testDocsCreateRequiresATitle() {
+        XCTAssertThrowsError(try Docs.Create.parse([]))
+    }
+
+    func testDocsRegistersTheCreateSubcommand() {
+        let names = Docs.configuration.subcommands.map { String(describing: $0) }
+        XCTAssertTrue(names.contains("Create"), "docs should list a Create subcommand: \(names)")
+    }
+
     func testDocsInsertParsesTextAndIndex() throws {
         let command = try Docs.Insert.parse([
             "doc-1",

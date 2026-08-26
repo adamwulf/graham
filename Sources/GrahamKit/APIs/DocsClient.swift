@@ -18,6 +18,23 @@ public struct DocsClient: Sendable {
         return try await api.getJSON(Document.self, from: url)
     }
 
+    /// Creates a new, blank document from a `title` via `documents.create`,
+    /// returning the created ``Document`` (whose `documentId` is the value the
+    /// `docs create` command prints). The new document's body is empty until a
+    /// later ``batchUpdate(documentId:requests:requiredRevisionId:)`` fills it.
+    ///
+    /// The title is carried in a JSON request body, not in the URL, so it is
+    /// encoded safely no matter what characters it holds.
+    public func create(title: String) async throws -> Document {
+        let url = try GoogleURL.build("\(Self.baseURL)/documents")
+        return try await api.sendJSON(
+            Document.self,
+            method: "POST",
+            url: url,
+            body: DocsCreateRequest(title: title)
+        )
+    }
+
     // MARK: - Writes
 
     /// Sends one `documents.batchUpdate` call with `requests`, in order.

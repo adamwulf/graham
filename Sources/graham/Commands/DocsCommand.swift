@@ -5,8 +5,23 @@ import GrahamKit
 struct Docs: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Work with Google Docs documents.",
-        subcommands: [Cat.self, Insert.self, Delete.self, Replace.self]
+        subcommands: [Create.self, Cat.self, Insert.self, Delete.self, Replace.self]
     )
+
+    struct Create: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Create a new, blank document from a title and print its id."
+        )
+
+        @Argument(help: "The title of the new document.")
+        var title: String
+
+        func run() async throws {
+            let client = DocsClient(api: try CLI.makeAPI())
+            let document = try await client.create(title: title)
+            print(document.documentId ?? "")
+        }
+    }
 
     struct Cat: AsyncParsableCommand {
         static let configuration = CommandConfiguration(

@@ -19,6 +19,20 @@ public struct DocumentBody: Codable, Sendable {
     public let content: [StructuralElement]?
 }
 
+/// The request body for `documents.create`: the title of a new, blank
+/// document. The API creates the document from this title alone; the body is
+/// empty until later `documents.batchUpdate` writes fill it.
+///
+/// The title travels in a JSON request body, not in the URL, so a title with a
+/// quote, a backslash, or a newline never breaks the request.
+public struct DocsCreateRequest: Codable, Sendable, Equatable {
+    public let title: String
+
+    public init(title: String) {
+        self.title = title
+    }
+}
+
 /// One block in a document body: a paragraph, a table, or another element
 /// that this model does not read yet.
 public struct StructuralElement: Codable, Sendable {
