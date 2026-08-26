@@ -10,6 +10,7 @@ struct Docs: AsyncParsableCommand {
             Replace.self, Style.self, Paragraph.self, Heading.self, Bullets.self,
             Unbullet.self, Table.self, Images.self, PageBreak.self, Image.self,
             Object.self, SectionBreak.self, Header.self, Footer.self, Footnote.self,
+            NamedRange.self, PageSetup.self,
         ]
     )
 
@@ -1877,6 +1878,266 @@ struct Docs: AsyncParsableCommand {
                 documentId: documentID, index: at, endOfBody: end, text: text,
                 requiredRevisionId: requireRevision)
             print(result.footnoteId ?? "")
+        }
+    }
+
+    struct NamedRange: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "range",
+            abstract: "Create, delete, or fill a named range (template filling).",
+            discussion: """
+                A named range labels a zero-based UTF-16 span so a later `fill` \
+                can replace its content — the template-filling primitive. `create` \
+                names a range and prints its id; `delete` removes a range by id or \
+                every range sharing a name; `fill` replaces a range's content with \
+                text (by id or name). Names need not be unique. Get index ranges \
+                from `docs structure`.
+                """,
+            subcommands: [Create.self, Delete.self, Fill.self]
+        )
+
+        struct Create: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "create",
+                abstract: "Create a named range over a text range and print its id.",
+                discussion: """
+                    Names the zero-based UTF-16 range from --from up to but not \
+                    including --to. --name is 1 to 256 UTF-16 code units and need \
+                    not be unique. Index 1 is the start of the body text; in a \
+                    named segment (--segment) the content starts at index 0. The \
+                    new named range id is printed. Get index ranges from `docs \
+                    structure`.
+                    """
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "The named range name (1 to 256 UTF-16 code units; need not be unique).")
+            var name: String
+
+            @Option(help: "The zero-based UTF-16 start index (inclusive; body minimum 1; segment minimum 0).")
+            var from: Int
+
+            @Option(help: "The zero-based UTF-16 end index (exclusive).")
+            var to: Int
+
+            @Option(help: "A header, footer, or footnote segment id. Omit for the body.")
+            var segment: String?
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func validate() throws {
+                // The API measures the name in UTF-16 code units, so count those
+                // (matching GrahamKit) rather than Characters.
+                let length = name.utf16.count
+                guard (1...256).contains(length) else {
+                    throw ValidationError("--name must be 1 to 256 UTF-16 code units.")
+                }
+            }
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                let result = try await client.createNamedRange(
+                    documentId: documentID, name: name, startIndex: from, endIndex: to,
+                    segmentId: segment, requiredRevisionId: requireRevision)
+                print(result.namedRangeId ?? "")
+            }
+        }
+
+        struct Delete: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "delete",
+                abstract: "Delete a named range by id, or every range with a name.",
+                discussion: """
+                    Give exactly one of --id (delete that one range) or --name \
+                    (delete every named range sharing the name). Deleting by a \
+                    name that matches nothing is a no-op. Get named range ids from \
+                    a `docs range create` reply or `docs structure`.
+                    """
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "The named range id to delete. Mutually exclusive with --name.")
+            var id: String?
+
+            @Option(help: "Delete every named range with this name. Mutually exclusive with --id.")
+            var name: String?
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func validate() throws {
+                guard (id == nil) != (name == nil) else {
+                    throw ValidationError("Provide exactly one of --id or --name.")
+                }
+                if let id, id.isEmpty { throw ValidationError("--id must not be empty.") }
+                if let name, name.isEmpty { throw ValidationError("--name must not be empty.") }
+            }
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                _ = try await client.deleteNamedRange(
+                    documentId: documentID, namedRangeId: id, name: name,
+                    requiredRevisionId: requireRevision)
+                if let id {
+                    print("Deleted named range \(id).")
+                } else {
+                    print("Deleted named range(s) named \(name ?? "").")
+                }
+            }
+        }
+
+        struct Fill: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "fill",
+                abstract: "Replace the content of a named range with text.",
+                discussion: """
+                    Give exactly one of --id (fill that one range) or --name (fill \
+                    every named range sharing the name). --text is the replacement \
+                    and may be empty to clear the range. A discontinuous named \
+                    range replaces only its first subrange. Get named range ids \
+                    from a `docs range create` reply or `docs structure`.
+                    """
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "The named range id to fill. Mutually exclusive with --name.")
+            var id: String?
+
+            @Option(help: "Fill every named range with this name. Mutually exclusive with --id.")
+            var name: String?
+
+            @Option(help: "The replacement text; may be empty to clear the range.")
+            var text: String
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func validate() throws {
+                guard (id == nil) != (name == nil) else {
+                    throw ValidationError("Provide exactly one of --id or --name.")
+                }
+                if let id, id.isEmpty { throw ValidationError("--id must not be empty.") }
+                if let name, name.isEmpty { throw ValidationError("--name must not be empty.") }
+            }
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                _ = try await client.replaceNamedRangeContent(
+                    documentId: documentID, text: text, namedRangeId: id, name: name,
+                    requiredRevisionId: requireRevision)
+                if let id {
+                    print("Filled named range \(id).")
+                } else {
+                    print("Filled named range(s) named \(name ?? "").")
+                }
+            }
+        }
+    }
+
+    struct PageSetup: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "page-setup",
+            abstract: "Set page size, margins, header/footer flags, and background.",
+            discussion: """
+                Sets document-wide style. --page-width and --page-height are a \
+                pair (in points): give both or neither, since setting only one \
+                would zero the other. Margins are in points. \
+                --first-page-header-footer / --even-page-header-footer toggle the \
+                first-page and even-page header/footer (use the --no- forms to \
+                clear them). --background is a hex color like #FFFFFF. Every \
+                dimension must be greater than zero, and at least one option is \
+                required.
+                """
+        )
+
+        @Argument(help: "The document ID.")
+        var documentID: String
+
+        @Option(parsing: .unconditional, help: "The page width in points (requires --page-height).")
+        var pageWidth: Double?
+
+        @Option(parsing: .unconditional, help: "The page height in points (requires --page-width).")
+        var pageHeight: Double?
+
+        @Option(parsing: .unconditional, help: "The top page margin in points.")
+        var marginTop: Double?
+
+        @Option(parsing: .unconditional, help: "The bottom page margin in points.")
+        var marginBottom: Double?
+
+        @Option(parsing: .unconditional, help: "The left page margin in points.")
+        var marginLeft: Double?
+
+        @Option(parsing: .unconditional, help: "The right page margin in points.")
+        var marginRight: Double?
+
+        @Flag(
+            inversion: .prefixedNo,
+            help: "Use the first-page header/footer for the first page."
+        )
+        var firstPageHeaderFooter: Bool?
+
+        @Flag(
+            inversion: .prefixedNo,
+            help: "Use the even-page header/footer for even pages."
+        )
+        var evenPageHeaderFooter: Bool?
+
+        @Option(help: "The document background color as a hex value like #FFFFFF.")
+        var background: String?
+
+        @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+        var requireRevision: String?
+
+        func validate() throws {
+            let hasOption =
+                pageWidth != nil || pageHeight != nil || marginTop != nil
+                || marginBottom != nil || marginLeft != nil || marginRight != nil
+                || firstPageHeaderFooter != nil || evenPageHeaderFooter != nil
+                || background != nil
+            guard hasOption else {
+                throw ValidationError("Provide at least one page-setup option.")
+            }
+            if (pageWidth == nil) != (pageHeight == nil) {
+                throw ValidationError(
+                    "Provide both --page-width and --page-height, or neither.")
+            }
+            func requirePositive(_ value: Double?, _ label: String) throws {
+                if let value, value <= 0 {
+                    throw ValidationError("\(label) must be greater than zero.")
+                }
+            }
+            try requirePositive(pageWidth, "--page-width")
+            try requirePositive(pageHeight, "--page-height")
+            try requirePositive(marginTop, "--margin-top")
+            try requirePositive(marginBottom, "--margin-bottom")
+            try requirePositive(marginLeft, "--margin-left")
+            try requirePositive(marginRight, "--margin-right")
+        }
+
+        func run() async throws {
+            let backgroundColor = try background.map { try DocsOptionalColor.parse($0) }
+            let client = DocsClient(api: try CLI.makeAPI())
+            _ = try await client.updateDocumentStyle(
+                documentId: documentID,
+                pageWidth: pageWidth,
+                pageHeight: pageHeight,
+                marginTop: marginTop,
+                marginBottom: marginBottom,
+                marginLeft: marginLeft,
+                marginRight: marginRight,
+                useFirstPageHeaderFooter: firstPageHeaderFooter,
+                useEvenPageHeaderFooter: evenPageHeaderFooter,
+                background: backgroundColor,
+                requiredRevisionId: requireRevision)
+            print("Updated the document style.")
         }
     }
 }
