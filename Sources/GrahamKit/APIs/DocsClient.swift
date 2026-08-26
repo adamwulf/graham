@@ -1134,8 +1134,8 @@ public struct DocsClient: Sendable {
             requiredRevisionId: requiredRevisionId)
     }
 
-    /// Sets the row style of the listed rows, or every row: minimum height,
-    /// header flag, and overflow behavior.
+    /// Sets the row style of the listed rows, or every row: minimum height and
+    /// overflow behavior.
     ///
     /// - Parameters:
     ///   - tableStartIndex: the table's zero-based UTF-16 start index.
@@ -1144,20 +1144,22 @@ public struct DocsClient: Sendable {
     ///     `rowIndices`).
     ///   - minRowHeight: the minimum row height in points; must be greater than
     ///     zero.
-    ///   - tableHeader: mark the rows as repeated table headers.
     ///   - preventOverflow: keep each row's content from spilling across a page
     ///     break.
     ///   - segmentId: a header, footer, or footnote segment; nil or an empty
     ///     string targets the body.
     ///
     /// The `fields` mask is emitted in the fixed order `minRowHeight`,
-    /// `tableHeader`, `preventOverflow`. At least one style option is required.
+    /// `preventOverflow`. At least one style option is required. There is no
+    /// header flag: `updateTableRowStyle` rejects `tableHeader` because header
+    /// designation is read-only after a table exists; pin leading rows with
+    /// ``pinTableHeaderRows(documentId:tableStartIndex:pinnedHeaderRowsCount:segmentId:requiredRevisionId:)``
+    /// instead.
     public func styleTableRow(
         documentId: String,
         tableStartIndex: Int,
         rows: [Int] = [],
         minRowHeight: Double? = nil,
-        tableHeader: Bool? = nil,
         preventOverflow: Bool? = nil,
         segmentId: String? = nil,
         requiredRevisionId: String? = nil
@@ -1170,7 +1172,6 @@ public struct DocsClient: Sendable {
         }
         var mask: [String] = []
         if minRowHeight != nil { mask.append("minRowHeight") }
-        if tableHeader != nil { mask.append("tableHeader") }
         if preventOverflow != nil { mask.append("preventOverflow") }
         guard !mask.isEmpty else {
             throw GrahamError.invalidArgument(
@@ -1191,7 +1192,6 @@ public struct DocsClient: Sendable {
             tableStartIndex: tableStartIndex, segmentId: segmentId)
         let style = DocsTableRowStyle(
             minRowHeight: minRowHeight.map { DocsDimension(magnitude: $0, unit: .pt) },
-            tableHeader: tableHeader,
             preventOverflow: preventOverflow)
         let request = DocsUpdateTableRowStyleRequest(
             tableStartLocation: start, rowIndices: rowIndices,

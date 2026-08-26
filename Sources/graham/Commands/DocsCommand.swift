@@ -1327,15 +1327,16 @@ struct Docs: AsyncParsableCommand {
         struct RowStyle: AsyncParsableCommand {
             static let configuration = CommandConfiguration(
                 commandName: "row-style",
-                abstract: "Set the height, header, and overflow of table rows.",
+                abstract: "Set the height and overflow of table rows.",
                 discussion: """
                     --table is the table's zero-based start index from `docs \
                     structure`. --rows is a list of one-based row numbers to \
                     style; omit it to style every row. --min-height is in points. \
-                    --header marks the rows as repeated headers (--no-header \
-                    clears it); --prevent-overflow keeps a row's content from \
-                    splitting across a page (--no-prevent-overflow clears it). At \
-                    least one style option is required.
+                    --prevent-overflow keeps a row's content from splitting \
+                    across a page (--no-prevent-overflow clears it). At least one \
+                    style option is required. To mark rows as repeated headers, \
+                    use `docs table pin-headers`; the Docs API cannot change a \
+                    row's header designation through row style.
                     """
             )
 
@@ -1354,9 +1355,6 @@ struct Docs: AsyncParsableCommand {
             @Option(parsing: .unconditional, help: "The minimum row height in points.")
             var minHeight: Double?
 
-            @Flag(inversion: .prefixedNo, help: "Mark the rows as repeated headers.")
-            var header: Bool?
-
             @Flag(
                 inversion: .prefixedNo,
                 help: "Keep each row's content from splitting across a page."
@@ -1370,10 +1368,10 @@ struct Docs: AsyncParsableCommand {
             var requireRevision: String?
 
             func validate() throws {
-                let hasStyle = minHeight != nil || header != nil || preventOverflow != nil
+                let hasStyle = minHeight != nil || preventOverflow != nil
                 guard hasStyle else {
                     throw ValidationError(
-                        "Provide at least one of --min-height, --header, or --prevent-overflow.")
+                        "Provide at least one of --min-height or --prevent-overflow.")
                 }
                 if let minHeight, minHeight <= 0 {
                     throw ValidationError("--min-height must be greater than zero.")
@@ -1390,7 +1388,6 @@ struct Docs: AsyncParsableCommand {
                     tableStartIndex: table,
                     rows: rows,
                     minRowHeight: minHeight,
-                    tableHeader: header,
                     preventOverflow: preventOverflow,
                     segmentId: segment,
                     requiredRevisionId: requireRevision)

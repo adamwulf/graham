@@ -270,6 +270,11 @@ write. Tests remain offline and exercise the real encoding path.
   fits Google's 5–50 char id rules) so that a create and its follow-up edits
   (for example text-box + insertText) can share one atomic batch. Reply
   object ids are still preferred when Google returns them.
+- Docs `updateTableRowStyle` rejects `tableHeader` (`400` "Unallowed field:
+  tableHeader") even though the `TableRowStyle` schema lists it — a row's header
+  designation is read-only once the table exists. `DocsTableRowStyle` models
+  only `minRowHeight` and `preventOverflow`; mark headers with `pinTableHeaderRows`
+  (`docs table pin-headers`) instead.
 
 ## Commands
 
