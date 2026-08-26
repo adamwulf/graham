@@ -77,6 +77,19 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
     /// Inserts a continuous or next-page section break at a body location or the
     /// end of the body.
     case insertSectionBreak(DocsInsertSectionBreakRequest)
+    /// Creates a header (optionally scoped to a section); the reply carries the
+    /// new header segment id.
+    case createHeader(DocsCreateHeaderRequest)
+    /// Creates a footer (optionally scoped to a section); the reply carries the
+    /// new footer segment id.
+    case createFooter(DocsCreateFooterRequest)
+    /// Deletes a header by its segment id.
+    case deleteHeader(DocsDeleteHeaderRequest)
+    /// Deletes a footer by its segment id.
+    case deleteFooter(DocsDeleteFooterRequest)
+    /// Creates a footnote and inserts its reference at a body location; the reply
+    /// carries the new footnote segment id.
+    case createFootnote(DocsCreateFootnoteRequest)
 
     private enum CodingKeys: String, CodingKey {
         case insertText
@@ -102,6 +115,11 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
         case replaceImage
         case deletePositionedObject
         case insertSectionBreak
+        case createHeader
+        case createFooter
+        case deleteHeader
+        case deleteFooter
+        case createFootnote
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -153,6 +171,16 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
             try container.encode(request, forKey: .deletePositionedObject)
         case .insertSectionBreak(let request):
             try container.encode(request, forKey: .insertSectionBreak)
+        case .createHeader(let request):
+            try container.encode(request, forKey: .createHeader)
+        case .createFooter(let request):
+            try container.encode(request, forKey: .createFooter)
+        case .deleteHeader(let request):
+            try container.encode(request, forKey: .deleteHeader)
+        case .deleteFooter(let request):
+            try container.encode(request, forKey: .deleteFooter)
+        case .createFootnote(let request):
+            try container.encode(request, forKey: .createFootnote)
         }
     }
 }
@@ -1245,6 +1273,109 @@ public struct DocsInsertSectionBreakRequest: Codable, Sendable, Equatable {
     }
 }
 
+// MARK: - Headers, footers, footnotes
+//
+// These mirror the Docs v1 `createHeader`, `createFooter`, `deleteHeader`,
+// `deleteFooter`, and `createFootnote` operations. A create's reply carries the
+// new segment id (`headerId` / `footerId` / `footnoteId`) so follow-up
+// segment-aware writes can target it. Headers and footers can optionally be
+// scoped to a section through a body ``DocsLocation`` at a section break;
+// footnote references live in the document body, so a `createFootnote`'s
+// location is body-only **by construction**, exactly like the page-break and
+// section-break requests above. The `type` enum carries the exact API spelling
+// and is prefixed `Docs` to stay clear of the Slides write models in this single
+// module.
+
+/// A Docs v1 `HeaderFooterType`: the kind of header or footer to create. The API
+/// enum is `HEADER_FOOTER_TYPE_UNSPECIFIED` and `DEFAULT`; only `DEFAULT` is a
+/// usable value (the `*_UNSPECIFIED` sentinel is never sent), so this enum models
+/// exactly the one writable case. ``DocsClient`` always sends it.
+public enum DocsHeaderFooterType: String, Codable, Sendable, Equatable {
+    case `default` = "DEFAULT"
+}
+
+/// The `createHeader` operation. `type` is required and is always
+/// ``DocsHeaderFooterType/default``. `sectionBreakLocation` optionally scopes the
+/// header to the section a body ``DocsLocation`` names (a zero-based UTF-16 index
+/// at a section break); when omitted, the header applies to the whole document.
+/// The reply carries the new header segment id (``DocsCreateHeaderReply``).
+public struct DocsCreateHeaderRequest: Codable, Sendable, Equatable {
+    public let type: DocsHeaderFooterType
+    public let sectionBreakLocation: DocsLocation?
+
+    public init(type: DocsHeaderFooterType = .default, sectionBreakLocation: DocsLocation? = nil) {
+        self.type = type
+        self.sectionBreakLocation = sectionBreakLocation
+    }
+}
+
+/// The `createFooter` operation. Same shape as ``DocsCreateHeaderRequest``: a
+/// required ``DocsHeaderFooterType`` (always `DEFAULT`) and an optional body
+/// ``DocsLocation`` scoping the footer to a section. The reply carries the new
+/// footer segment id (``DocsCreateFooterReply``).
+public struct DocsCreateFooterRequest: Codable, Sendable, Equatable {
+    public let type: DocsHeaderFooterType
+    public let sectionBreakLocation: DocsLocation?
+
+    public init(type: DocsHeaderFooterType = .default, sectionBreakLocation: DocsLocation? = nil) {
+        self.type = type
+        self.sectionBreakLocation = sectionBreakLocation
+    }
+}
+
+/// The `deleteHeader` operation. `headerId` names the header segment to delete
+/// (the id a `createHeader` reply returned). Required by the API.
+public struct DocsDeleteHeaderRequest: Codable, Sendable, Equatable {
+    public let headerId: String
+
+    public init(headerId: String) {
+        self.headerId = headerId
+    }
+}
+
+/// The `deleteFooter` operation. `footerId` names the footer segment to delete
+/// (the id a `createFooter` reply returned). Required by the API.
+public struct DocsDeleteFooterRequest: Codable, Sendable, Equatable {
+    public let footerId: String
+
+    public init(footerId: String) {
+        self.footerId = footerId
+    }
+}
+
+/// The `createFootnote` operation. The destination is exactly one of a body index
+/// or the end of the body. A footnote reference lives in the document body — the
+/// location's segment id must be empty — so this type is body-only **by
+/// construction**: its public entry points take only a bare index or select the
+/// end of the body, and build a ``DocsLocation`` / ``DocsEndOfSegmentLocation``
+/// with no segment id internally, so a caller cannot smuggle in an illegal
+/// non-body request through the public
+/// ``DocsClient/batchUpdate(documentId:requests:requiredRevisionId:)``. The two
+/// entry points keep the destinations mutually exclusive: only the chosen one is
+/// set, and the other stays nil and is omitted when encoded. The reply carries
+/// the new footnote segment id (``DocsCreateFootnoteReply``); the created
+/// footnote segment starts with an auto-inserted space and newline.
+public struct DocsCreateFootnoteRequest: Codable, Sendable, Equatable {
+    public let location: DocsLocation?
+    public let endOfSegmentLocation: DocsEndOfSegmentLocation?
+
+    private init(location: DocsLocation?, endOfSegmentLocation: DocsEndOfSegmentLocation?) {
+        self.location = location
+        self.endOfSegmentLocation = endOfSegmentLocation
+    }
+
+    /// Inserts the footnote reference at a zero-based body index. The location
+    /// carries no segment id.
+    public init(bodyIndex: Int) {
+        self.init(location: DocsLocation(index: bodyIndex), endOfSegmentLocation: nil)
+    }
+
+    /// A footnote reference at the end of the document body. The end-of-segment
+    /// location carries no segment id.
+    public static let endOfBody = DocsCreateFootnoteRequest(
+        location: nil, endOfSegmentLocation: DocsEndOfSegmentLocation())
+}
+
 // MARK: - Responses
 
 /// The response of a `documents.batchUpdate` call.
@@ -1262,14 +1393,18 @@ public struct DocsBatchUpdateResponse: Codable, Sendable {
 /// One reply in a Docs batch-update response.
 ///
 /// Only some operations carry a payload: `replaceAllText` reports the number of
-/// occurrences changed, and `insertInlineImage` returns the new object id. The
-/// structure operations (`insertText`, `deleteContentRange`, `insertPageBreak`,
-/// `replaceImage`, `deletePositionedObject`, `insertSectionBreak`, and the table
-/// ops) reply with an empty object, so this decodes to a reply whose every field
-/// is nil.
+/// occurrences changed, `insertInlineImage` returns the new object id, and
+/// `createHeader` / `createFooter` / `createFootnote` return the new segment id.
+/// The structure operations (`insertText`, `deleteContentRange`,
+/// `insertPageBreak`, `replaceImage`, `deletePositionedObject`,
+/// `insertSectionBreak`, `deleteHeader`, `deleteFooter`, and the table ops) reply
+/// with an empty object, so this decodes to a reply whose every field is nil.
 public struct DocsBatchUpdateReply: Codable, Sendable {
     public let replaceAllText: DocsReplaceAllTextReply?
     public let insertInlineImage: DocsInsertInlineImageReply?
+    public let createHeader: DocsCreateHeaderReply?
+    public let createFooter: DocsCreateFooterReply?
+    public let createFootnote: DocsCreateFootnoteReply?
 }
 
 /// The reply of a `replaceAllText` operation.
@@ -1283,4 +1418,25 @@ public struct DocsReplaceAllTextReply: Codable, Sendable {
 public struct DocsInsertInlineImageReply: Codable, Sendable {
     /// The ID of the created inline object.
     public let objectId: String?
+}
+
+/// The reply of a `createHeader` operation, carrying the id of the newly created
+/// header segment so a caller can target it with segment-aware writes.
+public struct DocsCreateHeaderReply: Codable, Sendable {
+    /// The ID of the created header.
+    public let headerId: String?
+}
+
+/// The reply of a `createFooter` operation, carrying the id of the newly created
+/// footer segment so a caller can target it with segment-aware writes.
+public struct DocsCreateFooterReply: Codable, Sendable {
+    /// The ID of the created footer.
+    public let footerId: String?
+}
+
+/// The reply of a `createFootnote` operation, carrying the id of the newly
+/// created footnote segment so a caller can target it with segment-aware writes.
+public struct DocsCreateFootnoteReply: Codable, Sendable {
+    /// The ID of the created footnote.
+    public let footnoteId: String?
 }

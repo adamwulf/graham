@@ -2,10 +2,11 @@ import XCTest
 @testable import GrahamKit
 
 /// Offline coverage for the Docs v1 `documents.batchUpdate` write path:
-/// `insertText`, `deleteContentRange`, and `replaceAllText`. Every fixture is
-/// static JSON; no test touches the network, and the request bodies are
-/// asserted exactly (the shared encoder sorts keys, so the strings are
-/// deterministic).
+/// `insertText`, `deleteContentRange`, `replaceAllText`, the list (bullet) ops,
+/// and the `createHeader` / `createFooter` / `deleteHeader` / `deleteFooter` /
+/// `createFootnote` ops. Every fixture is static JSON; no test touches the
+/// network, and the request bodies are asserted exactly (the shared encoder
+/// sorts keys, so the strings are deterministic).
 final class DocsWriteTests: XCTestCase {
     private func makeClient(transport: StubTransport) -> DocsClient {
         transport.stubTokenEndpoint()
@@ -839,6 +840,575 @@ final class DocsWriteTests: XCTestCase {
                 .deleteParagraphBullets(DocsDeleteParagraphBulletsRequest(
                     range: DocsRange(startIndex: 1, endIndex: 9))),
                 #"{"deleteParagraphBullets":{"range":{"endIndex":9,"startIndex":1}}}"#
+            ),
+        ]
+        for (request, expected) in cases {
+            let data = try GoogleJSON.encoder.encode(request)
+            XCTAssertEqual(String(data: data, encoding: .utf8), expected)
+        }
+    }
+
+    // MARK: - createHeader
+
+    func testCreateHeaderPostsExactBodyAndReturnsHeaderId() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"documentId":"doc-1","replies":[{"createHeader":{"headerId":"kix.hdr1"}}]}"#
+        )
+
+        let result = try await client.createHeader(documentId: "doc-1")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(
+            request.url.absoluteString,
+            "https://docs.googleapis.com/v1/documents/doc-1:batchUpdate"
+        )
+        XCTAssertEqual(request.headers["Content-Type"], "application/json")
+        // The only valid type is DEFAULT, and it is always sent.
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"createHeader":{"type":"DEFAULT"}}]}"#
+        )
+        // The reply segment id is returned so a follow-up write can target it.
+        XCTAssertEqual(result.headerId, "kix.hdr1")
+        XCTAssertEqual(result.response.documentId, "doc-1")
+    }
+
+    func testCreateHeaderWithSectionBreakIndexEncodesLocation() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"replies":[{"createHeader":{"headerId":"kix.hdr2"}}]}"#
+        )
+
+        _ = try await client.createHeader(documentId: "doc-1", sectionBreakIndex: 12)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        // The section-break body location scopes the header to a section; sorted
+        // keys put sectionBreakLocation before type.
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"createHeader":{"sectionBreakLocation":{"index":12},"type":"DEFAULT"}}]}"#
+        )
+    }
+
+    func testCreateHeaderWithRequiredRevisionCarriesWriteControl() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"replies":[{"createHeader":{"headerId":"kix.hdr3"}}]}"#
+        )
+
+        _ = try await client.createHeader(documentId: "doc-1", requiredRevisionId: "rev-1")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"createHeader":{"type":"DEFAULT"}}],"writeControl":{"requiredRevisionId":"rev-1"}}"#
+        )
+    }
+
+    func testCreateHeaderReturnsNilHeaderIdForEmptyReply() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: "{}")
+
+        let result = try await client.createHeader(documentId: "doc-1")
+
+        XCTAssertNil(result.headerId)
+        XCTAssertNil(result.response.documentId)
+    }
+
+    func testCreateHeaderRejectsBadSectionBreakIndexWithoutSendingARequest() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        // A provided section-break index follows the body guard: index 0 lands
+        // inside the initial section break, so it is rejected before any request.
+        await assertInvalidArgument {
+            _ = try await client.createHeader(documentId: "doc-1", sectionBreakIndex: 0)
+        }
+        await assertInvalidArgument {
+            _ = try await client.createHeader(documentId: "doc-1", sectionBreakIndex: -1)
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testCreateHeaderPropagatesGoogleErrorEnvelope() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"error":{"code":400,"message":"Bad header","status":"INVALID_ARGUMENT"}}"#,
+            status: 400
+        )
+
+        await assertGoogleError(code: 400, status: "INVALID_ARGUMENT", message: "Bad header") {
+            _ = try await client.createHeader(documentId: "doc-1")
+        }
+    }
+
+    // MARK: - createFooter
+
+    func testCreateFooterPostsExactBodyAndReturnsFooterId() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"documentId":"doc-1","replies":[{"createFooter":{"footerId":"kix.ftr1"}}]}"#
+        )
+
+        let result = try await client.createFooter(documentId: "doc-1")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(
+            request.url.absoluteString,
+            "https://docs.googleapis.com/v1/documents/doc-1:batchUpdate"
+        )
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"createFooter":{"type":"DEFAULT"}}]}"#
+        )
+        XCTAssertEqual(result.footerId, "kix.ftr1")
+        XCTAssertEqual(result.response.documentId, "doc-1")
+    }
+
+    func testCreateFooterWithSectionBreakIndexEncodesLocation() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"replies":[{"createFooter":{"footerId":"kix.ftr2"}}]}"#
+        )
+
+        _ = try await client.createFooter(documentId: "doc-1", sectionBreakIndex: 7)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"createFooter":{"sectionBreakLocation":{"index":7},"type":"DEFAULT"}}]}"#
+        )
+    }
+
+    func testCreateFooterWithRequiredRevisionCarriesWriteControl() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"replies":[{"createFooter":{"footerId":"kix.ftr3"}}]}"#
+        )
+
+        _ = try await client.createFooter(documentId: "doc-1", requiredRevisionId: "rev-2")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"createFooter":{"type":"DEFAULT"}}],"writeControl":{"requiredRevisionId":"rev-2"}}"#
+        )
+    }
+
+    func testCreateFooterReturnsNilFooterIdForEmptyReply() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: "{}")
+
+        let result = try await client.createFooter(documentId: "doc-1")
+
+        XCTAssertNil(result.footerId)
+        XCTAssertNil(result.response.documentId)
+    }
+
+    func testCreateFooterRejectsBadSectionBreakIndexWithoutSendingARequest() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            _ = try await client.createFooter(documentId: "doc-1", sectionBreakIndex: 0)
+        }
+        await assertInvalidArgument {
+            _ = try await client.createFooter(documentId: "doc-1", sectionBreakIndex: -1)
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testCreateFooterPropagatesGoogleErrorEnvelope() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"error":{"code":403,"message":"No access","status":"PERMISSION_DENIED"}}"#,
+            status: 403
+        )
+
+        await assertGoogleError(code: 403, status: "PERMISSION_DENIED", message: "No access") {
+            _ = try await client.createFooter(documentId: "doc-1")
+        }
+    }
+
+    // MARK: - deleteHeader
+
+    func testDeleteHeaderPostsExactBodyAndDecodesReply() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"documentId":"doc-1","replies":[{}]}"#
+        )
+
+        let response = try await client.deleteHeader(documentId: "doc-1", headerId: "kix.hdr1")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(
+            request.url.absoluteString,
+            "https://docs.googleapis.com/v1/documents/doc-1:batchUpdate"
+        )
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"deleteHeader":{"headerId":"kix.hdr1"}}]}"#
+        )
+        XCTAssertEqual(response.documentId, "doc-1")
+        XCTAssertEqual(response.replies?.count, 1)
+    }
+
+    func testDeleteHeaderDecodesEmptyReply() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: "{}")
+
+        let response = try await client.deleteHeader(documentId: "doc-1", headerId: "kix.hdr1")
+
+        XCTAssertNil(response.documentId)
+        XCTAssertNil(response.replies)
+    }
+
+    func testDeleteHeaderWithRequiredRevisionCarriesWriteControl() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
+
+        _ = try await client.deleteHeader(
+            documentId: "doc-1", headerId: "kix.hdr1", requiredRevisionId: "rev-3")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"deleteHeader":{"headerId":"kix.hdr1"}}],"writeControl":{"requiredRevisionId":"rev-3"}}"#
+        )
+    }
+
+    func testDeleteHeaderRejectsEmptyIdWithoutSendingARequest() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            _ = try await client.deleteHeader(documentId: "doc-1", headerId: "")
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testDeleteHeaderPropagatesGoogleErrorEnvelope() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"error":{"code":404,"message":"No header","status":"NOT_FOUND"}}"#,
+            status: 404
+        )
+
+        await assertGoogleError(code: 404, status: "NOT_FOUND", message: "No header") {
+            _ = try await client.deleteHeader(documentId: "doc-1", headerId: "kix.hdr1")
+        }
+    }
+
+    // MARK: - deleteFooter
+
+    func testDeleteFooterPostsExactBodyAndDecodesReply() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"documentId":"doc-1","replies":[{}]}"#
+        )
+
+        let response = try await client.deleteFooter(documentId: "doc-1", footerId: "kix.ftr1")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(
+            request.url.absoluteString,
+            "https://docs.googleapis.com/v1/documents/doc-1:batchUpdate"
+        )
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"deleteFooter":{"footerId":"kix.ftr1"}}]}"#
+        )
+        XCTAssertEqual(response.documentId, "doc-1")
+        XCTAssertEqual(response.replies?.count, 1)
+    }
+
+    func testDeleteFooterDecodesEmptyReply() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: "{}")
+
+        let response = try await client.deleteFooter(documentId: "doc-1", footerId: "kix.ftr1")
+
+        XCTAssertNil(response.documentId)
+        XCTAssertNil(response.replies)
+    }
+
+    func testDeleteFooterWithRequiredRevisionCarriesWriteControl() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
+
+        _ = try await client.deleteFooter(
+            documentId: "doc-1", footerId: "kix.ftr1", requiredRevisionId: "rev-4")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"deleteFooter":{"footerId":"kix.ftr1"}}],"writeControl":{"requiredRevisionId":"rev-4"}}"#
+        )
+    }
+
+    func testDeleteFooterRejectsEmptyIdWithoutSendingARequest() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            _ = try await client.deleteFooter(documentId: "doc-1", footerId: "")
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testDeleteFooterPropagatesGoogleErrorEnvelope() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"error":{"code":404,"message":"No footer","status":"NOT_FOUND"}}"#,
+            status: 404
+        )
+
+        await assertGoogleError(code: 404, status: "NOT_FOUND", message: "No footer") {
+            _ = try await client.deleteFooter(documentId: "doc-1", footerId: "kix.ftr1")
+        }
+    }
+
+    // MARK: - createFootnote
+
+    func testCreateFootnotePostsExactBodyAndReturnsFootnoteId() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"documentId":"doc-1","replies":[{"createFootnote":{"footnoteId":"kix.fn1"}}]}"#
+        )
+
+        let result = try await client.createFootnote(documentId: "doc-1", index: 5)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(
+            request.url.absoluteString,
+            "https://docs.googleapis.com/v1/documents/doc-1:batchUpdate"
+        )
+        XCTAssertEqual(request.headers["Content-Type"], "application/json")
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"createFootnote":{"location":{"index":5}}}]}"#
+        )
+        XCTAssertEqual(result.footnoteId, "kix.fn1")
+        XCTAssertEqual(result.response.documentId, "doc-1")
+    }
+
+    func testCreateFootnoteEndOfBodyEncodesEmptyEndOfSegment() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"replies":[{"createFootnote":{"footnoteId":"kix.fn2"}}]}"#
+        )
+
+        // End-of-body alone (no index): the reference goes at the end of the body
+        // with no segment id.
+        _ = try await client.createFootnote(documentId: "doc-1", endOfBody: true)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"createFootnote":{"endOfSegmentLocation":{}}}]}"#
+        )
+    }
+
+    func testCreateFootnoteReturnsNilFootnoteIdForEmptyReply() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: "{}")
+
+        let result = try await client.createFootnote(documentId: "doc-1", index: 5)
+
+        XCTAssertNil(result.footnoteId)
+        XCTAssertNil(result.response.documentId)
+    }
+
+    func testCreateFootnoteWithRequiredRevisionCarriesWriteControl() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"replies":[{"createFootnote":{"footnoteId":"kix.fn3"}}]}"#
+        )
+
+        _ = try await client.createFootnote(
+            documentId: "doc-1", index: 5, requiredRevisionId: "rev-6")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"createFootnote":{"location":{"index":5}}}],"writeControl":{"requiredRevisionId":"rev-6"}}"#
+        )
+    }
+
+    func testCreateFootnoteWithTextMakesTwoBatchUpdatesInOrder() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        // Two responses in order: the first createFootnote reply carries the
+        // footnoteId, and the second is the insertText reply.
+        transport.stub(urlContains: ":batchUpdate", responses: [
+            StubTransport.json(
+                #"{"documentId":"doc-1","replies":[{"createFootnote":{"footnoteId":"kix.fn9"}}]}"#),
+            StubTransport.json(#"{"documentId":"doc-1","replies":[{}]}"#),
+        ])
+
+        let result = try await client.createFootnote(
+            documentId: "doc-1", index: 5, text: "See note")
+
+        let requests = transport.requests(urlContains: ":batchUpdate")
+        XCTAssertEqual(requests.count, 2)
+        // First: the createFootnote reference at the body index.
+        XCTAssertEqual(
+            Self.bodyString(requests[0]),
+            #"{"requests":[{"createFootnote":{"location":{"index":5}}}]}"#
+        )
+        // Second: insertText into the returned footnote segment. The segment's
+        // content starts with an auto-inserted space and newline, so the text
+        // goes at index 1, carrying the returned footnoteId as its segment id.
+        XCTAssertEqual(
+            Self.bodyString(requests[1]),
+            #"{"requests":[{"insertText":{"location":{"index":1,"segmentId":"kix.fn9"},"text":"See note"}}]}"#
+        )
+        XCTAssertEqual(result.footnoteId, "kix.fn9")
+    }
+
+    func testCreateFootnoteWithTextButNoReturnedIdThrowsAfterTheFirstCall() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        // The createFootnote reply carries no footnoteId, so the text cannot be
+        // inserted into the (unknown) segment.
+        transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
+
+        await assertInvalidArgument {
+            _ = try await client.createFootnote(documentId: "doc-1", index: 5, text: "See note")
+        }
+        // Only the first batchUpdate went out; there is no second call.
+        XCTAssertEqual(transport.requests(urlContains: ":batchUpdate").count, 1)
+    }
+
+    func testCreateFootnoteRejectsBadInputWithoutSendingARequest() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        // Index 0 lands inside the initial section break; the body guard rejects
+        // it before any request goes out.
+        await assertInvalidArgument {
+            _ = try await client.createFootnote(documentId: "doc-1", index: 0)
+        }
+        await assertInvalidArgument {
+            _ = try await client.createFootnote(documentId: "doc-1", index: -1)
+        }
+        // Neither an index nor end-of-body is provided.
+        await assertInvalidArgument {
+            _ = try await client.createFootnote(documentId: "doc-1")
+        }
+        // Both an index and end-of-body is ambiguous.
+        await assertInvalidArgument {
+            _ = try await client.createFootnote(documentId: "doc-1", index: 5, endOfBody: true)
+        }
+        // An empty --text is rejected up front, so no orphan footnote is created.
+        await assertInvalidArgument {
+            _ = try await client.createFootnote(documentId: "doc-1", index: 5, text: "")
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testCreateFootnotePropagatesGoogleErrorEnvelope() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"error":{"code":400,"message":"Bad footnote","status":"INVALID_ARGUMENT"}}"#,
+            status: 400
+        )
+
+        await assertGoogleError(code: 400, status: "INVALID_ARGUMENT", message: "Bad footnote") {
+            _ = try await client.createFootnote(documentId: "doc-1", index: 5)
+        }
+    }
+
+    // MARK: - Header/footer/footnote enum and union discriminators
+
+    /// The header-footer type raw value matches the discovery document exactly,
+    /// so the enum never drifts from the wire spelling.
+    func testHeaderFooterTypeRawValueMatchesTheWireSpelling() {
+        XCTAssertEqual(DocsHeaderFooterType.default.rawValue, "DEFAULT")
+    }
+
+    /// The footnote request is body-only by construction: its entry points build
+    /// a location / end-of-segment with no segment id, so no illegal non-body
+    /// request is representable.
+    func testCreateFootnoteRequestIsBodyOnlyByConstruction() {
+        let atIndex = DocsCreateFootnoteRequest(bodyIndex: 5)
+        XCTAssertEqual(atIndex.location?.index, 5)
+        XCTAssertNil(atIndex.location?.segmentId)
+        XCTAssertNil(atIndex.endOfSegmentLocation)
+
+        let end = DocsCreateFootnoteRequest.endOfBody
+        XCTAssertNil(end.location)
+        XCTAssertNil(end.endOfSegmentLocation?.segmentId)
+    }
+
+    /// The union encodes each new case under its own JSON key, so a caller can
+    /// mix these operations in one batch. This locks the five discriminators.
+    func testEveryHeaderFooterFootnoteRequestTypeEncodesUnderItsOwnKey() throws {
+        let cases: [(DocsBatchUpdateRequest, String)] = [
+            (
+                .createHeader(DocsCreateHeaderRequest()),
+                #"{"createHeader":{"type":"DEFAULT"}}"#
+            ),
+            (
+                .createFooter(DocsCreateFooterRequest()),
+                #"{"createFooter":{"type":"DEFAULT"}}"#
+            ),
+            (
+                .deleteHeader(DocsDeleteHeaderRequest(headerId: "h-1")),
+                #"{"deleteHeader":{"headerId":"h-1"}}"#
+            ),
+            (
+                .deleteFooter(DocsDeleteFooterRequest(footerId: "f-1")),
+                #"{"deleteFooter":{"footerId":"f-1"}}"#
+            ),
+            (
+                .createFootnote(DocsCreateFootnoteRequest(bodyIndex: 5)),
+                #"{"createFootnote":{"location":{"index":5}}}"#
             ),
         ]
         for (request, expected) in cases {
