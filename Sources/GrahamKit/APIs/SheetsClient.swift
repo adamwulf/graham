@@ -555,20 +555,35 @@ public struct SheetsClient: Sendable {
 
     /// Resolves an A1 `range` to a ``GridRange``: the sheet id comes from the
     /// range's tab name, or the spreadsheet's first sheet when the range names
-    /// none. This is the shared range-to-grid path for the data-tooling writes.
+    /// none. This is the shared range-to-grid path for the data-tooling and
+    /// structure writes.
     private func resolveGridRange(
         spreadsheetId: String,
         range: String
     ) async throws -> GridRange {
         let parsed = try A1Range.parse(range)
-        let targetSheetId: Int
-        if let name = parsed.sheetName {
-            targetSheetId = try await sheetId(spreadsheetId: spreadsheetId, title: name)
-        } else {
-            targetSheetId = try await firstSheetId(spreadsheetId: spreadsheetId)
+        let targetSheetId = try await resolveSheetId(
+            spreadsheetId: spreadsheetId, sheetName: parsed.sheetName)
+        return gridRange(from: parsed, sheetId: targetSheetId)
+    }
+
+    /// Resolves the sheet a parsed range targets: its tab name, or the first
+    /// sheet when the range named none.
+    private func resolveSheetId(
+        spreadsheetId: String,
+        sheetName: String?
+    ) async throws -> Int {
+        if let sheetName {
+            return try await sheetId(spreadsheetId: spreadsheetId, title: sheetName)
         }
-        return GridRange(
-            sheetId: targetSheetId,
+        return try await firstSheetId(spreadsheetId: spreadsheetId)
+    }
+
+    /// Builds a zero-based ``GridRange`` from an already-parsed A1 range and its
+    /// resolved sheet id.
+    private func gridRange(from parsed: A1Range, sheetId: Int) -> GridRange {
+        GridRange(
+            sheetId: sheetId,
             startRowIndex: parsed.startRowIndex,
             endRowIndex: parsed.endRowIndex,
             startColumnIndex: parsed.startColumnIndex,
@@ -810,20 +825,25 @@ public struct SheetsClient: Sendable {
         guard !specs.isEmpty else {
             throw GrahamError.invalidArgument("provide at least one --by sort column")
         }
-        let gridRange = try await resolveGridRange(spreadsheetId: spreadsheetId, range: range)
-        let width = gridRange.endColumnIndex - gridRange.startColumnIndex
+        // The range width is known from the A1 parse alone, so bad sort columns
+        // are rejected before any metadata read or write.
+        let parsed = try A1Range.parse(range)
+        let width = parsed.endColumnIndex - parsed.startColumnIndex
         let sortSpecs = try specs.map { key -> SortSpec in
             guard key.column >= 1, key.column <= width else {
                 throw GrahamError.invalidArgument(
                     "sort column \(key.column) is outside the range's \(width) column(s)")
             }
             return SortSpec(
-                dimensionIndex: gridRange.startColumnIndex + (key.column - 1),
+                dimensionIndex: parsed.startColumnIndex + (key.column - 1),
                 sortOrder: key.order.rawValue)
         }
+        let targetSheetId = try await resolveSheetId(
+            spreadsheetId: spreadsheetId, sheetName: parsed.sheetName)
+        let requestRange = gridRange(from: parsed, sheetId: targetSheetId)
         _ = try await batchUpdate(
             spreadsheetId: spreadsheetId,
-            requests: [.sortRange(SortRangeRequest(range: gridRange, sortSpecs: sortSpecs))])
+            requests: [.sortRange(SortRangeRequest(range: requestRange, sortSpecs: sortSpecs))])
     }
 
     /// Auto-sizes a span of rows or columns to fit their contents.
