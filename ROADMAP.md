@@ -3,30 +3,28 @@
 Not-yet-done work only. For completed features and commands, see `README.md`.
 For architecture and implementation conventions, see `CLAUDE.md`.
 
-The current focus is finishing **Google Docs** to practical 100%. Sheets work is
-deferred until Docs is done (see the end of this file).
+**Google Docs is at practical 100%** — every `core` and `useful` operation is
+built and merged. Only the explicitly-deferred advanced items below remain.
+**Sheets** is the next major area (see the end of this file).
 
 ---
 
-## Docs — remaining work
+## Docs — deferred (advanced) items only
 
-Basis: the live Docs v1 discovery document (revision `20260819`). The
-`documents.batchUpdate` Request union holds **40 operations**; graham implements
-3 (`insertText`, `deleteContentRange`, `replaceAllText`), so **37 remain**.
-Phase 1 (foundations) and Phase 2 (richer reads) are done: `documents.create`,
-`WriteControl`, segment-aware text edits, the shared write models, the full
-read model, the `Document.blockRows` facade (`docs structure`), `docs cat
---markdown`, and `docs images`. What remains is the write surface — text and
-paragraph styling, lists, tables, structure and images, headers/footers/
-footnotes, and named ranges and document style.
+Basis: the live Docs v1 discovery document (revision `20260819`). All the
+`core` and `useful` phases are done — reads (full model, `docs structure`,
+`docs cat --markdown`, `docs images`), text/paragraph styling, lists, complete
+table structure and styling, structure and images, headers/footers/footnotes,
+and named ranges plus document style. Only the advanced items below remain, and
+they are rarely needed from a CLI.
 
-Every write item follows the CLAUDE.md write recipe: a typed `Docs*Request` case
-in `Models/DocsBatchUpdateModels.swift`, a high-level method in
-`APIs/DocsClient.swift`, offline `StubTransport` tests (exact method, URL,
+Every remaining write item follows the CLAUDE.md write recipe: a typed
+`Docs*Request` case in `Models/DocsBatchUpdateModels.swift`, a high-level method
+in `APIs/DocsClient.swift`, offline `StubTransport` tests (exact method, URL,
 encoded body, decoded reply, error propagation), then a thin subcommand in
-`Commands/DocsCommand.swift`. Only item-specific work is listed below.
+`Commands/DocsCommand.swift`.
 
-### Index rules (apply to every phase)
+### Index rules (apply to every operation)
 
 - Docs text indices stay **zero-based** (UTF-16 code units), matching the API
   and the existing convention. The body guard `index >= 1` is body-only:
@@ -51,26 +49,24 @@ keep the styling change reviewable:
   `docs paragraph` border flags. Same fields-mask discipline and exact-string
   tests.
 
-### Phase 8 — Named ranges and document style (next up — last core+useful phase)
+### Section and named styles (advanced)
 
-- **`createNamedRange`** *(useful)* — name a range (name 1-256 UTF-16 units, not
-  unique); the reply carries `namedRangeId`. CLI `docs range create`. Zero-based
-  UTF-16 range.
-- **`deleteNamedRange`** *(useful)* — delete by `namedRangeId` or by `name` (all
-  with that name); the two selectors are mutually exclusive — enforce one-of in
-  the client. CLI `docs range delete`.
-- **`replaceNamedRangeContent`** *(useful)* — replace the content of a named
-  range (by id or name) with text; for a discontinuous named range only the
-  first subrange is replaced. This is the template-filling primitive. CLI
-  `docs range fill`.
-- **`updateDocumentStyle`** *(useful)* — page size, margins,
-  `useFirstPageHeaderFooter`, `useEvenPageHeaderFooter`, pageless mode,
-  background; `fields` mask. CLI `docs page-setup`.
+- **`updateSectionStyle`** *(advanced)* — margins, columns, page numbering, and
+  header/footer ids for the sections overlapping a range; `fields` mask; the
+  range's `segmentId` must be empty. CLI `docs section-style`.
 - **`updateNamedStyle`** *(advanced)* — redefine a named style (e.g. what
   `HEADING_2` looks like document-wide); the mask must include
   `named_style_type`. CLI `docs named-style`.
 
-### Phase 9 — Tabs, smart chips, suggestions (advanced, beyond the cut line)
+### Named-range discovery (useful follow-up)
+
+- **`docs range list`** *(useful)* — surface `Document.namedRanges` (id, name,
+  ranges) so `docs range delete`/`fill` by id are usable for pre-existing
+  ranges. The read model already decodes `namedRanges`; add a `GrahamRow` facade
+  and a thin command. Until this lands, ids come only from a `docs range create`
+  reply.
+
+### Tabs, smart chips, suggestions (advanced, beyond the cut line)
 
 - **`addDocumentTab`** *(advanced)* — add a tab; the reply returns
   `TabProperties`. `TabProperties.index` is zero-based; the CLI shows one-based.
@@ -91,14 +87,15 @@ keep the styling change reviewable:
 - **Suggestions-aware reads** *(advanced)* — the `suggested*` fields and
   `suggestionsViewMode` render modes; skip until a real need appears.
 
-### Practical "100%" cut line
+### Practical "100%" reached
 
-**Phases 1-8** (all `core` + `useful` items) = practical 100%. That covers
-document creation, full text/paragraph styling, lists, complete table editing,
-images, breaks, headers/footers/footnotes, named ranges (template filling),
-page setup, and structured/Markdown reads. **Phase 9 plus every `advanced`
-item** (`updateSectionStyle`, `updateNamedStyle`, tabs, smart chips,
-suggestions) is rarely needed from a CLI and can wait indefinitely.
+All `core` + `useful` operations are built: document creation, full text and
+paragraph styling, lists, complete table structure and styling, structure and
+images, page breaks, section breaks, headers/footers/footnotes, named ranges
+(template filling), page setup (including pageless), and structured/Markdown
+reads. What is left above — paragraph borders, `updateSectionStyle`,
+`updateNamedStyle`, a `docs range list` convenience, and the tabs / smart-chips /
+suggestions group — is optional polish, rarely needed from a CLI.
 
 ### Notes for implementation
 
@@ -106,8 +103,8 @@ suggestions) is rarely needed from a CLI and can wait indefinitely.
   `insertInlineSheetsChartResponse`, has **no matching request** — charts cannot
   be inserted into Docs via the API. Decode it defensively; do not plan a write
   for it.
-- All 40 operations run under the scopes graham already requests (`documents`
-  or `drive`); no `GoogleScope` change is needed for any phase.
+- Every operation runs under the scopes graham already requests (`documents`
+  or `drive`); no `GoogleScope` change is needed.
 
 ---
 
