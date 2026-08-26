@@ -35,40 +35,12 @@ encoded body, decoded reply, error propagation), then a thin subcommand in
   `TabProperties.index`). The CLI shows and accepts **one-based** values;
   GrahamKit translates.
 
-### Phase 2 — Richer reads (next up; writes need real indices)
+### Phase 2 — Richer reads (in progress)
 
-Today the read model keeps only `title`, paragraph `textRun.content`, and table
-cell text. It drops indices, styles, bullets, links, images, breaks, headers,
-footers, footnotes, named ranges, named styles, document style, and tabs.
-Without `startIndex` / `endIndex` a user cannot aim any range-based write, so
-this phase precedes the styling phases.
+The read core is done: `DocsModels` now models the full Docs v1 read surface,
+`Document.blockRows` flattens the body into typed rows, and `docs structure`
+renders them. Two consumers of that model remain:
 
-- **Model extensions** *(core)* — in `DocsModels.swift`, keeping every new field
-  optional and decoding defensively:
-  - `StructuralElement`: add `startIndex`, `endIndex`, `sectionBreak`,
-    `tableOfContents`.
-  - `DocParagraph`: add `paragraphStyle` (`namedStyleType`, `headingId`,
-    `alignment`, `direction`), `bullet` (`listId`, `nestingLevel`, `textStyle`),
-    and `positionedObjectIds`.
-  - `DocParagraphElement`: add `startIndex`, `endIndex`, and the remaining union
-    variants: `inlineObjectElement`, `pageBreak`, `columnBreak`,
-    `horizontalRule`, `footnoteReference`, `equation`, `autoText`, `person`,
-    `richLink`, `dateElement`.
-  - `DocTextRun`: add `textStyle` (subset: `bold`, `italic`, `underline`,
-    `strikethrough`, `baselineOffset`, `link`, `fontSize`, `weightedFontFamily`).
-  - `Document`: add `revisionId` (for `WriteControl`), `lists`, `inlineObjects`,
-    `positionedObjects`, `headers`, `footers`, `footnotes`, `namedRanges`,
-    `namedStyles`, `documentStyle`.
-  - `DocTable`/`DocTableRow`/`DocTableCell`: add `rows`, `columns`, and the
-    row/cell `startIndex`/`endIndex` (the table write phase needs the table
-    start index).
-- **Structured facade `Document.blockRows`** *(core)* — the Docs analog of
-  `Presentation.elementRows`: one `GrahamRow` per structural element with the
-  index range, kind (paragraph / heading level / list item / table / section
-  break / TOC), list id and nesting, object ids, and a text preview; recurse
-  into table cells. CLI `docs structure <id>` renders through `OutputFormatter`.
-  Display the API's zero-based UTF-16 indices as-is — they are the values the
-  write commands consume.
 - **`docs cat --markdown`** *(core)* — a Markdown renderer over the extended
   model: `namedStyleType` `TITLE`/`HEADING_1..6` -> `#`..`######`; bold / italic
   / strike from `textStyle`; `textStyle.link.url` -> `[text](url)`; `bullet` +
@@ -84,9 +56,6 @@ this phase precedes the styling phases.
   `ImageProperties.contentUri` is short-lived and pre-authorized, so downloads
   must use the second, no-OAuth transport exactly like the Slides `contentUrl`
   seam. Tests stub both the API and the image bytes.
-- **Tests** — new `Tests/GrahamKitTests/DocsReadTests.swift` with one realistic
-  full-document fixture (headings, list, link, image, table, footnote, section
-  break).
 
 ### Phase 3 — Text and paragraph styling
 
