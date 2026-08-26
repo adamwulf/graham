@@ -16,15 +16,36 @@ final class DocsNamedRangeParsingTests: XCTestCase {
 
     // MARK: - range
 
-    func testDocsRangeListsCreateDeleteAndFill() {
+    func testDocsRangeListsCreateListDeleteAndFill() {
         let names = Docs.NamedRange.configuration.subcommands.compactMap {
             $0.configuration.commandName ?? "\($0)".lowercased()
         }
-        XCTAssertEqual(names, ["create", "delete", "fill"])
+        XCTAssertEqual(names, ["create", "list", "delete", "fill"])
     }
 
     func testRangeIsNamedRangeOnTheWire() {
         XCTAssertEqual(Docs.NamedRange.configuration.commandName, "range")
+    }
+
+    // MARK: - range list
+
+    func testRangeListParsesTheDocumentID() throws {
+        let command = try Docs.NamedRange.List.parse(["doc-1"])
+        XCTAssertEqual(command.documentID, "doc-1")
+    }
+
+    func testRangeListDefaultsFormatToTable() throws {
+        let command = try Docs.NamedRange.List.parse(["doc-1"])
+        XCTAssertEqual(command.format, .table)
+    }
+
+    func testRangeListParsesTheFormat() throws {
+        let command = try Docs.NamedRange.List.parse(["doc-1", "--format", "json"])
+        XCTAssertEqual(command.format, .json)
+    }
+
+    func testRangeListRequiresADocumentID() {
+        XCTAssertThrowsError(try Docs.NamedRange.List.parse([]))
     }
 
     // MARK: - range create

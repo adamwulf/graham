@@ -1884,16 +1884,18 @@ struct Docs: AsyncParsableCommand {
     struct NamedRange: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "range",
-            abstract: "Create, delete, or fill a named range (template filling).",
+            abstract: "Create, list, delete, or fill a named range (template filling).",
             discussion: """
                 A named range labels a zero-based UTF-16 span so a later `fill` \
                 can replace its content — the template-filling primitive. `create` \
-                names a range and prints its id; `delete` removes a range by id or \
-                every range sharing a name; `fill` replaces a range's content with \
-                text (by id or name). Names need not be unique. Get index ranges \
-                from `docs structure`.
+                names a range and prints its id; `list` shows the document's \
+                existing named ranges (id, name, spans); `delete` removes a range \
+                by id or every range sharing a name; `fill` replaces a range's \
+                content with text (by id or name). Names need not be unique. Get \
+                the text spans to name from `docs structure`, and existing named \
+                range ids and names from `docs range list`.
                 """,
-            subcommands: [Create.self, Delete.self, Fill.self]
+            subcommands: [Create.self, List.self, Delete.self, Fill.self]
         )
 
         struct Create: AsyncParsableCommand {
@@ -1946,6 +1948,34 @@ struct Docs: AsyncParsableCommand {
             }
         }
 
+        struct List: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "list",
+                abstract: "List the document's named ranges (id, name, spans).",
+                discussion: """
+                    Each row is one named range: its id, its name, and its \
+                    zero-based UTF-16 index spans (a discontinuous range shows \
+                    several start-end spans joined by commas). A name can label \
+                    several ranges, so it can appear on more than one row. Take an \
+                    id for `docs range delete --id` / `fill --id`, or a name for \
+                    `--name`, to target a pre-existing range. Use --format json \
+                    for the full detail (segment and tab ids).
+                    """
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "The output format: table, json, jsonl, or id.")
+            var format: OutputFormat = .table
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                let document = try await client.document(id: documentID)
+                print(try OutputFormatter.render(document.namedRangeRows, format: format))
+            }
+        }
+
         struct Delete: AsyncParsableCommand {
             static let configuration = CommandConfiguration(
                 commandName: "delete",
@@ -1953,8 +1983,8 @@ struct Docs: AsyncParsableCommand {
                 discussion: """
                     Give exactly one of --id (delete that one range) or --name \
                     (delete every named range sharing the name). Deleting by a \
-                    name that matches nothing is a no-op. Get named range ids from \
-                    a `docs range create` reply or `docs structure`.
+                    name that matches nothing is a no-op. Get named range ids and \
+                    names from `docs range list` or a `docs range create` reply.
                     """
             )
 
@@ -2000,7 +2030,7 @@ struct Docs: AsyncParsableCommand {
                     every named range sharing the name). --text is the replacement \
                     and may be empty to clear the range. A discontinuous named \
                     range replaces only its first subrange. Get named range ids \
-                    from a `docs range create` reply or `docs structure`.
+                    and names from `docs range list` or a `docs range create` reply.
                     """
             )
 
