@@ -37,25 +37,21 @@ encoded body, decoded reply, error propagation), then a thin subcommand in
   `TabProperties.index`). The CLI shows and accepts **one-based** values;
   GrahamKit translates.
 
-### Phase 3 — Text and paragraph styling (next up)
+### Phase 3 — Paragraph borders (deferred sub-item)
 
-Both operations take a `fields` mask; reuse the Slides mask discipline: one
-deterministic path per provided parameter, fixed documented order, tests assert
-the exact string.
+`updateTextStyle` and `updateParagraphStyle` are done (`docs style`,
+`docs paragraph`, `docs heading`), covering fonts, colors, links, alignment,
+spacing, indents, and named styles. Only paragraph **borders** remain from the
+`updateParagraphStyle` surface — a larger sub-model deliberately split out to
+keep the styling change reviewable:
 
-- **`updateTextStyle`** *(core)* — bold, italic, underline, strikethrough, font,
-  size, colors, baseline offset, and **links** over a range. Request case +
-  `DocsTextStyle` write model + mask builder; CLI `docs style` with flags
-  (`--bold`, `--italic`, `--link <url>`, `--font`, `--size`, ...). Zero-based
-  UTF-16 range; note the API may extend the range to adjacent newlines.
-- **`updateParagraphStyle`** *(core)* — `namedStyleType` (how a paragraph
-  becomes `HEADING_1..6`, `TITLE`, `SUBTITLE`, `NORMAL_TEXT`), alignment,
-  spacing, indents, borders, direction over a range. Request case +
-  `DocsParagraphStyle` write model + mask; CLI `docs paragraph` (or a
-  `docs heading` convenience that only sets `namedStyleType`). Zero-based UTF-16
-  range.
+- **Paragraph borders** *(useful)* — `borderTop`, `borderBottom`, `borderLeft`,
+  `borderRight`, `borderBetween`, each a `ParagraphBorder` (color, width,
+  dashStyle, padding). Extend `DocsParagraphStyle` and its mask; add
+  `docs paragraph` border flags. Same fields-mask discipline and exact-string
+  tests.
 
-### Phase 4 — Lists
+### Phase 4 — Lists (next up)
 
 - **`createParagraphBullets`** *(core)* — turn the paragraphs overlapping a range
   into a list using a `bulletPreset` (16 presets, e.g.
