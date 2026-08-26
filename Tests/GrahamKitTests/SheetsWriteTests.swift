@@ -412,6 +412,118 @@ final class SheetsWriteTests: XCTestCase {
         }
     }
 
+    // MARK: - Sheet (tab) management
+
+    func testAddSheetEncodesTitleAndZeroBasedIndexAndReturnsProperties() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"replies":[{"addSheet":{"properties":{"sheetId":42,"title":"New","index":1}}}]}"#
+        )
+
+        let properties = try await client.addSheet(
+            spreadsheetId: "sheet-1", title: "New", position: 2)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"addSheet":{"properties":{"index":1,"title":"New"}}}]}"#
+        )
+        XCTAssertEqual(properties.sheetId, 42)
+        XCTAssertEqual(properties.title, "New")
+    }
+
+    func testAddSheetOmitsIndexWhenPositionIsNil() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"replies":[{"addSheet":{"properties":{"sheetId":7,"title":"New"}}}]}"#
+        )
+
+        _ = try await client.addSheet(spreadsheetId: "sheet-1", title: "New")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"addSheet":{"properties":{"title":"New"}}}]}"#
+        )
+    }
+
+    func testAddSheetRejectsNonPositivePositionWithoutWriting() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            _ = try await client.addSheet(spreadsheetId: "sheet-1", title: "New", position: 0)
+        }
+        XCTAssertTrue(transport.requests.isEmpty)
+    }
+
+    func testAddSheetRejectsAReplyWithNoProperties() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        do {
+            _ = try await client.addSheet(spreadsheetId: "sheet-1", title: "New")
+            XCTFail("Expected an error")
+        } catch {
+            guard case GrahamError.invalidResponse = error else {
+                return XCTFail("Wrong error: \(error)")
+            }
+        }
+    }
+
+    func testDeleteSheetEncodesTheSheetId() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        try await client.deleteSheet(spreadsheetId: "sheet-1", sheetId: 7)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"deleteSheet":{"sheetId":7}}]}"#
+        )
+    }
+
+    func testRenameSheetEncodesTitleWithAFieldsMask() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        try await client.renameSheet(spreadsheetId: "sheet-1", sheetId: 7, title: "Renamed")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateSheetProperties":{"fields":"title","properties":{"sheetId":7,"title":"Renamed"}}}]}"#
+        )
+    }
+
+    func testSheetIdResolvesATitleToItsNumericId() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        stubSpreadsheet(transport, sheets: [(0, "Sheet1"), (99, "Data")])
+
+        let id = try await client.sheetId(spreadsheetId: "sheet-1", title: "Data")
+        XCTAssertEqual(id, 99)
+    }
+
+    func testSheetIdRejectsAnUnknownTitle() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        stubSpreadsheet(transport, sheets: [(0, "Sheet1")])
+
+        await assertInvalidArgument {
+            _ = try await client.sheetId(spreadsheetId: "sheet-1", title: "Missing")
+        }
+    }
+
     // MARK: - Helpers
 
     private func stubSpreadsheet(

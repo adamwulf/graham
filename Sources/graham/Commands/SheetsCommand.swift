@@ -6,7 +6,8 @@ struct Sheets: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Work with Google Sheets spreadsheets.",
         subcommands: [
-            Get.self, Values.self, Set.self, Append.self, Clear.self, Chart.self, Test.self,
+            Get.self, Values.self, Set.self, Append.self, Clear.self, Tab.self,
+            Chart.self, Test.self,
         ]
     )
 
@@ -302,6 +303,111 @@ struct Sheets: AsyncParsableCommand {
             let response = try await client.clearValues(
                 spreadsheetId: spreadsheetID, range: range)
             print(response.clearedRange ?? "")
+        }
+    }
+
+    struct Tab: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Manage the sheets (tabs) within a spreadsheet.",
+            subcommands: [Add.self, Delete.self, Rename.self]
+        )
+
+        /// Resolves a tab either from an explicit numeric id or from its current
+        /// title. The subcommands validate that exactly one selector is set.
+        static func resolveSheetId(
+            _ client: SheetsClient,
+            spreadsheetID: String,
+            sheetId: Int?,
+            sheet: String?
+        ) async throws -> Int {
+            if let sheetId { return sheetId }
+            return try await client.sheetId(spreadsheetId: spreadsheetID, title: sheet ?? "")
+        }
+
+        static func validateSelector(sheetId: Int?, sheet: String?) throws {
+            let selectors = [sheetId != nil, sheet != nil].filter { $0 }.count
+            guard selectors == 1 else {
+                throw ValidationError(
+                    "Select the tab with exactly one of --sheet-id or --sheet.")
+            }
+        }
+
+        struct Add: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Add a new tab and print its numeric sheet id."
+            )
+
+            @Argument(help: "The spreadsheet ID.")
+            var spreadsheetID: String
+
+            @Argument(help: "The title of the new tab.")
+            var title: String
+
+            @Option(help: "One-based position for the new tab. Omit to append it at the end.")
+            var index: Int?
+
+            func run() async throws {
+                let client = SheetsClient(api: try CLI.makeAPI())
+                let properties = try await client.addSheet(
+                    spreadsheetId: spreadsheetID, title: title, position: index)
+                print(properties.sheetId.map(String.init) ?? "")
+            }
+        }
+
+        struct Delete: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Delete a tab by its id or current title."
+            )
+
+            @Argument(help: "The spreadsheet ID.")
+            var spreadsheetID: String
+
+            @Option(help: "The numeric sheet id of the tab to delete.")
+            var sheetId: Int?
+
+            @Option(help: "The current title of the tab to delete.")
+            var sheet: String?
+
+            func validate() throws {
+                try Tab.validateSelector(sheetId: sheetId, sheet: sheet)
+            }
+
+            func run() async throws {
+                let client = SheetsClient(api: try CLI.makeAPI())
+                let id = try await Tab.resolveSheetId(
+                    client, spreadsheetID: spreadsheetID, sheetId: sheetId, sheet: sheet)
+                try await client.deleteSheet(spreadsheetId: spreadsheetID, sheetId: id)
+            }
+        }
+
+        struct Rename: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Rename a tab, selected by its id or current title."
+            )
+
+            @Argument(help: "The spreadsheet ID.")
+            var spreadsheetID: String
+
+            @Option(help: "The numeric sheet id of the tab to rename.")
+            var sheetId: Int?
+
+            @Option(help: "The current title of the tab to rename.")
+            var sheet: String?
+
+            @Option(help: "The new title.")
+            var to: String
+
+            func validate() throws {
+                try Tab.validateSelector(sheetId: sheetId, sheet: sheet)
+            }
+
+            func run() async throws {
+                let client = SheetsClient(api: try CLI.makeAPI())
+                let id = try await Tab.resolveSheetId(
+                    client, spreadsheetID: spreadsheetID, sheetId: sheetId, sheet: sheet)
+                try await client.renameSheet(
+                    spreadsheetId: spreadsheetID, sheetId: id, title: to)
+            }
         }
     }
 

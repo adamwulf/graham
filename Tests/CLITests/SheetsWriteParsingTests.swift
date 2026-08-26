@@ -91,6 +91,51 @@ final class SheetsWriteParsingTests: XCTestCase {
         XCTAssertTrue(names.contains("Clear"), "sheets should list Clear: \(names)")
     }
 
+    // MARK: - Tabs
+
+    func testSheetsRegistersTabSubcommandWithAddDeleteRename() {
+        let names = Sheets.configuration.subcommands.map { String(describing: $0) }
+        XCTAssertTrue(names.contains("Tab"), "sheets should list Tab: \(names)")
+        let tabNames = Sheets.Tab.configuration.subcommands.map { String(describing: $0) }
+        XCTAssertEqual(Set(tabNames), ["Add", "Delete", "Rename"])
+    }
+
+    func testSheetsTabAddParsesTitleAndIndex() throws {
+        let command = try Sheets.Tab.Add.parse(["sheet-1", "New Tab", "--index", "2"])
+        XCTAssertEqual(command.spreadsheetID, "sheet-1")
+        XCTAssertEqual(command.title, "New Tab")
+        XCTAssertEqual(command.index, 2)
+
+        let noIndex = try Sheets.Tab.Add.parse(["sheet-1", "New Tab"])
+        XCTAssertNil(noIndex.index)
+    }
+
+    func testSheetsTabDeleteRequiresExactlyOneSelector() throws {
+        let byId = try Sheets.Tab.Delete.parse(["sheet-1", "--sheet-id", "3"])
+        XCTAssertEqual(byId.sheetId, 3)
+
+        let byTitle = try Sheets.Tab.Delete.parse(["sheet-1", "--sheet", "Old"])
+        XCTAssertEqual(byTitle.sheet, "Old")
+
+        // Neither selector, and both selectors, are rejected.
+        XCTAssertThrowsError(try Sheets.Tab.Delete.parse(["sheet-1"]))
+        XCTAssertThrowsError(try Sheets.Tab.Delete.parse([
+            "sheet-1", "--sheet-id", "3", "--sheet", "Old",
+        ]))
+    }
+
+    func testSheetsTabRenameParsesSelectorAndNewTitle() throws {
+        let command = try Sheets.Tab.Rename.parse([
+            "sheet-1", "--sheet", "Old", "--to", "New",
+        ])
+        XCTAssertEqual(command.sheet, "Old")
+        XCTAssertEqual(command.to, "New")
+
+        // --to is required, and exactly one selector is required.
+        XCTAssertThrowsError(try Sheets.Tab.Rename.parse(["sheet-1", "--sheet", "Old"]))
+        XCTAssertThrowsError(try Sheets.Tab.Rename.parse(["sheet-1", "--to", "New"]))
+    }
+
     func testSheetsChartAddParsesOptions() throws {
         let command = try Sheets.Chart.Add.parse([
             "sheet-1",

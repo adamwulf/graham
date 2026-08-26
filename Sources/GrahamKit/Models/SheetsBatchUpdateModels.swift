@@ -15,9 +15,18 @@ import Foundation
 public enum SheetsBatchUpdateRequest: Encodable, Sendable, Equatable {
     /// Adds an embedded chart to the spreadsheet.
     case addChart(AddChartRequest)
+    /// Adds a new sheet (tab).
+    case addSheet(AddSheetRequest)
+    /// Deletes a sheet (tab) by its numeric id.
+    case deleteSheet(DeleteSheetRequest)
+    /// Updates sheet (tab) properties, e.g. its title or position.
+    case updateSheetProperties(UpdateSheetPropertiesRequest)
 
     private enum CodingKeys: String, CodingKey {
         case addChart
+        case addSheet
+        case deleteSheet
+        case updateSheetProperties
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -25,6 +34,12 @@ public enum SheetsBatchUpdateRequest: Encodable, Sendable, Equatable {
         switch self {
         case .addChart(let request):
             try container.encode(request, forKey: .addChart)
+        case .addSheet(let request):
+            try container.encode(request, forKey: .addSheet)
+        case .deleteSheet(let request):
+            try container.encode(request, forKey: .deleteSheet)
+        case .updateSheetProperties(let request):
+            try container.encode(request, forKey: .updateSheetProperties)
         }
     }
 }
@@ -180,6 +195,52 @@ public struct GridRange: Codable, Sendable, Equatable {
     }
 }
 
+// MARK: - Sheet (tab) requests
+
+/// The writable subset of a sheet's properties used by the add and update
+/// operations. Every field is optional so a caller sets only what it changes.
+public struct SheetPropertiesRequest: Codable, Sendable, Equatable {
+    public let sheetId: Int?
+    public let title: String?
+    public let index: Int?
+
+    public init(sheetId: Int? = nil, title: String? = nil, index: Int? = nil) {
+        self.sheetId = sheetId
+        self.title = title
+        self.index = index
+    }
+}
+
+/// The `addSheet` operation.
+public struct AddSheetRequest: Codable, Sendable, Equatable {
+    public let properties: SheetPropertiesRequest
+
+    public init(properties: SheetPropertiesRequest) {
+        self.properties = properties
+    }
+}
+
+/// The `deleteSheet` operation.
+public struct DeleteSheetRequest: Codable, Sendable, Equatable {
+    public let sheetId: Int
+
+    public init(sheetId: Int) {
+        self.sheetId = sheetId
+    }
+}
+
+/// The `updateSheetProperties` operation. `fields` is a mask of the property
+/// paths to update, relative to `properties` (for example `title` or `index`).
+public struct UpdateSheetPropertiesRequest: Codable, Sendable, Equatable {
+    public let properties: SheetPropertiesRequest
+    public let fields: String
+
+    public init(properties: SheetPropertiesRequest, fields: String) {
+        self.properties = properties
+        self.fields = fields
+    }
+}
+
 // MARK: - Responses
 
 /// The response of a `spreadsheets.batchUpdate` call.
@@ -189,9 +250,16 @@ public struct SheetsBatchUpdateResponse: Codable, Sendable {
     public let replies: [SheetsBatchUpdateReply]?
 }
 
-/// One reply in a Sheets batch-update response.
+/// One reply in a Sheets batch-update response. Operations such as
+/// `deleteSheet` and `updateSheetProperties` reply with an empty object.
 public struct SheetsBatchUpdateReply: Codable, Sendable {
     public let addChart: AddChartReply?
+    public let addSheet: AddSheetReply?
+}
+
+/// The reply of an `addSheet` operation, carrying the new sheet's properties.
+public struct AddSheetReply: Codable, Sendable {
+    public let properties: Sheet.Properties?
 }
 
 /// The reply of an `addChart` operation.

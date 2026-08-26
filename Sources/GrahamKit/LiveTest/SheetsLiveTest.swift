@@ -187,6 +187,50 @@ public struct SheetsLiveTest: Sendable {
                 throw GrahamError.invalidResponse("the spreadsheet reported no sheets")
             }
         }
+
+        // Tab lifecycle: add a second tab, rename it, then delete it, verifying
+        // each step by reading the sheet list back.
+        let tabTitle = "Graham Tab"
+        let renamedTabTitle = "Graham Tab Renamed"
+        let addedTabId = await valueStep(
+            "tab-add", recorder: recorder, createdIDs: { [String($0)] }
+        ) {
+            let properties = try await sheets.addSheet(
+                spreadsheetId: spreadsheetID, title: tabTitle, position: 2)
+            guard let id = properties.sheetId else {
+                throw GrahamError.invalidResponse("addSheet returned no sheetId")
+            }
+            let after = try await sheets.spreadsheet(id: spreadsheetID)
+            guard (after.sheets ?? []).contains(where: { $0.properties?.title == tabTitle }) else {
+                throw GrahamError.invalidResponse("the new tab did not appear")
+            }
+            return id
+        }
+        _ = await actionStep(
+            "tab-rename", recorder: recorder,
+            skipReason: dependencyReason("tab-add", value: addedTabId)
+        ) {
+            try await sheets.renameSheet(
+                spreadsheetId: spreadsheetID, sheetId: addedTabId!, title: renamedTabTitle)
+            let after = try await sheets.spreadsheet(id: spreadsheetID)
+            let titles = (after.sheets ?? []).compactMap { $0.properties?.title }
+            guard titles.contains(renamedTabTitle), !titles.contains(tabTitle) else {
+                throw GrahamError.invalidResponse("the tab rename did not round-trip")
+            }
+        }
+        _ = await actionStep(
+            "tab-delete", recorder: recorder,
+            skipReason: dependencyReason("tab-add", value: addedTabId)
+        ) {
+            try await sheets.deleteSheet(spreadsheetId: spreadsheetID, sheetId: addedTabId!)
+            let after = try await sheets.spreadsheet(id: spreadsheetID)
+            guard !(after.sheets ?? []).contains(where: {
+                $0.properties?.sheetId == addedTabId!
+            }) else {
+                throw GrahamError.invalidResponse("the deleted tab still appears")
+            }
+        }
+
         // A chart needs the data above, so it chains off the value write.
         _ = await valueStep(
             "chart-add", recorder: recorder,
@@ -303,6 +347,10 @@ public struct SheetsLiveTest: Sendable {
             return true
         }
         return result == true
+    }
+
+    private func dependencyReason<T>(_ name: String, value: T?) -> String? {
+        value == nil ? "\(name) failed" : nil
     }
 
     private static func reason(for error: Error) -> String {

@@ -232,6 +232,67 @@ public struct SheetsClient: Sendable {
         }
         return chartId
     }
+
+    // MARK: - Sheets (tabs)
+
+    /// Adds a new sheet (tab) and returns its server-assigned properties.
+    ///
+    /// `position` is the one-based position the tab should occupy; it is
+    /// translated to the API's zero-based `index`. Omit it to append the tab.
+    public func addSheet(
+        spreadsheetId: String,
+        title: String,
+        position: Int? = nil
+    ) async throws -> Sheet.Properties {
+        var index: Int?
+        if let position {
+            guard position >= 1 else {
+                throw GrahamError.invalidArgument("position must be one-based (>= 1)")
+            }
+            index = position - 1
+        }
+        let request = SheetsBatchUpdateRequest.addSheet(AddSheetRequest(
+            properties: SheetPropertiesRequest(title: title, index: index)))
+        let response = try await batchUpdate(spreadsheetId: spreadsheetId, requests: [request])
+        guard let properties = response.replies?.first?.addSheet?.properties else {
+            throw GrahamError.invalidResponse("addSheet returned no sheet properties")
+        }
+        return properties
+    }
+
+    /// Deletes a sheet (tab) by its numeric id.
+    public func deleteSheet(spreadsheetId: String, sheetId: Int) async throws {
+        _ = try await batchUpdate(
+            spreadsheetId: spreadsheetId,
+            requests: [.deleteSheet(DeleteSheetRequest(sheetId: sheetId))])
+    }
+
+    /// Renames a sheet (tab). Only the title is updated (`fields=title`).
+    public func renameSheet(
+        spreadsheetId: String,
+        sheetId: Int,
+        title: String
+    ) async throws {
+        let request = SheetsBatchUpdateRequest.updateSheetProperties(UpdateSheetPropertiesRequest(
+            properties: SheetPropertiesRequest(sheetId: sheetId, title: title),
+            fields: "title"))
+        _ = try await batchUpdate(spreadsheetId: spreadsheetId, requests: [request])
+    }
+
+    /// Resolves a sheet title to its numeric id within a spreadsheet, so a
+    /// title-addressed command can target the operations that take a `sheetId`.
+    public func sheetId(spreadsheetId: String, title: String) async throws -> Int {
+        let metadata = try await spreadsheet(id: spreadsheetId)
+        guard let sheet = (metadata.sheets ?? []).first(where: {
+            $0.properties?.title == title
+        }) else {
+            throw GrahamError.invalidArgument("spreadsheet has no sheet named \"\(title)\"")
+        }
+        guard let id = sheet.properties?.sheetId else {
+            throw GrahamError.invalidResponse("the sheet \"\(title)\" has no sheetId")
+        }
+        return id
+    }
 }
 
 /// An empty JSON request body (`{}`), for POST endpoints such as

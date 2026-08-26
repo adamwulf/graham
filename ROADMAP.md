@@ -98,10 +98,12 @@ This is the next major area. Docs is at practical 100%, so work now moves here.
 column counts), `values` (read a range, with a `valueRenderOption`),
 `batchGetValues` (multi-range read), `setValues` (write a range, `USER_ENTERED`),
 `appendValues` (append rows after a table), `clearValues` (clear a range),
-`batchUpdate` (the shared batch-write path), and `addChart` (a basic chart on its
-own new sheet). The CLI exposes these as `sheets get`, `sheets values`
-(`--raw` / `--formulas`, one or more ranges), `sheets set` (`--row` / `--json-rows`
-/ `--tsv`), `sheets append`, `sheets clear`, and `sheets chart add`.
+`batchUpdate` (the shared batch-write path), `addChart` (a basic chart on its own
+new sheet), and the tab operations `addSheet` / `deleteSheet` / `renameSheet`
+(plus `sheetId(title:)` resolution). The CLI exposes these as `sheets get`,
+`sheets values` (`--raw` / `--formulas`, one or more ranges), `sheets set`
+(`--row` / `--json-rows` / `--tsv`), `sheets append`, `sheets clear`,
+`sheets tab add` / `delete` / `rename`, and `sheets chart add`.
 
 `graham sheets test` runs the live end-to-end Sheets smoke test over that surface
 (`SheetsLiveTest.swift`), with real value write / append / clear
@@ -128,15 +130,6 @@ Index conventions (apply throughout): A1 ranges parse through `A1Range.parse`
 grid indices are zero-based (dimension ranges are also half-open); the CLI shows
 and accepts one-based (inclusive for dimensions) and `GrahamKit` translates.
 Building a fields mask reuses the Slides `update*Properties` mask convention.
-
-### Phase 2 — Tab (sheet) management
-
-- **`sheets tab` group** — `addSheet` + `deleteSheet` + rename
-  (`updateSheetProperties`). `SheetProperties.index` is zero-based; the CLI is
-  one-based. `deleteSheet` takes a numeric `sheetId`; resolve a title to its id
-  through `spreadsheet(id:)`.
-- Grow `sheets test`: add a tab, rename it, delete it, verifying each through
-  `get`.
 
 ### Phase 3 — Grid shape
 

@@ -63,6 +63,8 @@ final class SheetsLiveTestTests: XCTestCase {
             ["sheet-1"])
         XCTAssertEqual(
             summary.steps.first(where: { $0.name == "chart-add" })?.createdIDs, ["314"])
+        XCTAssertEqual(
+            summary.steps.first(where: { $0.name == "tab-add" })?.createdIDs, ["1"])
 
         // The write path was exercised for real: the value write carried the
         // header row, and the read-backs succeeded, so the round-trips were
@@ -162,7 +164,7 @@ final class SheetsLiveTestTests: XCTestCase {
     private static let expectedStepNames = [
         "folder", "create-spreadsheet",
         "set-values", "values-read", "append", "append-read", "raw-read", "batch-get",
-        "get", "chart-add", "clear", "clear-read",
+        "get", "tab-add", "tab-rename", "tab-delete", "chart-add", "clear", "clear-read",
         "drive-trash-spreadsheet",
     ]
 }
@@ -200,6 +202,9 @@ private final class SheetsLiveFixture: @unchecked Sendable {
 
     // The grid the runner last wrote, returned on the matching values read.
     private var storedValues: [[String]] = []
+    // The sheets (tabs) the spreadsheet holds, mutated by the tab operations.
+    private var sheets: [(id: Int, title: String)] = [(0, "Sheet1")]
+    private var nextSheetId = 1
 
     init(
         existingFolder: Bool = true,
@@ -386,23 +391,63 @@ private final class SheetsLiveFixture: @unchecked Sendable {
             ])
         }
         if path == "/v4/spreadsheets/sheet-1:batchUpdate", request.method == "POST" {
-            if failChartAdd {
-                return googleError(message: "chart rejected")
+            return batchUpdateResponse(request)
+        }
+        if path == "/v4/spreadsheets/sheet-1", request.method == "GET" {
+            let sheetJSON = sheets.map { sheet in
+                ["properties": ["sheetId": sheet.id, "title": sheet.title]]
             }
             return json([
                 "spreadsheetId": "sheet-1",
-                "replies": [["addChart": ["chart": ["chartId": 314]]]],
-            ])
-        }
-        if path == "/v4/spreadsheets/sheet-1", request.method == "GET" {
-            return json([
-                "spreadsheetId": "sheet-1",
                 "properties": ["title": "graham test sheet run-1"],
-                "sheets": [["properties": ["sheetId": 0, "title": "Sheet1"]]],
+                "sheets": sheetJSON,
             ])
         }
         return HTTPResponse(
             statusCode: 599, body: Data("unmatched \(request.method) \(request.url)".utf8))
+    }
+
+    /// Dispatches one batch-update request, mutating the sheet list for tab
+    /// operations so a later metadata read observes the change.
+    private func batchUpdateResponse(_ request: HTTPRequest) -> HTTPResponse {
+        guard let data = request.body,
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let requests = object["requests"] as? [[String: Any]],
+              let first = requests.first, let key = first.keys.first else {
+            return googleError(message: "malformed batch request")
+        }
+        switch key {
+        case "addChart":
+            if failChartAdd { return googleError(message: "chart rejected") }
+            return json([
+                "spreadsheetId": "sheet-1",
+                "replies": [["addChart": ["chart": ["chartId": 314]]]],
+            ])
+        case "addSheet":
+            let properties = (first["addSheet"] as? [String: Any])?["properties"] as? [String: Any]
+            let title = properties?["title"] as? String ?? ""
+            let id = nextSheetId
+            nextSheetId += 1
+            sheets.append((id: id, title: title))
+            return json([
+                "spreadsheetId": "sheet-1",
+                "replies": [["addSheet": ["properties": ["sheetId": id, "title": title]]]],
+            ])
+        case "deleteSheet":
+            let id = (first["deleteSheet"] as? [String: Any])?["sheetId"] as? Int
+            sheets.removeAll { $0.id == id }
+            return json(["spreadsheetId": "sheet-1", "replies": [[:]]])
+        case "updateSheetProperties":
+            let properties =
+                (first["updateSheetProperties"] as? [String: Any])?["properties"] as? [String: Any]
+            if let id = properties?["sheetId"] as? Int, let title = properties?["title"] as? String,
+               let index = sheets.firstIndex(where: { $0.id == id }) {
+                sheets[index].title = title
+            }
+            return json(["spreadsheetId": "sheet-1", "replies": [[:]]])
+        default:
+            return json(["spreadsheetId": "sheet-1", "replies": [[:]]])
+        }
     }
 
     /// The `[[String]]` grid carried in a values PUT body.
