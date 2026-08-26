@@ -59,6 +59,8 @@ public enum SheetsBatchUpdateRequest: Encodable, Sendable, Equatable {
     case addNamedRange(AddNamedRangeRequest)
     /// Deletes a named range by its id.
     case deleteNamedRange(DeleteNamedRangeRequest)
+    /// Moves or resizes an embedded object (such as a chart).
+    case updateEmbeddedObjectPosition(UpdateEmbeddedObjectPositionRequest)
 
     private enum CodingKeys: String, CodingKey {
         case addChart
@@ -84,6 +86,7 @@ public enum SheetsBatchUpdateRequest: Encodable, Sendable, Equatable {
         case autoResizeDimensions
         case addNamedRange
         case deleteNamedRange
+        case updateEmbeddedObjectPosition
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -135,6 +138,8 @@ public enum SheetsBatchUpdateRequest: Encodable, Sendable, Equatable {
             try container.encode(request, forKey: .addNamedRange)
         case .deleteNamedRange(let request):
             try container.encode(request, forKey: .deleteNamedRange)
+        case .updateEmbeddedObjectPosition(let request):
+            try container.encode(request, forKey: .updateEmbeddedObjectPosition)
         }
     }
 }
@@ -250,20 +255,30 @@ public struct EmbeddedObjectPosition: Codable, Sendable, Equatable {
 }
 
 /// The visible configuration of a chart: exactly one of `basicChart` (bar,
-/// line, area, column, scatter, combo) or `pieChart` is set.
+/// line, area, column, scatter, combo), `pieChart`, `histogramChart`,
+/// `scorecardChart`, or `candlestickChart` is set.
 public struct ChartSpec: Codable, Sendable, Equatable {
     public let title: String?
     public let basicChart: BasicChartSpec?
     public let pieChart: PieChartSpec?
+    public let histogramChart: HistogramChartSpec?
+    public let scorecardChart: ScorecardChartSpec?
+    public let candlestickChart: CandlestickChartSpec?
 
     public init(
         title: String? = nil,
         basicChart: BasicChartSpec? = nil,
-        pieChart: PieChartSpec? = nil
+        pieChart: PieChartSpec? = nil,
+        histogramChart: HistogramChartSpec? = nil,
+        scorecardChart: ScorecardChartSpec? = nil,
+        candlestickChart: CandlestickChartSpec? = nil
     ) {
         self.title = title
         self.basicChart = basicChart
         self.pieChart = pieChart
+        self.histogramChart = histogramChart
+        self.scorecardChart = scorecardChart
+        self.candlestickChart = candlestickChart
     }
 }
 
@@ -371,6 +386,147 @@ public struct GridRange: Codable, Sendable, Equatable {
         self.endRowIndex = endRowIndex
         self.startColumnIndex = startColumnIndex
         self.endColumnIndex = endColumnIndex
+    }
+}
+
+// MARK: - More chart types
+
+/// The kinds of chart graham can build. The first six map one-to-one to a
+/// ``BasicChartType``; the rest select a dedicated spec builder.
+public enum SheetsChartKind: String, Sendable, CaseIterable, Equatable {
+    case column = "COLUMN"
+    case bar = "BAR"
+    case line = "LINE"
+    case area = "AREA"
+    case scatter = "SCATTER"
+    case combo = "COMBO"
+    case pie = "PIE"
+    case histogram = "HISTOGRAM"
+    case scorecard = "SCORECARD"
+    case candlestick = "CANDLESTICK"
+
+    /// The matching ``BasicChartType`` for the six basic kinds, else nil.
+    public var basicChartType: BasicChartType? {
+        BasicChartType(rawValue: rawValue)
+    }
+}
+
+/// A histogram chart: every column of the source range is a series, split into
+/// buckets. `bucketSize` and `outlierPercentile` are optional tuning knobs.
+public struct HistogramChartSpec: Codable, Sendable, Equatable {
+    public let series: [HistogramSeries]
+    public let bucketSize: Double?
+    public let outlierPercentile: Double?
+
+    public init(
+        series: [HistogramSeries],
+        bucketSize: Double? = nil,
+        outlierPercentile: Double? = nil
+    ) {
+        self.series = series
+        self.bucketSize = bucketSize
+        self.outlierPercentile = outlierPercentile
+    }
+}
+
+/// One data series in a histogram chart.
+public struct HistogramSeries: Codable, Sendable, Equatable {
+    public let data: ChartData
+
+    public init(data: ChartData) {
+        self.data = data
+    }
+}
+
+/// The aggregation a scorecard chart applies over its key (and baseline) data.
+public enum SheetsChartAggregateType: String, Sendable, CaseIterable, Equatable {
+    case average = "AVERAGE"
+    case count = "COUNT"
+    case max = "MAX"
+    case median = "MEDIAN"
+    case min = "MIN"
+    case sum = "SUM"
+}
+
+/// A scorecard chart: one key value, an optional baseline to compare against,
+/// and an optional aggregation over each.
+public struct ScorecardChartSpec: Codable, Sendable, Equatable {
+    public let keyValueData: ChartData
+    public let baselineValueData: ChartData?
+    public let aggregateType: String?
+
+    public init(
+        keyValueData: ChartData,
+        baselineValueData: ChartData? = nil,
+        aggregateType: String? = nil
+    ) {
+        self.keyValueData = keyValueData
+        self.baselineValueData = baselineValueData
+        self.aggregateType = aggregateType
+    }
+}
+
+/// A candlestick chart: a domain plus one or more OHLC data groups.
+public struct CandlestickChartSpec: Codable, Sendable, Equatable {
+    public let domain: CandlestickDomain
+    public let data: [CandlestickData]
+
+    public init(domain: CandlestickDomain, data: [CandlestickData]) {
+        self.domain = domain
+        self.data = data
+    }
+}
+
+/// The domain (category or x-axis) data for a candlestick chart.
+public struct CandlestickDomain: Codable, Sendable, Equatable {
+    public let data: ChartData
+
+    public init(data: ChartData) {
+        self.data = data
+    }
+}
+
+/// One OHLC group in a candlestick chart: the open, high, low, and close series.
+public struct CandlestickData: Codable, Sendable, Equatable {
+    public let lowSeries: CandlestickSeries
+    public let openSeries: CandlestickSeries
+    public let closeSeries: CandlestickSeries
+    public let highSeries: CandlestickSeries
+
+    public init(
+        lowSeries: CandlestickSeries,
+        openSeries: CandlestickSeries,
+        closeSeries: CandlestickSeries,
+        highSeries: CandlestickSeries
+    ) {
+        self.lowSeries = lowSeries
+        self.openSeries = openSeries
+        self.closeSeries = closeSeries
+        self.highSeries = highSeries
+    }
+}
+
+/// One series (low, open, close, or high) in a candlestick chart.
+public struct CandlestickSeries: Codable, Sendable, Equatable {
+    public let data: ChartData
+
+    public init(data: ChartData) {
+        self.data = data
+    }
+}
+
+/// The `updateEmbeddedObjectPosition` operation: moves or resizes an embedded
+/// object (such as a chart) to `newPosition`. `objectId` is the numeric chart
+/// id and `fields` is a mask relative to the request (for example `newPosition`).
+public struct UpdateEmbeddedObjectPositionRequest: Codable, Sendable, Equatable {
+    public let objectId: Int
+    public let newPosition: EmbeddedObjectPosition
+    public let fields: String
+
+    public init(objectId: Int, newPosition: EmbeddedObjectPosition, fields: String) {
+        self.objectId = objectId
+        self.newPosition = newPosition
+        self.fields = fields
     }
 }
 
