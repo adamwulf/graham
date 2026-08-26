@@ -133,6 +133,10 @@ graham docs delete <document-id> --from 0 --to 6 --segment <segment-id>
 # Any write can require the document be at a known revision (optimistic concurrency);
 # the write fails instead of overwriting a concurrent edit.
 graham docs insert <document-id> --text "Hello" --at 1 --require-revision <revision-id>
+# List every inline and positioned image (origin, object id, size, source and
+# content URIs), or download them under safe deterministic names.
+graham docs images <document-id>
+graham docs images <document-id> --download ./images
 
 graham slides cat <presentation-id>
 # List every element; JSON includes raw geometry, links, alt text, and image URLs.
