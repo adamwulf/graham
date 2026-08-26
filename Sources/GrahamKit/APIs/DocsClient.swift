@@ -903,11 +903,11 @@ public struct DocsClient: Sendable {
     ///   - borderColor: the color of all four cell borders. A border is set only
     ///     when a color is given; passing a `borderWidth` or `borderDash` without
     ///     a color is rejected.
-    ///   - borderWidth: the border width in points (defaults to 1); must be
-    ///     greater than zero.
+    ///   - borderWidth: the border width in points (defaults to 1); must not be
+    ///     negative. A width of 0 hides the border (border removal).
     ///   - borderDash: the border dash style (defaults to solid).
-    ///   - padding: the padding of all four cell sides in points; must be greater
-    ///     than zero.
+    ///   - padding: the padding of all four cell sides in points; must not be
+    ///     negative (0 means no padding).
     ///   - contentAlignment: the vertical content alignment (top, middle, or
     ///     bottom).
     ///
@@ -943,9 +943,11 @@ public struct DocsClient: Sendable {
         var border: DocsTableCellBorder?
         if let borderColor {
             let width = borderWidth ?? 1
-            guard width > 0 else {
+            // The Docs API treats a border width of 0 as hiding the border, so 0
+            // is a valid value (border removal); only a negative width is invalid.
+            guard width >= 0 else {
                 throw GrahamError.invalidArgument(
-                    "border width must be greater than zero, got \(width)")
+                    "border width must not be negative, got \(width)")
             }
             border = DocsTableCellBorder(
                 color: borderColor,
@@ -955,9 +957,11 @@ public struct DocsClient: Sendable {
 
         var paddingDimension: DocsDimension?
         if let padding {
-            guard padding > 0 else {
+            // A padding of 0 is valid (no padding); only a negative value is
+            // invalid.
+            guard padding >= 0 else {
                 throw GrahamError.invalidArgument(
-                    "cell padding must be greater than zero, got \(padding)")
+                    "cell padding must not be negative, got \(padding)")
             }
             paddingDimension = DocsDimension(magnitude: padding, unit: .pt)
         }

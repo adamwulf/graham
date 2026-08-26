@@ -827,9 +827,11 @@ public enum DocsContentAlignment: String, Codable, Sendable, Equatable {
 }
 
 /// A Docs v1 `TableCellBorder.dashStyle` / `DashStyle`: how a cell border is
-/// dashed. graham exposes the three common styles; the API's other dash styles
-/// (`DASH_DOT`, `LONG_DASH`, `LONG_DASH_DOT`) and its
-/// `DASH_STYLE_UNSPECIFIED` sentinel are not part of this styling slice.
+/// dashed. The Docs v1 `DashStyle` enum is exactly `DASH_STYLE_UNSPECIFIED`,
+/// `SOLID`, `DOT`, and `DASH`, so these three cases are the complete writable
+/// set — only the `DASH_STYLE_UNSPECIFIED` sentinel is omitted. (The extra
+/// `DASH_DOT` / `LONG_DASH` / `LONG_DASH_DOT` styles are Slides-only and do not
+/// exist in the Docs API.)
 public enum DocsDashStyle: String, Codable, Sendable, Equatable {
     case solid = "SOLID"
     case dot = "DOT"

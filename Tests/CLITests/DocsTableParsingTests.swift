@@ -270,16 +270,29 @@ final class DocsTableParsingTests: XCTestCase {
         ]))
     }
 
-    func testStyleRejectsNonOneBasedCellAndNonPositiveDimensions() {
+    func testStyleRejectsNonOneBasedCellAndNegativeDimensions() {
         XCTAssertThrowsError(try Docs.Table.Style.parse([
             "doc-1", "--table", "10", "--row", "0", "--column", "1", "--align", "top",
         ]))
+        // 0 is valid (border removal); a negative width is rejected.
         XCTAssertThrowsError(try Docs.Table.Style.parse([
+            "doc-1", "--table", "10", "--border", "#000000", "--border-width", "-1",
+        ]))
+        // 0 is valid (no padding); a negative padding is rejected.
+        XCTAssertThrowsError(try Docs.Table.Style.parse([
+            "doc-1", "--table", "10", "--padding", "-1",
+        ]))
+    }
+
+    func testStyleAcceptsZeroBorderWidthAndZeroPadding() throws {
+        let zeroBorder = try Docs.Table.Style.parse([
             "doc-1", "--table", "10", "--border", "#000000", "--border-width", "0",
-        ]))
-        XCTAssertThrowsError(try Docs.Table.Style.parse([
+        ])
+        XCTAssertEqual(zeroBorder.borderWidth, 0)
+        let zeroPadding = try Docs.Table.Style.parse([
             "doc-1", "--table", "10", "--padding", "0",
-        ]))
+        ])
+        XCTAssertEqual(zeroPadding.padding, 0)
     }
 
     // MARK: - row-style

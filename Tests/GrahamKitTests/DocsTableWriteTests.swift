@@ -513,6 +513,24 @@ final class DocsTableWriteTests: XCTestCase {
         )
     }
 
+    func testRowStyleWithAllThreeStylesEmitsFullMaskInBuilderOrder() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
+
+        // Setting min height, header, and overflow together exercises the full
+        // row-style mask, in the fixed builder order.
+        _ = try await client.styleTableRow(
+            documentId: "doc-1", tableStartIndex: 10,
+            minRowHeight: 18, tableHeader: true, preventOverflow: true)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.body(request),
+            #"{"requests":[{"updateTableRowStyle":{"fields":"minRowHeight,tableHeader,preventOverflow","tableRowStyle":{"minRowHeight":{"magnitude":18,"unit":"PT"},"preventOverflow":true,"tableHeader":true},"tableStartLocation":{"index":10}}}]}"#
+        )
+    }
+
     // MARK: - Styling: segment normalization
 
     func testStylingCarriesSegmentIdAndNormalizesEmptyToBody() async throws {
@@ -594,14 +612,50 @@ final class DocsTableWriteTests: XCTestCase {
             documentId: "doc-1", tableStartIndex: 10, borderWidth: 2) }
         await assertInvalid { _ = try await client.styleTableCells(
             documentId: "doc-1", tableStartIndex: 10, borderDash: .dot) }
-        // A non-positive border width or padding.
+        // A negative border width or padding (0 is valid — see the acceptance
+        // test below).
         await assertInvalid { _ = try await client.styleTableCells(
             documentId: "doc-1", tableStartIndex: 10,
-            borderColor: try DocsOptionalColor.parse("#000000"), borderWidth: 0) }
+            borderColor: try DocsOptionalColor.parse("#000000"), borderWidth: -1) }
         await assertInvalid { _ = try await client.styleTableCells(
-            documentId: "doc-1", tableStartIndex: 10, padding: 0) }
+            documentId: "doc-1", tableStartIndex: 10, padding: -1) }
 
         XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testCellStyleAcceptsZeroBorderWidthAndZeroPadding() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        for _ in 0..<2 { transport.stub(urlContains: ":batchUpdate", json: #"{}"#) }
+
+        // A border width of 0 hides the border and is valid: it encodes a border
+        // with width 0.
+        _ = try await client.styleTableCells(
+            documentId: "doc-1", tableStartIndex: 10,
+            borderColor: try DocsOptionalColor.parse("#000000"), borderWidth: 0)
+        // A padding of 0 (no padding) is valid too.
+        _ = try await client.styleTableCells(
+            documentId: "doc-1", tableStartIndex: 10, padding: 0)
+
+        let requests = transport.requests(urlContains: ":batchUpdate")
+        let border = #"{"color":{"color":{"rgbColor":{"blue":0,"green":0,"red":0}}},"dashStyle":"SOLID","width":{"magnitude":0,"unit":"PT"}}"#
+        XCTAssertEqual(
+            Self.body(requests[0]),
+            "{\"requests\":[{\"updateTableCellStyle\":{"
+            + "\"fields\":\"borderLeft,borderRight,borderTop,borderBottom\","
+            + "\"tableCellStyle\":{\"borderBottom\":\(border),\"borderLeft\":\(border),"
+            + "\"borderRight\":\(border),\"borderTop\":\(border)},"
+            + "\"tableStartLocation\":{\"index\":10}}}]}"
+        )
+        let pad = #"{"magnitude":0,"unit":"PT"}"#
+        XCTAssertEqual(
+            Self.body(requests[1]),
+            "{\"requests\":[{\"updateTableCellStyle\":{"
+            + "\"fields\":\"paddingLeft,paddingRight,paddingTop,paddingBottom\","
+            + "\"tableCellStyle\":{\"paddingBottom\":\(pad),\"paddingLeft\":\(pad),"
+            + "\"paddingRight\":\(pad),\"paddingTop\":\(pad)},"
+            + "\"tableStartLocation\":{\"index\":10}}}]}"
+        )
     }
 
     func testRowStyleValidationSendsNothing() async {

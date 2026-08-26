@@ -1125,11 +1125,11 @@ struct Docs: AsyncParsableCommand {
                 if let columnSpan, columnSpan < 1 {
                     throw ValidationError("--column-span must be 1 or greater.")
                 }
-                if let borderWidth, borderWidth <= 0 {
-                    throw ValidationError("--border-width must be greater than zero.")
+                if let borderWidth, borderWidth < 0 {
+                    throw ValidationError("--border-width must not be negative (0 hides the border).")
                 }
-                if let padding, padding <= 0 {
-                    throw ValidationError("--padding must be greater than zero.")
+                if let padding, padding < 0 {
+                    throw ValidationError("--padding must not be negative (0 means no padding).")
                 }
             }
 
@@ -1518,7 +1518,7 @@ enum DocsContentAlignmentArgument: String, ExpressibleByArgument {
 }
 
 /// CLI-facing table-cell border dash-style names mapping to the API
-/// ``DocsDashStyle``. graham exposes the three common styles.
+/// ``DocsDashStyle`` — solid, dot, and dash, the complete writable Docs set.
 enum DocsDashStyleArgument: String, ExpressibleByArgument {
     case solid
     case dot
