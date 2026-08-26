@@ -641,7 +641,7 @@ final class SheetsWriteTests: XCTestCase {
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
             Self.bodyString(request),
-            ##"{"requests":[{"repeatCell":{"cell":{"userEnteredFormat":{"backgroundColor":{"blue":0,"green":0,"red":1},"horizontalAlignment":"CENTER","numberFormat":{"pattern":"#,##0.00","type":"NUMBER"},"textFormat":{"bold":true}}},"fields":"userEnteredFormat.textFormat.bold,userEnteredFormat.backgroundColor,userEnteredFormat.numberFormat,userEnteredFormat.horizontalAlignment","range":{"endColumnIndex":2,"endRowIndex":1,"sheetId":77,"startColumnIndex":0,"startRowIndex":0}}}]}"##
+            ##"{"requests":[{"repeatCell":{"cell":{"userEnteredFormat":{"backgroundColorStyle":{"rgbColor":{"blue":0,"green":0,"red":1}},"horizontalAlignment":"CENTER","numberFormat":{"pattern":"#,##0.00","type":"NUMBER"},"textFormat":{"bold":true}}},"fields":"userEnteredFormat.textFormat.bold,userEnteredFormat.backgroundColorStyle,userEnteredFormat.numberFormat,userEnteredFormat.horizontalAlignment","range":{"endColumnIndex":2,"endRowIndex":1,"sheetId":77,"startColumnIndex":0,"startRowIndex":0}}}]}"##
         )
     }
 

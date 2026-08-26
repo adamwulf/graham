@@ -45,6 +45,8 @@ public enum SheetsBatchUpdateRequest: Encodable, Sendable, Equatable {
     case addProtectedRange(AddProtectedRangeRequest)
     /// Deletes a protected range by its id.
     case deleteProtectedRange(DeleteProtectedRangeRequest)
+    /// Sets or clears cell borders across a range.
+    case updateBorders(UpdateBordersRequest)
 
     private enum CodingKeys: String, CodingKey {
         case addChart
@@ -63,6 +65,7 @@ public enum SheetsBatchUpdateRequest: Encodable, Sendable, Equatable {
         case addFilterView
         case addProtectedRange
         case deleteProtectedRange
+        case updateBorders
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -100,6 +103,8 @@ public enum SheetsBatchUpdateRequest: Encodable, Sendable, Equatable {
             try container.encode(request, forKey: .addProtectedRange)
         case .deleteProtectedRange(let request):
             try container.encode(request, forKey: .deleteProtectedRange)
+        case .updateBorders(let request):
+            try container.encode(request, forKey: .updateBorders)
         }
     }
 }
@@ -493,6 +498,19 @@ public struct SheetsColor: Codable, Sendable, Equatable {
     }
 }
 
+/// A non-deprecated `ColorStyle`. Sheets' `ColorStyle` is a union of a themed
+/// color and an explicit `rgbColor`; graham always uses the `rgbColor` arm.
+///
+/// Prefer this over the deprecated `color`/`backgroundColor`/`foregroundColor`
+/// fields for every writable color.
+public struct SheetsColorStyle: Codable, Sendable, Equatable {
+    public let rgbColor: SheetsColor
+
+    public init(rgbColor: SheetsColor) {
+        self.rgbColor = rgbColor
+    }
+}
+
 /// Horizontal cell alignment.
 public enum SheetsHorizontalAlignment: String, Sendable, CaseIterable, Equatable {
     case left = "LEFT"
@@ -500,40 +518,79 @@ public enum SheetsHorizontalAlignment: String, Sendable, CaseIterable, Equatable
     case right = "RIGHT"
 }
 
-/// The writable text format of a cell used by graham's first formatting slice.
+/// The writable text format of a cell.
+///
+/// `foregroundColorStyle` is the non-deprecated text color; `fontFamily` and
+/// `fontSize` (in points) set the typeface. Every field is optional so the
+/// caller sets only what it changes.
 public struct SheetsTextFormat: Codable, Sendable, Equatable {
     public let bold: Bool?
+    public let foregroundColorStyle: SheetsColorStyle?
+    public let fontFamily: String?
+    public let fontSize: Int?
 
-    public init(bold: Bool? = nil) {
+    public init(
+        bold: Bool? = nil,
+        foregroundColorStyle: SheetsColorStyle? = nil,
+        fontFamily: String? = nil,
+        fontSize: Int? = nil
+    ) {
         self.bold = bold
+        self.foregroundColorStyle = foregroundColorStyle
+        self.fontFamily = fontFamily
+        self.fontSize = fontSize
     }
 }
 
-/// A cell number format: a `type` (graham uses `NUMBER`) and a `pattern`.
+/// The kind of a cell number format. The default is `number`; the other kinds
+/// map to Sheets' `NumberFormatType` values.
+public enum SheetsNumberFormatType: String, Sendable, CaseIterable, Equatable {
+    case text = "TEXT"
+    case number = "NUMBER"
+    case percent = "PERCENT"
+    case currency = "CURRENCY"
+    case date = "DATE"
+    case time = "TIME"
+    case dateTime = "DATE_TIME"
+    case scientific = "SCIENTIFIC"
+}
+
+/// A cell number format: a required `type` and an optional `pattern`. Some
+/// types (for example `PERCENT`) render with a Sheets default when no pattern
+/// is given.
 public struct SheetsNumberFormat: Codable, Sendable, Equatable {
     public let type: String
-    public let pattern: String
+    public let pattern: String?
 
-    public init(type: String, pattern: String) {
+    public init(type: String, pattern: String? = nil) {
         self.type = type
         self.pattern = pattern
     }
 }
 
 /// The writable subset of a cell's format that `sheets format` sets.
+///
+/// `backgroundColorStyle` is the non-deprecated background color that
+/// `sheets format` writes; the deprecated `backgroundColor` remains for
+/// conditional-format rules that still take a bare `Color`. Set at most one of
+/// the two. A field left `nil` while its path is named in the `repeatCell` mask
+/// clears that aspect back to the cell default.
 public struct SheetsCellFormat: Codable, Sendable, Equatable {
     public let backgroundColor: SheetsColor?
+    public let backgroundColorStyle: SheetsColorStyle?
     public let textFormat: SheetsTextFormat?
     public let numberFormat: SheetsNumberFormat?
     public let horizontalAlignment: String?
 
     public init(
         backgroundColor: SheetsColor? = nil,
+        backgroundColorStyle: SheetsColorStyle? = nil,
         textFormat: SheetsTextFormat? = nil,
         numberFormat: SheetsNumberFormat? = nil,
         horizontalAlignment: String? = nil
     ) {
         self.backgroundColor = backgroundColor
+        self.backgroundColorStyle = backgroundColorStyle
         self.textFormat = textFormat
         self.numberFormat = numberFormat
         self.horizontalAlignment = horizontalAlignment
@@ -560,6 +617,65 @@ public struct RepeatCellRequest: Codable, Sendable, Equatable {
         self.range = range
         self.cell = cell
         self.fields = fields
+    }
+}
+
+// MARK: - Cell borders (updateBorders)
+
+/// A line style for one cell border edge. `none` clears an edge.
+public enum SheetsBorderStyle: String, Sendable, CaseIterable, Equatable {
+    case solid = "SOLID"
+    case solidMedium = "SOLID_MEDIUM"
+    case solidThick = "SOLID_THICK"
+    case dashed = "DASHED"
+    case dotted = "DOTTED"
+    case double = "DOUBLE"
+    case none = "NONE"
+}
+
+/// One cell border edge: a line `style` plus an optional non-deprecated
+/// `colorStyle`. Google defaults an omitted color to black.
+public struct SheetsBorder: Codable, Sendable, Equatable {
+    public let style: String
+    public let colorStyle: SheetsColorStyle?
+
+    public init(style: String, colorStyle: SheetsColorStyle? = nil) {
+        self.style = style
+        self.colorStyle = colorStyle
+    }
+}
+
+/// The `updateBorders` operation.
+///
+/// Unlike `repeatCell`, this operation has NO `fields` mask: only the sides
+/// present in the request are changed, and a side sent with the `NONE` style
+/// clears that border. Every side is optional so the caller sets only the ones
+/// it names.
+public struct UpdateBordersRequest: Codable, Sendable, Equatable {
+    public let range: GridRange
+    public let top: SheetsBorder?
+    public let bottom: SheetsBorder?
+    public let left: SheetsBorder?
+    public let right: SheetsBorder?
+    public let innerHorizontal: SheetsBorder?
+    public let innerVertical: SheetsBorder?
+
+    public init(
+        range: GridRange,
+        top: SheetsBorder? = nil,
+        bottom: SheetsBorder? = nil,
+        left: SheetsBorder? = nil,
+        right: SheetsBorder? = nil,
+        innerHorizontal: SheetsBorder? = nil,
+        innerVertical: SheetsBorder? = nil
+    ) {
+        self.range = range
+        self.top = top
+        self.bottom = bottom
+        self.left = left
+        self.right = right
+        self.innerHorizontal = innerHorizontal
+        self.innerVertical = innerVertical
     }
 }
 

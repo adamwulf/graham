@@ -446,23 +446,55 @@ public struct SheetsClient: Sendable {
 
     // MARK: - Cell formatting
 
-    /// Applies a cell format across an A1 `range`, via `repeatCell`. At least one
-    /// of `bold`, `backgroundColor`, `numberFormat`, or `horizontalAlignment`
-    /// must be set; the `fields` mask names only the ones provided, so unset
-    /// aspects of the existing format are left intact. `numberFormat` is a
-    /// pattern applied with the `NUMBER` type.
+    /// Applies a cell format across an A1 `range`, via `repeatCell`.
+    ///
+    /// At least one aspect must be set or cleared. The `fields` mask names only
+    /// the aspects provided, so unset ones are left intact. An aspect named in
+    /// the mask but sent with no value is cleared back to the cell default; the
+    /// `clear*` flags do exactly that for the background, number format, and
+    /// alignment. `bold` is a tri-state: `true`/`false` set the value and `nil`
+    /// leaves it, so `--no-bold` explicitly turns bold off.
+    ///
+    /// The number format's `type` defaults to `NUMBER`; `numberFormat` is its
+    /// optional pattern. Colors are written as the non-deprecated
+    /// `backgroundColorStyle` / `foregroundColorStyle`.
     public func formatCells(
         spreadsheetId: String,
         range: String,
         bold: Bool? = nil,
         backgroundColor: SheetsColor? = nil,
+        clearBackground: Bool = false,
         numberFormat: String? = nil,
-        horizontalAlignment: SheetsHorizontalAlignment? = nil
+        numberFormatType: SheetsNumberFormatType? = nil,
+        clearNumberFormat: Bool = false,
+        horizontalAlignment: SheetsHorizontalAlignment? = nil,
+        clearAlignment: Bool = false,
+        textColor: SheetsColor? = nil,
+        fontFamily: String? = nil,
+        fontSize: Int? = nil
     ) async throws {
-        guard bold != nil || backgroundColor != nil || numberFormat != nil
-                || horizontalAlignment != nil else {
-            throw GrahamError.invalidArgument("provide at least one format to set")
+        let setsNumberFormat = numberFormat != nil || numberFormatType != nil
+        let touchesSomething = bold != nil
+            || backgroundColor != nil || clearBackground
+            || setsNumberFormat || clearNumberFormat
+            || horizontalAlignment != nil || clearAlignment
+            || textColor != nil || fontFamily != nil || fontSize != nil
+        guard touchesSomething else {
+            throw GrahamError.invalidArgument("provide at least one format to set or clear")
         }
+        if backgroundColor != nil, clearBackground {
+            throw GrahamError.invalidArgument("set or clear the background, not both")
+        }
+        if setsNumberFormat, clearNumberFormat {
+            throw GrahamError.invalidArgument("set or clear the number format, not both")
+        }
+        if horizontalAlignment != nil, clearAlignment {
+            throw GrahamError.invalidArgument("set or clear the alignment, not both")
+        }
+        if let fontSize, fontSize <= 0 {
+            throw GrahamError.invalidArgument("the font size must be positive")
+        }
+
         let parsed = try A1Range.parse(range)
         let targetSheetId: Int
         if let name = parsed.sheetName {
@@ -473,14 +505,39 @@ public struct SheetsClient: Sendable {
 
         var fields: [String] = []
         if bold != nil { fields.append("userEnteredFormat.textFormat.bold") }
-        if backgroundColor != nil { fields.append("userEnteredFormat.backgroundColor") }
-        if numberFormat != nil { fields.append("userEnteredFormat.numberFormat") }
-        if horizontalAlignment != nil { fields.append("userEnteredFormat.horizontalAlignment") }
+        if textColor != nil { fields.append("userEnteredFormat.textFormat.foregroundColorStyle") }
+        if fontFamily != nil { fields.append("userEnteredFormat.textFormat.fontFamily") }
+        if fontSize != nil { fields.append("userEnteredFormat.textFormat.fontSize") }
+        if backgroundColor != nil || clearBackground {
+            fields.append("userEnteredFormat.backgroundColorStyle")
+        }
+        if setsNumberFormat || clearNumberFormat {
+            fields.append("userEnteredFormat.numberFormat")
+        }
+        if horizontalAlignment != nil || clearAlignment {
+            fields.append("userEnteredFormat.horizontalAlignment")
+        }
+
+        let textFormat: SheetsTextFormat?
+        if bold != nil || textColor != nil || fontFamily != nil || fontSize != nil {
+            textFormat = SheetsTextFormat(
+                bold: bold,
+                foregroundColorStyle: textColor.map { SheetsColorStyle(rgbColor: $0) },
+                fontFamily: fontFamily,
+                fontSize: fontSize)
+        } else {
+            textFormat = nil
+        }
+        // A cleared aspect keeps its mask path but sends no value, so Sheets
+        // resets it: nil here is exactly that.
+        let numberFormatModel = setsNumberFormat
+            ? SheetsNumberFormat(type: (numberFormatType ?? .number).rawValue, pattern: numberFormat)
+            : nil
 
         let format = SheetsCellFormat(
-            backgroundColor: backgroundColor,
-            textFormat: bold.map { SheetsTextFormat(bold: $0) },
-            numberFormat: numberFormat.map { SheetsNumberFormat(type: "NUMBER", pattern: $0) },
+            backgroundColorStyle: backgroundColor.map { SheetsColorStyle(rgbColor: $0) },
+            textFormat: textFormat,
+            numberFormat: numberFormatModel,
             horizontalAlignment: horizontalAlignment?.rawValue)
         let request = SheetsBatchUpdateRequest.repeatCell(RepeatCellRequest(
             range: GridRange(
@@ -670,6 +727,45 @@ public struct SheetsClient: Sendable {
             spreadsheetId: spreadsheetId,
             requests: [.deleteProtectedRange(
                 DeleteProtectedRangeRequest(protectedRangeId: protectedRangeId))])
+    }
+
+    // MARK: - Cell borders
+
+    /// Sets or clears cell borders across an A1 `range`, via `updateBorders`.
+    ///
+    /// Every requested side gets the same `style` and optional `color`. At least
+    /// one side must be requested. `updateBorders` carries no `fields` mask: only
+    /// the sides sent are changed, and the `NONE` style clears a side. The sheet
+    /// comes from the range's tab name, or the first sheet when the range names
+    /// none.
+    public func setBorders(
+        spreadsheetId: String,
+        range: String,
+        style: SheetsBorderStyle,
+        color: SheetsColor? = nil,
+        top: Bool = false,
+        bottom: Bool = false,
+        left: Bool = false,
+        right: Bool = false,
+        innerHorizontal: Bool = false,
+        innerVertical: Bool = false
+    ) async throws {
+        guard top || bottom || left || right || innerHorizontal || innerVertical else {
+            throw GrahamError.invalidArgument("provide at least one side to set a border on")
+        }
+        let gridRange = try await resolveGridRange(spreadsheetId: spreadsheetId, range: range)
+        let border = SheetsBorder(
+            style: style.rawValue,
+            colorStyle: color.map { SheetsColorStyle(rgbColor: $0) })
+        let request = SheetsBatchUpdateRequest.updateBorders(UpdateBordersRequest(
+            range: gridRange,
+            top: top ? border : nil,
+            bottom: bottom ? border : nil,
+            left: left ? border : nil,
+            right: right ? border : nil,
+            innerHorizontal: innerHorizontal ? border : nil,
+            innerVertical: innerVertical ? border : nil))
+        _ = try await batchUpdate(spreadsheetId: spreadsheetId, requests: [request])
     }
 }
 
