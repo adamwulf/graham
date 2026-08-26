@@ -2044,16 +2044,16 @@ struct Docs: AsyncParsableCommand {
     struct PageSetup: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "page-setup",
-            abstract: "Set page size, margins, header/footer flags, and background.",
+            abstract: "Set page size, margins, header/footer flags, background, and mode.",
             discussion: """
                 Sets document-wide style. --page-width and --page-height are a \
                 pair (in points): give both or neither, since setting only one \
                 would zero the other. Margins are in points. \
                 --first-page-header-footer / --even-page-header-footer toggle the \
                 first-page and even-page header/footer (use the --no- forms to \
-                clear them). --background is a hex color like #FFFFFF. Every \
-                dimension must be greater than zero, and at least one option is \
-                required.
+                clear them). --background is a hex color like #FFFFFF. --mode is \
+                pages or pageless. Every dimension must be a finite value greater \
+                than zero, and at least one option is required.
                 """
         )
 
@@ -2093,6 +2093,9 @@ struct Docs: AsyncParsableCommand {
         @Option(help: "The document background color as a hex value like #FFFFFF.")
         var background: String?
 
+        @Option(help: "The document mode: pages or pageless.")
+        var mode: DocsDocumentModeArgument?
+
         @Option(help: "Require the document be at this revision id; the write fails otherwise.")
         var requireRevision: String?
 
@@ -2101,7 +2104,7 @@ struct Docs: AsyncParsableCommand {
                 pageWidth != nil || pageHeight != nil || marginTop != nil
                 || marginBottom != nil || marginLeft != nil || marginRight != nil
                 || firstPageHeaderFooter != nil || evenPageHeaderFooter != nil
-                || background != nil
+                || background != nil || mode != nil
             guard hasOption else {
                 throw ValidationError("Provide at least one page-setup option.")
             }
@@ -2109,9 +2112,11 @@ struct Docs: AsyncParsableCommand {
                 throw ValidationError(
                     "Provide both --page-width and --page-height, or neither.")
             }
+            // A finite value greater than zero: this also rejects NaN and
+            // infinity, which Double parsing would otherwise accept.
             func requirePositive(_ value: Double?, _ label: String) throws {
-                if let value, value <= 0 {
-                    throw ValidationError("\(label) must be greater than zero.")
+                if let value, !(value.isFinite && value > 0) {
+                    throw ValidationError("\(label) must be a finite value greater than zero.")
                 }
             }
             try requirePositive(pageWidth, "--page-width")
@@ -2136,6 +2141,7 @@ struct Docs: AsyncParsableCommand {
                 useFirstPageHeaderFooter: firstPageHeaderFooter,
                 useEvenPageHeaderFooter: evenPageHeaderFooter,
                 background: backgroundColor,
+                documentMode: mode?.documentMode,
                 requiredRevisionId: requireRevision)
             print("Updated the document style.")
         }
@@ -2354,6 +2360,21 @@ enum DocsSectionTypeArgument: String, ExpressibleByArgument {
         switch self {
         case .continuous: return "CONTINUOUS"
         case .nextPage: return "NEXT_PAGE"
+        }
+    }
+}
+
+/// CLI-facing document-mode names mapping to the API ``DocsDocumentMode`` — pages
+/// or pageless, the writable `DocumentFormat.documentMode` values.
+enum DocsDocumentModeArgument: String, ExpressibleByArgument {
+    case pages
+    case pageless
+
+    /// The Docs API document mode this argument maps to.
+    var documentMode: DocsDocumentMode {
+        switch self {
+        case .pages: return .pages
+        case .pageless: return .pageless
         }
     }
 }

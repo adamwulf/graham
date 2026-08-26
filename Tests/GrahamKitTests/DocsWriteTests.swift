@@ -1847,6 +1847,39 @@ final class DocsWriteTests: XCTestCase {
         )
     }
 
+    func testUpdateDocumentStylePagelessModeEmitsNestedMaskPathAndValue() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.updateDocumentStyle(documentId: "doc-1", documentMode: .pageless)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        // The mode rides in a nested documentFormat, and the mask names the nested
+        // path documentFormat.documentMode so only the mode is set.
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateDocumentStyle":{"documentStyle":{"documentFormat":{"documentMode":"PAGELESS"}},"fields":"documentFormat.documentMode"}}]}"#
+        )
+    }
+
+    func testUpdateDocumentStyleModeWithMarginKeepsFixedMaskOrder() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.updateDocumentStyle(
+            documentId: "doc-1", marginTop: 36, documentMode: .pages)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        // documentFormat.documentMode is last in the fixed mask order (after
+        // marginTop); the documentStyle keys are sorted by the shared encoder.
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateDocumentStyle":{"documentStyle":{"documentFormat":{"documentMode":"PAGES"},"marginTop":{"magnitude":36,"unit":"PT"}},"fields":"marginTop,documentFormat.documentMode"}}]}"#
+        )
+    }
+
     func testUpdateDocumentStyleWithRequiredRevisionCarriesWriteControl() async throws {
         let transport = StubTransport()
         let client = makeClient(transport: transport)
@@ -1906,6 +1939,30 @@ final class DocsWriteTests: XCTestCase {
         XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
     }
 
+    func testUpdateDocumentStyleRejectsNonFiniteDimensionsWithoutSendingARequest() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        // NaN is not finite, so it is rejected before reaching the JSON encoder.
+        await assertInvalidArgument {
+            _ = try await client.updateDocumentStyle(documentId: "doc-1", marginTop: .nan)
+        }
+        // +infinity is rejected too.
+        await assertInvalidArgument {
+            _ = try await client.updateDocumentStyle(documentId: "doc-1", marginLeft: .infinity)
+        }
+        // A non-finite page size dimension (both given, one is infinite).
+        await assertInvalidArgument {
+            _ = try await client.updateDocumentStyle(
+                documentId: "doc-1", pageWidth: .infinity, pageHeight: 792)
+        }
+        // -infinity is rejected too.
+        await assertInvalidArgument {
+            _ = try await client.updateDocumentStyle(documentId: "doc-1", marginBottom: -.infinity)
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
     func testUpdateDocumentStylePropagatesGoogleErrorEnvelope() async {
         let transport = StubTransport()
         let client = makeClient(transport: transport)
@@ -1921,6 +1978,13 @@ final class DocsWriteTests: XCTestCase {
     }
 
     // MARK: - Named-range and document-style union discriminators
+
+    /// The document-mode raw values match the discovery document exactly, so the
+    /// enum never drifts from the wire spelling.
+    func testDocumentModeRawValuesMatchTheWireSpellings() {
+        XCTAssertEqual(DocsDocumentMode.pages.rawValue, "PAGES")
+        XCTAssertEqual(DocsDocumentMode.pageless.rawValue, "PAGELESS")
+    }
 
     /// The two delete/replace selectors are a one-of: each dedicated init sets
     /// exactly one field, so a dual-selector body is unrepresentable.

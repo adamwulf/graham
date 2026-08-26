@@ -1775,23 +1775,27 @@ public struct DocsClient: Sendable {
     }
 
     /// Sets document-wide style: page size, margins, the first-page and even-page
-    /// header/footer flags, and the background color.
+    /// header/footer flags, the background color, and the document mode.
     ///
     /// - Parameters:
     ///   - pageWidth / pageHeight: the page size in points. They are a pair —
     ///     provide **both** or neither. Sending only one would leave the other at
     ///     zero (the API replaces the whole `pageSize` when it is masked), so a
-    ///     lone dimension is rejected. Each must be greater than zero.
+    ///     lone dimension is rejected. Each must be a finite value greater than
+    ///     zero.
     ///   - marginTop / marginBottom / marginLeft / marginRight: the page margins
-    ///     in points; each must be greater than zero when given.
+    ///     in points; each must be a finite value greater than zero when given.
     ///   - useFirstPageHeaderFooter / useEvenPageHeaderFooter: toggle the
     ///     first-page and even-page header/footer ids.
     ///   - background: the document background color, already parsed to a
     ///     ``DocsOptionalColor`` (a document background cannot be transparent).
+    ///   - documentMode: the document mode, pages or pageless. It masks the nested
+    ///     `documentFormat.documentMode` path so only the mode is set.
     ///
     /// The `fields` mask is emitted in the fixed order `pageSize`, `marginTop`,
     /// `marginBottom`, `marginLeft`, `marginRight`, `useFirstPageHeaderFooter`,
-    /// `useEvenPageHeaderFooter`, `background`. At least one parameter is required.
+    /// `useEvenPageHeaderFooter`, `background`, `documentFormat.documentMode`. At
+    /// least one parameter is required.
     public func updateDocumentStyle(
         documentId: String,
         pageWidth: Double? = nil,
@@ -1803,6 +1807,7 @@ public struct DocsClient: Sendable {
         useFirstPageHeaderFooter: Bool? = nil,
         useEvenPageHeaderFooter: Bool? = nil,
         background: DocsOptionalColor? = nil,
+        documentMode: DocsDocumentMode? = nil,
         requiredRevisionId: String? = nil
     ) async throws -> DocsBatchUpdateResponse {
         // Page size is a pair: masking `pageSize` replaces the whole Size, so a
@@ -1812,10 +1817,13 @@ public struct DocsClient: Sendable {
             throw GrahamError.invalidArgument(
                 "provide both a page width and a page height, or neither")
         }
-        // Every dimension must be strictly positive.
+        // Every dimension must be a finite value strictly greater than zero. The
+        // finiteness check rejects NaN and +/-infinity before they reach the JSON
+        // encoder (which would otherwise fail there instead of here).
         func requirePositive(_ value: Double?, _ label: String) throws {
-            if let value, value <= 0 {
-                throw GrahamError.invalidArgument("\(label) must be greater than zero, got \(value)")
+            if let value, !(value.isFinite && value > 0) {
+                throw GrahamError.invalidArgument(
+                    "\(label) must be a finite value greater than zero, got \(value)")
             }
         }
         try requirePositive(pageWidth, "page width")
@@ -1837,6 +1845,7 @@ public struct DocsClient: Sendable {
             pageSize = nil
         }
         let backgroundValue = background.map { DocsBackground(color: $0) }
+        let documentFormat = documentMode.map { DocsDocumentFormat(documentMode: $0) }
 
         var mask: [String] = []
         if pageSize != nil { mask.append("pageSize") }
@@ -1847,6 +1856,9 @@ public struct DocsClient: Sendable {
         if useFirstPageHeaderFooter != nil { mask.append("useFirstPageHeaderFooter") }
         if useEvenPageHeaderFooter != nil { mask.append("useEvenPageHeaderFooter") }
         if backgroundValue != nil { mask.append("background") }
+        // The mode masks the nested path so only the mode is set, never clearing
+        // any other (future) DocumentFormat field.
+        if documentFormat != nil { mask.append("documentFormat.documentMode") }
 
         guard !mask.isEmpty else {
             throw GrahamError.invalidArgument("page setup requires at least one style option")
@@ -1860,7 +1872,8 @@ public struct DocsClient: Sendable {
             marginRight: points(marginRight),
             useFirstPageHeaderFooter: useFirstPageHeaderFooter,
             useEvenPageHeaderFooter: useEvenPageHeaderFooter,
-            background: backgroundValue)
+            background: backgroundValue,
+            documentFormat: documentFormat)
         let request = DocsBatchUpdateRequest.updateDocumentStyle(
             DocsUpdateDocumentStyleRequest(
                 documentStyle: style, fields: mask.joined(separator: ",")))

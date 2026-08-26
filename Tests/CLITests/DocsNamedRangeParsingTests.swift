@@ -212,4 +212,25 @@ final class DocsNamedRangeParsingTests: XCTestCase {
             "doc-1", "--page-width", "0", "--page-height", "792",
         ]))
     }
+
+    func testPageSetupParsesMode() throws {
+        // --mode alone is enough to satisfy the "at least one option" check.
+        let pageless = try Docs.PageSetup.parse(["doc-1", "--mode", "pageless"])
+        XCTAssertEqual(pageless.mode, .pageless)
+        let pages = try Docs.PageSetup.parse(["doc-1", "--mode", "pages"])
+        XCTAssertEqual(pages.mode, .pages)
+    }
+
+    func testPageSetupRejectsInvalidMode() {
+        XCTAssertThrowsError(try Docs.PageSetup.parse(["doc-1", "--mode", "landscape"]))
+    }
+
+    func testPageSetupRejectsNonFiniteDimensions() {
+        // Double parses "inf" and "nan"; validation must reject them.
+        XCTAssertThrowsError(try Docs.PageSetup.parse(["doc-1", "--margin-top", "inf"]))
+        XCTAssertThrowsError(try Docs.PageSetup.parse(["doc-1", "--margin-top", "nan"]))
+        XCTAssertThrowsError(try Docs.PageSetup.parse([
+            "doc-1", "--page-width", "inf", "--page-height", "792",
+        ]))
+    }
 }

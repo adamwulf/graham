@@ -1486,6 +1486,29 @@ public struct DocsBackground: Codable, Sendable, Equatable {
     }
 }
 
+/// A Docs v1 `DocumentMode`: whether the document has pages or is pageless. The
+/// cases are the writable values; the API's `DOCUMENT_MODE_UNSPECIFIED` sentinel
+/// is never sent, exactly like the other `*_UNSPECIFIED` sentinels in these
+/// models. Each raw value is the exact API spelling.
+public enum DocsDocumentMode: String, Codable, Sendable, Equatable {
+    case pages = "PAGES"
+    case pageless = "PAGELESS"
+}
+
+/// A Docs v1 `DocumentFormat`: document-level format settings. graham writes only
+/// the document mode (pages vs pageless), so this models just ``documentMode``;
+/// the field stays optional and the request's `fields` mask decides whether it
+/// applies. It reaches the wire through ``DocsDocumentStyle/documentFormat``, and
+/// the mask masks the nested path `documentFormat.documentMode` so only the mode
+/// is set (never clearing any future `DocumentFormat` field).
+public struct DocsDocumentFormat: Codable, Sendable, Equatable {
+    public let documentMode: DocsDocumentMode?
+
+    public init(documentMode: DocsDocumentMode? = nil) {
+        self.documentMode = documentMode
+    }
+}
+
 /// The writable subset of a Docs `DocumentStyle`.
 ///
 /// Every field is optional; the request's `fields` mask, not this container,
@@ -1493,10 +1516,11 @@ public struct DocsBackground: Codable, Sendable, Equatable {
 /// width and height are ``DocsDimension`` values in points; the four margins are
 /// ``DocsDimension`` values in points; `useFirstPageHeaderFooter` and
 /// `useEvenPageHeaderFooter` toggle the first-page and even-page header/footer
-/// ids; `background` sets the document background color. The API's read-only
-/// fields (the header/footer ids, `useCustomHeaderFooterMargins`) and the
-/// advanced fields (`marginHeader`, `marginFooter`, `pageNumberStart`,
-/// `flipPageOrientation`, `documentFormat`) are out of this slice.
+/// ids; `background` sets the document background color; `documentFormat` carries
+/// the document mode (pages vs pageless). The API's read-only fields (the
+/// header/footer ids, `useCustomHeaderFooterMargins`) and the advanced fields
+/// (`marginHeader`, `marginFooter`, `pageNumberStart`, `flipPageOrientation`) are
+/// out of this slice.
 public struct DocsDocumentStyle: Codable, Sendable, Equatable {
     public let pageSize: DocsSize?
     public let marginTop: DocsDimension?
@@ -1506,6 +1530,7 @@ public struct DocsDocumentStyle: Codable, Sendable, Equatable {
     public let useFirstPageHeaderFooter: Bool?
     public let useEvenPageHeaderFooter: Bool?
     public let background: DocsBackground?
+    public let documentFormat: DocsDocumentFormat?
 
     public init(
         pageSize: DocsSize? = nil,
@@ -1515,7 +1540,8 @@ public struct DocsDocumentStyle: Codable, Sendable, Equatable {
         marginRight: DocsDimension? = nil,
         useFirstPageHeaderFooter: Bool? = nil,
         useEvenPageHeaderFooter: Bool? = nil,
-        background: DocsBackground? = nil
+        background: DocsBackground? = nil,
+        documentFormat: DocsDocumentFormat? = nil
     ) {
         self.pageSize = pageSize
         self.marginTop = marginTop
@@ -1525,6 +1551,7 @@ public struct DocsDocumentStyle: Codable, Sendable, Equatable {
         self.useFirstPageHeaderFooter = useFirstPageHeaderFooter
         self.useEvenPageHeaderFooter = useEvenPageHeaderFooter
         self.background = background
+        self.documentFormat = documentFormat
     }
 }
 

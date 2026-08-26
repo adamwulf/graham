@@ -26,8 +26,8 @@ Named after Graham's number — a contrast to the googol that named Google.
   (create and delete headers and footers, and create a footnote with optional
   text), fill templates with named ranges (create, delete, and replace the
   content of a named range by id or name), and set document-wide page style
-  (page size, margins, first-page and even-page header/footer flags, and
-  background).
+  (page size, margins, first-page and even-page header/footer flags, background,
+  and page mode).
 - **Slides** — read presentation text; list every page element with its type,
   geometry, text, links, and alt text; list or download every image, including
   images nested in groups; add, move, and delete slides through the shared
@@ -234,10 +234,12 @@ graham docs range delete <document-id> --name greeting
 graham docs range fill <document-id> --id <named-range-id> --text "Hello, world"
 graham docs range fill <document-id> --name greeting --text "Hi"
 # Set document-wide page style. --page-width/--page-height are a pair (both or
-# neither, in points); margins are in points; --background is a hex color.
+# neither, in points); margins are in points; --background is a hex color;
+# --mode is pages or pageless.
 graham docs page-setup <document-id> --page-width 612 --page-height 792
 graham docs page-setup <document-id> --margin-top 72 --margin-bottom 72 --margin-left 90 --margin-right 90
 graham docs page-setup <document-id> --first-page-header-footer --background "#FFFFFF"
+graham docs page-setup <document-id> --mode pageless
 
 graham slides cat <presentation-id>
 # List every element; JSON includes raw geometry, links, alt text, and image URLs.
