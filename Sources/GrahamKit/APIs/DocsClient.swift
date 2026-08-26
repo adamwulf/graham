@@ -220,13 +220,27 @@ public struct DocsClient: Sendable {
     // normalized to the body exactly like the text edits above.
 
     /// Normalizes a style range: an empty `segmentId` means the body (encoded
-    /// with no segment id), and `endIndex` must be greater than `startIndex`.
+    /// with no segment id). The body's first editable index is 1; a named
+    /// segment starts its content at 0. `endIndex` must be greater than
+    /// `startIndex`.
     private static func makeStyleRange(
         startIndex: Int, endIndex: Int, segmentId: String?
     ) throws -> DocsRange {
         // The Docs API reads an empty segment id as the document body, so
-        // normalize "" to nil: an empty or nil segmentId encodes no segmentId.
+        // normalize "" to nil before choosing the guard: an empty or nil
+        // segmentId uses the body guard and encodes no segmentId; only a
+        // non-empty id is treated as a named segment.
         let segmentId = segmentId.flatMap { $0.isEmpty ? nil : $0 }
+        // The body's first editable index is 1 (index 0 lands inside the initial
+        // section break); a named segment starts at 0. This matches the existing
+        // text ops.
+        let minStart = segmentId == nil ? 1 : 0
+        guard startIndex >= minStart else {
+            throw GrahamError.invalidArgument(
+                segmentId == nil
+                    ? "startIndex must be 1 or greater; the document body starts at index 1"
+                    : "startIndex must be 0 or greater in a segment")
+        }
         guard endIndex > startIndex else {
             throw GrahamError.invalidArgument(
                 "endIndex (\(endIndex)) must be greater than startIndex (\(startIndex))")
@@ -283,6 +297,11 @@ public struct DocsClient: Sendable {
         // requires a family.
         var weightedFontFamily: DocsWeightedFontFamily?
         if let fontFamily {
+            // The Docs API requires a non-empty family whenever weightedFontFamily
+            // is set, so reject a blank one before it reaches the wire.
+            guard !fontFamily.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw GrahamError.invalidArgument("font family must not be empty")
+            }
             if let fontWeight {
                 guard (100...900).contains(fontWeight), fontWeight % 100 == 0 else {
                     throw GrahamError.invalidArgument(

@@ -181,6 +181,33 @@ final class DocsStyleWriteTests: XCTestCase {
         XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
     }
 
+    func testStyleTextRejectsBodyStartIndexZeroWithoutSendingARequest() async {
+        // Index 0 lands inside the initial section break the body cannot edit;
+        // the body guard rejects it before any request goes out. A named
+        // segment starts at 0 and is still allowed (covered above).
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            _ = try await client.styleText(
+                documentId: "doc-1", startIndex: 0, endIndex: 4, bold: true)
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testStyleTextRejectsBlankFontFamilyWithoutSendingARequest() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        for blank in ["", "   ", "\t\n"] {
+            await assertInvalidArgument {
+                _ = try await client.styleText(
+                    documentId: "doc-1", startIndex: 1, endIndex: 5, fontFamily: blank)
+            }
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
     func testStyleTextPropagatesGoogleErrorEnvelope() async {
         let transport = StubTransport()
         let client = makeClient(transport: transport)
@@ -340,6 +367,19 @@ final class DocsStyleWriteTests: XCTestCase {
         XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
     }
 
+    func testStyleParagraphsRejectsBodyStartIndexZeroWithoutSendingARequest() async {
+        // The body guard rejects startIndex 0 before any request goes out; a
+        // named segment starts at 0 and is still allowed (covered above).
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            _ = try await client.styleParagraphs(
+                documentId: "doc-1", startIndex: 0, endIndex: 10, alignment: .center)
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
     func testStyleParagraphsPropagatesGoogleErrorEnvelope() async {
         let transport = StubTransport()
         let client = makeClient(transport: transport)
@@ -395,6 +435,27 @@ final class DocsStyleWriteTests: XCTestCase {
                 }
             }
         }
+    }
+
+    func testRgbColorInitClampsChannelsIntoZeroToOne() {
+        let color = DocsRgbColor(red: 2, green: -0.5, blue: 0.25)
+        XCTAssertEqual(color.red, 1)
+        XCTAssertEqual(color.green, 0)
+        XCTAssertEqual(color.blue, 0.25)
+
+        // An in-range color is left untouched.
+        let ok = DocsRgbColor(red: 0.1, green: 0.2, blue: 0.3)
+        XCTAssertEqual(ok.red, 0.1)
+        XCTAssertEqual(ok.green, 0.2)
+        XCTAssertEqual(ok.blue, 0.3)
+    }
+
+    func testRgbColorDecodingIsUnchangedByTheClampingInit() throws {
+        // Codable keeps the synthesized decoder, which does not run through the
+        // clamping init, so a decoded color round-trips its raw channels.
+        let decoded = try GoogleJSON.decoder.decode(
+            DocsRgbColor.self, from: Data(#"{"red":0.5,"green":0.25,"blue":0.75}"#.utf8))
+        XCTAssertEqual(decoded, DocsRgbColor(red: 0.5, green: 0.25, blue: 0.75))
     }
 
     // MARK: - Union encoding

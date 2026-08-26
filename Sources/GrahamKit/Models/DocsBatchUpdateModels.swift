@@ -280,10 +280,16 @@ public struct DocsRgbColor: Codable, Sendable, Equatable {
     public let green: Double
     public let blue: Double
 
+    /// Builds a color, clamping each channel into `0...1` so a direct caller
+    /// cannot construct an out-of-range color the API would reject. The hex
+    /// parse path already yields valid values; this hardens the direct init.
+    /// Codable decoding keeps the synthesized `init(from:)`, which does not run
+    /// through here.
     public init(red: Double, green: Double, blue: Double) {
-        self.red = red
-        self.green = green
-        self.blue = blue
+        func clamp(_ value: Double) -> Double { min(1, max(0, value)) }
+        self.red = clamp(red)
+        self.green = clamp(green)
+        self.blue = clamp(blue)
     }
 }
 
