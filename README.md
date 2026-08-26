@@ -13,9 +13,10 @@ Named after Graham's number — a contrast to the googol that named Google.
   download files; create folders and empty Docs, Sheets, and Slides files; copy files;
   move files to trash; and permanently delete files.
 - **Sheets and Docs** — read a spreadsheet and its values; write cell values;
-  add a basic chart on its own sheet; read a document; create a blank document;
-  and insert, delete, and replace text in a document through the shared
-  `documents.batchUpdate` write path.
+  add a basic chart on its own sheet; read a document and list its block
+  structure with index ranges; create a blank document; and insert, delete, and
+  replace text in a document through the shared `documents.batchUpdate` write
+  path.
 - **Slides** — read presentation text; list every page element with its type,
   geometry, text, links, and alt text; list or download every image, including
   images nested in groups; add, move, and delete slides through the shared
@@ -113,6 +114,12 @@ graham sheets chart add <spreadsheet-id> --range "Sheet1!A1:B3" --title "Sales" 
 # Create a new, blank document from a title and print its id.
 graham docs create "My New Document"
 graham docs cat <document-id>
+# List the document's blocks with their zero-based UTF-16 index ranges, kind
+# (paragraph, heading, list item, table, section break, TOC), style, list id and
+# nesting, object ids, and a text preview. The indices are what the write
+# commands below consume; JSON adds the full detail.
+graham docs structure <document-id>
+graham docs structure <document-id> --format json
 # Edit document text (indices are zero-based UTF-16 code units, as the Docs API defines them).
 graham docs insert <document-id> --text "Hello" --at 1
 graham docs delete <document-id> --from 1 --to 6
