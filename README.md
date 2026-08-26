@@ -105,7 +105,10 @@ graham drive list <folder-id> --type docs
 graham drive list --query "name contains 'report'" --limit 20
 
 graham drive get <file-id> --format json
+# Export a Google Workspace file to another format, or download a binary file's
+# raw bytes (Docs/Sheets/Slides have no bytes to download — export them).
 graham drive export <file-id> --mime application/pdf -o report.pdf
+graham drive download <file-id> -o photo.jpg
 # Create an empty Google Workspace file and print its new id. The type is a
 # subcommand: doc, sheet, slides, or folder. --parent places the new file in a
 # folder; without it the file lands in My Drive.
@@ -113,10 +116,19 @@ graham drive create doc "Quarterly Report"
 graham drive create sheet "Budget" --parent <folder-id>
 # Create a folder.
 graham drive create folder "Project Files"
+# Create a shortcut that points to an existing file.
+graham drive create shortcut <target-file-id> --name "Report shortcut"
 # Copy a file, optionally renaming the copy, and print its new id.
 graham drive copy <file-id> --name "Quarterly Report Copy"
-# Move a file to trash (reversible in Drive), or permanently delete it.
+# Move a file into a folder, or rename it.
+graham drive move <file-id> --to <folder-id>
+graham drive rename <file-id> "New Name"
+# Star a file (mark it a favorite), or unstar it with --off.
+graham drive star <file-id>
+graham drive star <file-id> --off
+# Move a file to trash (reversible in Drive), restore it, or permanently delete.
 graham drive trash <file-id>
+graham drive untrash <file-id>
 graham drive delete <file-id> --force
 
 graham sheets get <spreadsheet-id>

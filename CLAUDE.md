@@ -250,7 +250,23 @@ write. Tests remain offline and exercise the real encoding path.
   Docs `documents.create` endpoint (title-only, always My Drive) still lives in
   the library as `DocsClient.create` and is covered by the Docs live test's
   `docs-create` step, but the CLI exposes creation only under `drive` so the
-  caller has one clear path.
+  caller has one clear path. A shortcut is also a create: `drive create shortcut
+  <target-id> --name` routes through `DriveClient.createShortcut`, which posts a
+  file with the `application/vnd.google-apps.shortcut` MIME and a
+  `shortcutDetails.targetId`.
+- `drive rename`, `drive star`/`--off`, `drive move`, and `drive untrash` all
+  ride the one `files.update` PATCH. Rename and star carry their field in a JSON
+  body (`DriveUpdateRequest`, whose optional fields drop out when nil, so a pure
+  move sends `{}`); `untrash` mirrors `trash` with `DriveTrashRequest(trashed:
+  false)`. The private `DriveClient.update` owns the endpoint; the public
+  `rename`/`setStarred`/`move` are thin wrappers. `move` is the subtle one: Drive
+  reparents by `addParents`/`removeParents` **query** params (never body), so
+  `move` first reads the file's current parents, adds the destination, and removes
+  the rest — filtering the destination out of `removeParents` so the same id is
+  never added and removed in one request.
+- `drive download` exposes `DriveClient.download` (raw `alt=media` bytes) for
+  binary files; `drive export` converts a Workspace file instead. Both write to
+  `-o/--output` or stdout. A Workspace file has no bytes to download.
 - Slides batch updates use zero-based insertion indices based on the slide order
   before a move, while graham displays and accepts final slide positions as
   one-based. Resolve the source index and translate at the high-level client

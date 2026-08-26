@@ -48,6 +48,6 @@ final class DriveCreateParsingTests: XCTestCase {
         let names = Drive.Create.configuration.subcommands.compactMap {
             $0.configuration.commandName
         }
-        XCTAssertEqual(names, ["doc", "sheet", "slides", "folder"])
+        XCTAssertEqual(names, ["doc", "sheet", "slides", "folder", "shortcut"])
     }
 }

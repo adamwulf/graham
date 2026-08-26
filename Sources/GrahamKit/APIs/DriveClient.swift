@@ -223,6 +223,96 @@ public struct DriveClient: Sendable {
         return try await api.sendJSON(DriveFile.self, method: "PATCH", url: url, body: body)
     }
 
+    /// Restores a file from the trash via `files.update` (a PATCH that sets
+    /// `trashed = false`), the inverse of ``trash(fileId:)``. Returns the updated
+    /// file metadata. The request spans shared drives.
+    ///
+    /// The `trashed` flag travels in a JSON request body, not in the URL.
+    public func untrash(fileId: String) async throws -> DriveFile {
+        let url = try GoogleURL.build(
+            "\(Self.baseURL)/files/\(GoogleURL.escapePathComponent(fileId))",
+            query: [("supportsAllDrives", "true")]
+        )
+        let body = DriveTrashRequest(trashed: false)
+        return try await api.sendJSON(DriveFile.self, method: "PATCH", url: url, body: body)
+    }
+
+    /// Renames a file via `files.update`. Returns the updated file metadata.
+    /// The new name travels in a JSON body, so any character encodes safely.
+    public func rename(fileId: String, name: String) async throws -> DriveFile {
+        try await update(fileId: fileId, request: DriveUpdateRequest(name: name))
+    }
+
+    /// Stars or unstars a file (Drive's "favorite") via `files.update`.
+    /// Returns the updated file metadata.
+    public func setStarred(fileId: String, starred: Bool) async throws -> DriveFile {
+        try await update(fileId: fileId, request: DriveUpdateRequest(starred: starred))
+    }
+
+    /// Moves a file into the folder `parent` via `files.update`. Drive reparents
+    /// by adding one parent and removing the others, so this first reads the
+    /// file's current parents, then adds `parent` and removes the rest (never
+    /// `parent` itself, so an add/remove of the same id cannot conflict).
+    /// Returns the updated file metadata. The parent ids travel in the URL as
+    /// `addParents`/`removeParents`, which Drive does not accept in the body;
+    /// the body is empty. The request spans shared drives.
+    public func move(fileId: String, to parent: String) async throws -> DriveFile {
+        let current = try await file(id: fileId)
+        let toRemove = current.parents?.filter { $0 != parent }
+        return try await update(
+            fileId: fileId,
+            request: DriveUpdateRequest(),
+            addParents: [parent],
+            removeParents: toRemove
+        )
+    }
+
+    /// The shared `files.update` PATCH behind ``rename(fileId:name:)``,
+    /// ``setStarred(fileId:starred:)``, and ``move(fileId:to:)``. Metadata fields
+    /// (name, starred) travel in the JSON `request` body; a parent move travels
+    /// in the URL as `addParents`/`removeParents`. The request asks for the full
+    /// field set and spans shared drives.
+    private func update(
+        fileId: String,
+        request: DriveUpdateRequest,
+        addParents: [String]? = nil,
+        removeParents: [String]? = nil
+    ) async throws -> DriveFile {
+        var query: [(String, String)] = [
+            ("fields", Self.fileFields),
+            ("supportsAllDrives", "true"),
+        ]
+        if let addParents, !addParents.isEmpty {
+            query.append(("addParents", addParents.joined(separator: ",")))
+        }
+        if let removeParents, !removeParents.isEmpty {
+            query.append(("removeParents", removeParents.joined(separator: ",")))
+        }
+        let url = try GoogleURL.build(
+            "\(Self.baseURL)/files/\(GoogleURL.escapePathComponent(fileId))",
+            query: query
+        )
+        return try await api.sendJSON(DriveFile.self, method: "PATCH", url: url, body: request)
+    }
+
+    /// Creates a shortcut that points to `targetId` via `files.create`. Returns
+    /// the new shortcut file, whose own id differs from the target's. The name
+    /// and target travel in a JSON body, never in the URL; `parent` places the
+    /// shortcut in a folder. The request spans shared drives.
+    public func createShortcut(
+        name: String,
+        targetId: String,
+        parent: String? = nil
+    ) async throws -> DriveFile {
+        let url = try GoogleURL.build(
+            "\(Self.baseURL)/files",
+            query: [("fields", Self.fileFields), ("supportsAllDrives", "true")]
+        )
+        let body = DriveShortcutCreateRequest(
+            name: name, targetId: targetId, parents: parent.map { [$0] })
+        return try await api.sendJSON(DriveFile.self, method: "POST", url: url, body: body)
+    }
+
     /// Permanently deletes a file via `files.delete` (an HTTP DELETE that
     /// replies with 204 and an empty body). This BYPASSES the trash: the file
     /// is not recoverable from the Drive UI, unlike ``trash(fileId:)``. The
