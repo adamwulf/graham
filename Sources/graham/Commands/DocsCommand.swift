@@ -5,7 +5,7 @@ import GrahamKit
 struct Docs: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Work with Google Docs documents.",
-        subcommands: [Create.self, Cat.self, Insert.self, Delete.self, Replace.self]
+        subcommands: [Create.self, Cat.self, Structure.self, Insert.self, Delete.self, Replace.self]
     )
 
     struct Create: AsyncParsableCommand {
@@ -42,6 +42,34 @@ struct Docs: AsyncParsableCommand {
                 return
             }
             print(document.plainText, terminator: "")
+        }
+    }
+
+    struct Structure: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "List the document's blocks with their index ranges.",
+            discussion: """
+                Each row is one structural block: its zero-based UTF-16 index \
+                range, kind (paragraph, heading, list item, table, section \
+                break, or table of contents), named style, list id and nesting, \
+                referenced object ids, and a short text preview. A table is \
+                listed first, then the blocks inside its cells indented under \
+                it. The indices are shown exactly as the API reports them — they \
+                are the values the range-based write commands (docs insert, \
+                docs delete) consume. Use --format json for the full detail.
+                """
+        )
+
+        @Argument(help: "The document ID.")
+        var documentID: String
+
+        @Option(help: "The output format: table, json, jsonl, or id.")
+        var format: OutputFormat = .table
+
+        func run() async throws {
+            let client = DocsClient(api: try CLI.makeAPI())
+            let document = try await client.document(id: documentID)
+            print(try OutputFormatter.render(document.blockRows, format: format))
         }
     }
 
