@@ -16,8 +16,9 @@ Named after Graham's number — a contrast to the googol that named Google.
   its values (formatted, raw, or as formulas, one range or several at once);
   write cell values from comma rows, a JSON array, or tab-separated stdin; append
   rows after a table; clear a range; add, rename, and delete tabs; freeze rows
-  or columns and resize them; add a basic chart on its own sheet, and run a live
-  end-to-end smoke test of the Sheets command surface; read a document,
+  or columns and resize them; format a range (bold, background, number pattern,
+  alignment); add a basic chart on its own sheet, and run a live end-to-end smoke
+  test of the Sheets command surface; read a document,
   render it as Markdown,
   and list its block structure with index ranges; list or download its images;
   create a blank document; and through the shared `documents.batchUpdate` write
@@ -161,6 +162,9 @@ graham sheets tab delete <spreadsheet-id> --sheet-id 1234567
 graham sheets freeze <spreadsheet-id> --rows 1 --columns 1
 # Resize rows or columns to a pixel size (--from/--to are one-based inclusive).
 graham sheets resize <spreadsheet-id> --dimension columns --from 1 --to 3 --pixels 120
+# Format a range: bold, a hex background, a number pattern, and/or alignment.
+graham sheets format <spreadsheet-id> "Sheet1!A1:B1" --bold --background "#FFF2CC" --align center
+graham sheets format <spreadsheet-id> "Sheet1!B2:B10" --number-format "#,##0.00"
 # Add a chart and print the chart id; pass it to `slides create chart --chart-id`.
 graham sheets chart add <spreadsheet-id> --range "Sheet1!A1:B3" --title "Sales" --type column
 # Exercise the live Sheets API surface (a value write and read-back, metadata,

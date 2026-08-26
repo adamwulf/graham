@@ -189,6 +189,34 @@ final class SheetsWriteParsingTests: XCTestCase {
         ]))
     }
 
+    // MARK: - Cell formatting
+
+    func testSheetsRegistersFormatSubcommand() {
+        let names = Sheets.configuration.subcommands.map { String(describing: $0) }
+        XCTAssertTrue(names.contains("Format"), "sheets should list Format: \(names)")
+    }
+
+    func testSheetsFormatParsesEveryAspect() throws {
+        let command = try Sheets.Format.parse([
+            "sheet-1", "Sheet1!A1:B1",
+            "--bold", "--background", "#FFCC00",
+            "--number-format", "#,##0.00", "--align", "center",
+        ])
+        XCTAssertEqual(command.spreadsheetID, "sheet-1")
+        XCTAssertEqual(command.range, "Sheet1!A1:B1")
+        XCTAssertTrue(command.bold)
+        XCTAssertEqual(command.background, "#FFCC00")
+        XCTAssertEqual(command.numberFormat, "#,##0.00")
+        XCTAssertEqual(command.align, .center)
+    }
+
+    func testSheetsFormatRequiresAtLeastOneAspectAndAValidAlignment() {
+        XCTAssertThrowsError(try Sheets.Format.parse(["sheet-1", "A1:B1"]))
+        XCTAssertThrowsError(try Sheets.Format.parse([
+            "sheet-1", "A1:B1", "--align", "middle",
+        ]))
+    }
+
     func testSheetsChartAddParsesOptions() throws {
         let command = try Sheets.Chart.Add.parse([
             "sheet-1",

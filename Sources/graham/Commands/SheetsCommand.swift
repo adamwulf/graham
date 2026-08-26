@@ -7,7 +7,7 @@ struct Sheets: AsyncParsableCommand {
         abstract: "Work with Google Sheets spreadsheets.",
         subcommands: [
             Get.self, Values.self, Set.self, Append.self, Clear.self, Tab.self,
-            Freeze.self, Resize.self, Chart.self, Test.self,
+            Freeze.self, Resize.self, Format.self, Chart.self, Test.self,
         ]
     )
 
@@ -526,6 +526,56 @@ struct Sheets: AsyncParsableCommand {
         }
     }
 
+    struct Format: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Apply a cell format across a range.",
+            discussion: """
+                Set at least one of --bold, --background, --number-format, or
+                --align. Only the aspects you set are changed. The sheet comes
+                from the range's tab name, or the first sheet when the range
+                names none.
+                """
+        )
+
+        @Argument(help: "The spreadsheet ID.")
+        var spreadsheetID: String
+
+        @Argument(help: "The range to format, for example 'Sheet1!A1:B1'.")
+        var range: String
+
+        @Flag(help: "Make the cells bold.")
+        var bold = false
+
+        @Option(help: "Background color as a hex value, e.g. #FFCC00 or #FC0.")
+        var background: String?
+
+        @Option(name: .customLong("number-format"), help: "A number format pattern, e.g. '#,##0.00'.")
+        var numberFormat: String?
+
+        @Option(help: "Horizontal alignment: left, center, or right.")
+        var align: SheetsHorizontalAlignment?
+
+        func validate() throws {
+            guard bold || background != nil || numberFormat != nil || align != nil else {
+                throw ValidationError(
+                    "Provide at least one of --bold, --background, --number-format, or --align.")
+            }
+        }
+
+        func run() async throws {
+            let client = SheetsClient(api: try CLI.makeAPI())
+            let color = try background.map { try SheetsColor.parse($0) }
+            try await client.formatCells(
+                spreadsheetId: spreadsheetID,
+                range: range,
+                bold: bold ? true : nil,
+                backgroundColor: color,
+                numberFormat: numberFormat,
+                horizontalAlignment: align
+            )
+        }
+    }
+
     struct Chart: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Work with embedded spreadsheet charts.",
@@ -576,6 +626,12 @@ extension BasicChartType: ExpressibleByArgument {
 }
 
 extension SheetsDimension: ExpressibleByArgument {
+    public init?(argument: String) {
+        self.init(rawValue: argument.uppercased())
+    }
+}
+
+extension SheetsHorizontalAlignment: ExpressibleByArgument {
     public init?(argument: String) {
         self.init(rawValue: argument.uppercased())
     }

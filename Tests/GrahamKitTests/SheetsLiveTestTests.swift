@@ -164,7 +164,7 @@ final class SheetsLiveTestTests: XCTestCase {
     private static let expectedStepNames = [
         "folder", "create-spreadsheet",
         "set-values", "values-read", "append", "append-read", "raw-read", "batch-get",
-        "get", "tab-add", "tab-rename", "tab-delete", "freeze", "resize",
+        "get", "tab-add", "tab-rename", "tab-delete", "freeze", "resize", "format",
         "chart-add", "clear", "clear-read",
         "drive-trash-spreadsheet",
     ]

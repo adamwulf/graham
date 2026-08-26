@@ -249,6 +249,17 @@ public struct SheetsLiveTest: Sendable {
                 dimension: .columns, start: 1, end: 1, pixelSize: 100)
         }
 
+        // Format the header row. The trimmed metadata carries no cell format,
+        // so this step only confirms the write is accepted.
+        _ = await actionStep("format", recorder: recorder) {
+            try await sheets.formatCells(
+                spreadsheetId: spreadsheetID,
+                range: "A1:B1",
+                bold: true,
+                backgroundColor: try SheetsColor.parse("#FFF2CC"),
+                horizontalAlignment: .center)
+        }
+
         // A chart needs the data above, so it chains off the value write.
         _ = await valueStep(
             "chart-add", recorder: recorder,

@@ -622,6 +622,71 @@ final class SheetsWriteTests: XCTestCase {
         XCTAssertEqual(id, 5)
     }
 
+    // MARK: - Cell formatting
+
+    func testFormatCellsEncodesEveryAspectWithFieldsMaskAndResolvesSheetName() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        stubSpreadsheet(transport, sheets: [(77, "Data")])
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        try await client.formatCells(
+            spreadsheetId: "sheet-1",
+            range: "Data!A1:B1",
+            bold: true,
+            backgroundColor: try SheetsColor.parse("#FF0000"),
+            numberFormat: "#,##0.00",
+            horizontalAlignment: .center)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            ##"{"requests":[{"repeatCell":{"cell":{"userEnteredFormat":{"backgroundColor":{"blue":0,"green":0,"red":1},"horizontalAlignment":"CENTER","numberFormat":{"pattern":"#,##0.00","type":"NUMBER"},"textFormat":{"bold":true}}},"fields":"userEnteredFormat.textFormat.bold,userEnteredFormat.backgroundColor,userEnteredFormat.numberFormat,userEnteredFormat.horizontalAlignment","range":{"endColumnIndex":2,"endRowIndex":1,"sheetId":77,"startColumnIndex":0,"startRowIndex":0}}}]}"##
+        )
+    }
+
+    func testFormatCellsUsesFirstSheetAndMasksOnlyProvidedAspects() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        stubSpreadsheet(transport, sheets: [(3, "Sheet1"), (4, "Other")])
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        try await client.formatCells(spreadsheetId: "sheet-1", range: "A1:B1", bold: true)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"repeatCell":{"cell":{"userEnteredFormat":{"textFormat":{"bold":true}}},"fields":"userEnteredFormat.textFormat.bold","range":{"endColumnIndex":2,"endRowIndex":1,"sheetId":3,"startColumnIndex":0,"startRowIndex":0}}}]}"#
+        )
+    }
+
+    func testFormatCellsRejectsNoAspectsWithoutWriting() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            try await client.formatCells(spreadsheetId: "sheet-1", range: "A1:B1")
+        }
+        XCTAssertTrue(transport.requests.isEmpty)
+    }
+
+    func testSheetsColorParsesHexForms() throws {
+        XCTAssertEqual(try SheetsColor.parse("#FF0000"), SheetsColor(red: 1, green: 0, blue: 0))
+        XCTAssertEqual(try SheetsColor.parse("00FF00"), SheetsColor(red: 0, green: 1, blue: 0))
+        // The short form doubles each nibble: F00 -> FF0000.
+        XCTAssertEqual(try SheetsColor.parse("#F00"), SheetsColor(red: 1, green: 0, blue: 0))
+    }
+
+    func testSheetsColorRejectsMalformedHex() {
+        for input in ["", "#12", "#12345", "wxyz", "red"] {
+            XCTAssertThrowsError(try SheetsColor.parse(input)) { error in
+                guard case GrahamError.invalidArgument = error else {
+                    return XCTFail("Wrong error for \(input): \(error)")
+                }
+            }
+        }
+    }
+
     // MARK: - Helpers
 
     private func stubSpreadsheet(

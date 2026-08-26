@@ -23,6 +23,8 @@ public enum SheetsBatchUpdateRequest: Encodable, Sendable, Equatable {
     case updateSheetProperties(UpdateSheetPropertiesRequest)
     /// Resizes a row or column dimension (its pixel size).
     case updateDimensionProperties(UpdateDimensionPropertiesRequest)
+    /// Repeats one cell's format across a range.
+    case repeatCell(RepeatCellRequest)
 
     private enum CodingKeys: String, CodingKey {
         case addChart
@@ -30,6 +32,7 @@ public enum SheetsBatchUpdateRequest: Encodable, Sendable, Equatable {
         case deleteSheet
         case updateSheetProperties
         case updateDimensionProperties
+        case repeatCell
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -45,6 +48,8 @@ public enum SheetsBatchUpdateRequest: Encodable, Sendable, Equatable {
             try container.encode(request, forKey: .updateSheetProperties)
         case .updateDimensionProperties(let request):
             try container.encode(request, forKey: .updateDimensionProperties)
+        case .repeatCell(let request):
+            try container.encode(request, forKey: .repeatCell)
         }
     }
 }
@@ -304,6 +309,122 @@ public struct UpdateSheetPropertiesRequest: Codable, Sendable, Equatable {
 
     public init(properties: SheetPropertiesRequest, fields: String) {
         self.properties = properties
+        self.fields = fields
+    }
+}
+
+// MARK: - Cell formatting (repeatCell)
+
+/// An RGB color, each channel a float from 0 to 1. Sheets' `Color` also carries
+/// an optional alpha, which graham leaves at the opaque default.
+public struct SheetsColor: Codable, Sendable, Equatable {
+    public let red: Double
+    public let green: Double
+    public let blue: Double
+
+    public init(red: Double, green: Double, blue: Double) {
+        self.red = red
+        self.green = green
+        self.blue = blue
+    }
+
+    /// Parses a hex color, with an optional leading `#`, in either `RRGGBB` or
+    /// the short `RGB` form (each nibble doubled). Throws
+    /// ``GrahamError/invalidArgument(_:)`` naming the input on any other form.
+    public static func parse(_ input: String) throws -> SheetsColor {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hex = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
+        let normalized: String
+        switch hex.count {
+        case 3:
+            normalized = hex.map { "\($0)\($0)" }.joined()
+        case 6:
+            normalized = hex
+        default:
+            throw Self.parseError(input)
+        }
+        let digits = Array(normalized)
+        guard digits.allSatisfy({ $0.isASCII && $0.isHexDigit }) else {
+            throw Self.parseError(input)
+        }
+        func channel(_ start: Int) -> Double {
+            Double(Int(String(digits[start..<start + 2]), radix: 16) ?? 0) / 255
+        }
+        return SheetsColor(red: channel(0), green: channel(2), blue: channel(4))
+    }
+
+    private static func parseError(_ input: String) -> GrahamError {
+        GrahamError.invalidArgument(
+            "could not parse \"\(input)\" as a hex color; use #RRGGBB or #RGB")
+    }
+}
+
+/// Horizontal cell alignment.
+public enum SheetsHorizontalAlignment: String, Sendable, CaseIterable, Equatable {
+    case left = "LEFT"
+    case center = "CENTER"
+    case right = "RIGHT"
+}
+
+/// The writable text format of a cell used by graham's first formatting slice.
+public struct SheetsTextFormat: Codable, Sendable, Equatable {
+    public let bold: Bool?
+
+    public init(bold: Bool? = nil) {
+        self.bold = bold
+    }
+}
+
+/// A cell number format: a `type` (graham uses `NUMBER`) and a `pattern`.
+public struct SheetsNumberFormat: Codable, Sendable, Equatable {
+    public let type: String
+    public let pattern: String
+
+    public init(type: String, pattern: String) {
+        self.type = type
+        self.pattern = pattern
+    }
+}
+
+/// The writable subset of a cell's format that `sheets format` sets.
+public struct SheetsCellFormat: Codable, Sendable, Equatable {
+    public let backgroundColor: SheetsColor?
+    public let textFormat: SheetsTextFormat?
+    public let numberFormat: SheetsNumberFormat?
+    public let horizontalAlignment: String?
+
+    public init(
+        backgroundColor: SheetsColor? = nil,
+        textFormat: SheetsTextFormat? = nil,
+        numberFormat: SheetsNumberFormat? = nil,
+        horizontalAlignment: String? = nil
+    ) {
+        self.backgroundColor = backgroundColor
+        self.textFormat = textFormat
+        self.numberFormat = numberFormat
+        self.horizontalAlignment = horizontalAlignment
+    }
+}
+
+/// The `cell` payload of a `repeatCell`: the format to stamp across the range.
+public struct SheetsCellData: Codable, Sendable, Equatable {
+    public let userEnteredFormat: SheetsCellFormat
+
+    public init(userEnteredFormat: SheetsCellFormat) {
+        self.userEnteredFormat = userEnteredFormat
+    }
+}
+
+/// The `repeatCell` operation. `fields` is a mask of the cell paths to write
+/// (for example `userEnteredFormat.textFormat.bold`).
+public struct RepeatCellRequest: Codable, Sendable, Equatable {
+    public let range: GridRange
+    public let cell: SheetsCellData
+    public let fields: String
+
+    public init(range: GridRange, cell: SheetsCellData, fields: String) {
+        self.range = range
+        self.cell = cell
         self.fields = fields
     }
 }

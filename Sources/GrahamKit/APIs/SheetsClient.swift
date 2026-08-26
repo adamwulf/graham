@@ -370,6 +370,56 @@ public struct SheetsClient: Sendable {
                 fields: "pixelSize"))
         _ = try await batchUpdate(spreadsheetId: spreadsheetId, requests: [request])
     }
+
+    // MARK: - Cell formatting
+
+    /// Applies a cell format across an A1 `range`, via `repeatCell`. At least one
+    /// of `bold`, `backgroundColor`, `numberFormat`, or `horizontalAlignment`
+    /// must be set; the `fields` mask names only the ones provided, so unset
+    /// aspects of the existing format are left intact. `numberFormat` is a
+    /// pattern applied with the `NUMBER` type.
+    public func formatCells(
+        spreadsheetId: String,
+        range: String,
+        bold: Bool? = nil,
+        backgroundColor: SheetsColor? = nil,
+        numberFormat: String? = nil,
+        horizontalAlignment: SheetsHorizontalAlignment? = nil
+    ) async throws {
+        guard bold != nil || backgroundColor != nil || numberFormat != nil
+                || horizontalAlignment != nil else {
+            throw GrahamError.invalidArgument("provide at least one format to set")
+        }
+        let parsed = try A1Range.parse(range)
+        let targetSheetId: Int
+        if let name = parsed.sheetName {
+            targetSheetId = try await sheetId(spreadsheetId: spreadsheetId, title: name)
+        } else {
+            targetSheetId = try await firstSheetId(spreadsheetId: spreadsheetId)
+        }
+
+        var fields: [String] = []
+        if bold != nil { fields.append("userEnteredFormat.textFormat.bold") }
+        if backgroundColor != nil { fields.append("userEnteredFormat.backgroundColor") }
+        if numberFormat != nil { fields.append("userEnteredFormat.numberFormat") }
+        if horizontalAlignment != nil { fields.append("userEnteredFormat.horizontalAlignment") }
+
+        let format = SheetsCellFormat(
+            backgroundColor: backgroundColor,
+            textFormat: bold.map { SheetsTextFormat(bold: $0) },
+            numberFormat: numberFormat.map { SheetsNumberFormat(type: "NUMBER", pattern: $0) },
+            horizontalAlignment: horizontalAlignment?.rawValue)
+        let request = SheetsBatchUpdateRequest.repeatCell(RepeatCellRequest(
+            range: GridRange(
+                sheetId: targetSheetId,
+                startRowIndex: parsed.startRowIndex,
+                endRowIndex: parsed.endRowIndex,
+                startColumnIndex: parsed.startColumnIndex,
+                endColumnIndex: parsed.endColumnIndex),
+            cell: SheetsCellData(userEnteredFormat: format),
+            fields: fields.joined(separator: ",")))
+        _ = try await batchUpdate(spreadsheetId: spreadsheetId, requests: [request])
+    }
 }
 
 /// An empty JSON request body (`{}`), for POST endpoints such as
