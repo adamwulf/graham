@@ -514,6 +514,161 @@ final class DocsStyleWriteTests: XCTestCase {
         XCTAssertEqual(DocsSpacingMode.collapseLists.rawValue, "COLLAPSE_LISTS")
     }
 
+    // MARK: - updateParagraphStyle: borders
+
+    /// A single outer border color fans to all four outer sides, each carrying a
+    /// full border (color + default width 1pt, padding 0pt, and solid dash). The
+    /// mask lists the four outer paths in the fixed order.
+    func testStyleParagraphsOuterBorderFansToTheFourOuterSides() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.styleParagraphs(
+            documentId: "doc-1", startIndex: 1, endIndex: 10,
+            outerBorderColor: try DocsOptionalColor.parse("#FF0000"))
+
+        // The identical border repeats across the four outer sides; build the
+        // expected body from that one piece so the repetition is unmistakable.
+        let border = #"{"color":{"color":{"rgbColor":{"blue":0,"green":0,"red":1}}},"dashStyle":"SOLID","padding":{"magnitude":0,"unit":"PT"},"width":{"magnitude":1,"unit":"PT"}}"#
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            "{\"requests\":[{\"updateParagraphStyle\":{"
+            + "\"fields\":\"borderTop,borderBottom,borderLeft,borderRight\","
+            + "\"paragraphStyle\":{\"borderBottom\":\(border),\"borderLeft\":\(border),"
+            + "\"borderRight\":\(border),\"borderTop\":\(border)},"
+            + "\"range\":{\"endIndex\":10,\"startIndex\":1}}}]}"
+        )
+    }
+
+    /// The between-paragraph border is set on its own path, not fanned to the
+    /// four outer sides.
+    func testStyleParagraphsBetweenBorderAddsBorderBetweenAlone() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.styleParagraphs(
+            documentId: "doc-1", startIndex: 1, endIndex: 10,
+            betweenBorderColor: try DocsOptionalColor.parse("#00FF00"))
+
+        let border = #"{"color":{"color":{"rgbColor":{"blue":0,"green":1,"red":0}}},"dashStyle":"SOLID","padding":{"magnitude":0,"unit":"PT"},"width":{"magnitude":1,"unit":"PT"}}"#
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            "{\"requests\":[{\"updateParagraphStyle\":{"
+            + "\"fields\":\"borderBetween\","
+            + "\"paragraphStyle\":{\"borderBetween\":\(border)},"
+            + "\"range\":{\"endIndex\":10,\"startIndex\":1}}}]}"
+        )
+    }
+
+    /// Combining an existing paragraph field with both border kinds locks the
+    /// order: the borders are appended after `alignment`, outer sides first and
+    /// `borderBetween` last, and the shared width/dash/padding reach both borders.
+    func testStyleParagraphsBorderFollowsExistingFieldsInTheMask() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.styleParagraphs(
+            documentId: "doc-1", startIndex: 1, endIndex: 10,
+            alignment: .center,
+            outerBorderColor: try DocsOptionalColor.parse("#FF0000"),
+            betweenBorderColor: try DocsOptionalColor.parse("#0000FF"),
+            borderWidth: 2,
+            borderDash: .dash,
+            borderPadding: 3)
+
+        let outer = #"{"color":{"color":{"rgbColor":{"blue":0,"green":0,"red":1}}},"dashStyle":"DASH","padding":{"magnitude":3,"unit":"PT"},"width":{"magnitude":2,"unit":"PT"}}"#
+        let between = #"{"color":{"color":{"rgbColor":{"blue":1,"green":0,"red":0}}},"dashStyle":"DASH","padding":{"magnitude":3,"unit":"PT"},"width":{"magnitude":2,"unit":"PT"}}"#
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            "{\"requests\":[{\"updateParagraphStyle\":{"
+            + "\"fields\":\"alignment,borderTop,borderBottom,borderLeft,borderRight,borderBetween\","
+            + "\"paragraphStyle\":{\"alignment\":\"CENTER\",\"borderBetween\":\(between),"
+            + "\"borderBottom\":\(outer),\"borderLeft\":\(outer),\"borderRight\":\(outer),"
+            + "\"borderTop\":\(outer)},"
+            + "\"range\":{\"endIndex\":10,\"startIndex\":1}}}]}"
+        )
+    }
+
+    /// A border width of 0 hides the border and is accepted; the encoded border
+    /// carries a magnitude-0 width.
+    func testStyleParagraphsBorderWidthZeroHidesAndIsAccepted() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.styleParagraphs(
+            documentId: "doc-1", startIndex: 1, endIndex: 10,
+            outerBorderColor: try DocsOptionalColor.parse("#000000"),
+            borderWidth: 0)
+
+        let border = #"{"color":{"color":{"rgbColor":{"blue":0,"green":0,"red":0}}},"dashStyle":"SOLID","padding":{"magnitude":0,"unit":"PT"},"width":{"magnitude":0,"unit":"PT"}}"#
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            "{\"requests\":[{\"updateParagraphStyle\":{"
+            + "\"fields\":\"borderTop,borderBottom,borderLeft,borderRight\","
+            + "\"paragraphStyle\":{\"borderBottom\":\(border),\"borderLeft\":\(border),"
+            + "\"borderRight\":\(border),\"borderTop\":\(border)},"
+            + "\"range\":{\"endIndex\":10,\"startIndex\":1}}}]}"
+        )
+    }
+
+    /// Bad border arguments are rejected before any request goes out: a width,
+    /// dash, or padding with no color; a negative width; and a negative padding.
+    func testStyleParagraphsRejectsBadBorderArgumentsWithoutSendingARequest() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        // A width with no border color.
+        await assertInvalidArgument {
+            _ = try await client.styleParagraphs(
+                documentId: "doc-1", startIndex: 1, endIndex: 10, borderWidth: 2)
+        }
+        // A padding with no border color.
+        await assertInvalidArgument {
+            _ = try await client.styleParagraphs(
+                documentId: "doc-1", startIndex: 1, endIndex: 10, borderPadding: 2)
+        }
+        // A dash with no border color.
+        await assertInvalidArgument {
+            _ = try await client.styleParagraphs(
+                documentId: "doc-1", startIndex: 1, endIndex: 10, borderDash: .dot)
+        }
+        // A negative width with a color.
+        await assertInvalidArgument {
+            _ = try await client.styleParagraphs(
+                documentId: "doc-1", startIndex: 1, endIndex: 10,
+                outerBorderColor: try DocsOptionalColor.parse("#000000"), borderWidth: -1)
+        }
+        // A negative padding with a color.
+        await assertInvalidArgument {
+            _ = try await client.styleParagraphs(
+                documentId: "doc-1", startIndex: 1, endIndex: 10,
+                betweenBorderColor: try DocsOptionalColor.parse("#000000"), borderPadding: -1)
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    /// A border alone satisfies the at-least-one-style requirement, so a caller
+    /// need not pass any other paragraph field.
+    func testStyleParagraphsBorderAloneSatisfiesTheAtLeastOneCheck() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.styleParagraphs(
+            documentId: "doc-1", startIndex: 1, endIndex: 10,
+            betweenBorderColor: try DocsOptionalColor.parse("#123456"))
+
+        XCTAssertEqual(transport.requests(urlContains: ":batchUpdate").count, 1)
+    }
+
     // MARK: - Color hex -> rgbColor conversion
 
     func testColorParseMapsHexChannelsToZeroToOne() throws {

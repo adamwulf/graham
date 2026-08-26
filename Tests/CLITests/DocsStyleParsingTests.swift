@@ -252,6 +252,84 @@ final class DocsStyleParsingTests: XCTestCase {
         )
     }
 
+    // MARK: - docs paragraph borders
+
+    func testDocsParagraphParsesBorderFlags() throws {
+        let command = try Docs.Paragraph.parse([
+            "doc-1", "--from", "1", "--to", "9",
+            "--border", "#000000", "--border-between", "#0000FF",
+            "--border-width", "2", "--border-dash", "dash", "--border-padding", "3",
+        ])
+        XCTAssertEqual(command.border, "#000000")
+        XCTAssertEqual(command.borderBetween, "#0000FF")
+        XCTAssertEqual(command.borderWidth, 2)
+        XCTAssertEqual(command.borderDash, .dash)
+        XCTAssertEqual(command.borderPadding, 3)
+    }
+
+    func testDocsParagraphLeavesBorderFlagsNilWhenAbsent() throws {
+        let command = try Docs.Paragraph.parse([
+            "doc-1", "--from", "1", "--to", "9", "--align", "center",
+        ])
+        XCTAssertNil(command.border)
+        XCTAssertNil(command.borderBetween)
+        XCTAssertNil(command.borderWidth)
+        XCTAssertNil(command.borderDash)
+        XCTAssertNil(command.borderPadding)
+    }
+
+    func testDocsParagraphBorderAloneSatisfiesTheAtLeastOneCheck() throws {
+        // --border alone is enough to pass the "at least one style" check.
+        let byBorder = try Docs.Paragraph.parse([
+            "doc-1", "--from", "1", "--to", "9", "--border", "#000000",
+        ])
+        XCTAssertEqual(byBorder.border, "#000000")
+        // --border-between alone is enough too.
+        let byBetween = try Docs.Paragraph.parse([
+            "doc-1", "--from", "1", "--to", "9", "--border-between", "#00FF00",
+        ])
+        XCTAssertEqual(byBetween.borderBetween, "#00FF00")
+    }
+
+    func testDocsParagraphBorderWidthWithoutAColorIsRejected() {
+        XCTAssertThrowsError(
+            try Docs.Paragraph.parse([
+                "doc-1", "--from", "1", "--to", "9", "--border-width", "2",
+            ])
+        ) { error in
+            let message = Docs.Paragraph.message(for: error)
+            XCTAssertTrue(
+                message.contains("--border"), "Expected a border-requires-color message: \(message)")
+        }
+    }
+
+    func testDocsParagraphRejectsANegativeBorderWidthAndPadding() {
+        XCTAssertThrowsError(
+            try Docs.Paragraph.parse([
+                "doc-1", "--from", "1", "--to", "9", "--border", "#000000", "--border-width", "-1",
+            ])
+        )
+        XCTAssertThrowsError(
+            try Docs.Paragraph.parse([
+                "doc-1", "--from", "1", "--to", "9", "--border", "#000000", "--border-padding", "-1",
+            ])
+        )
+    }
+
+    func testDocsParagraphRejectsAnInvalidBorderDash() {
+        XCTAssertThrowsError(
+            try Docs.Paragraph.parse([
+                "doc-1", "--from", "1", "--to", "9", "--border", "#000000", "--border-dash", "wavy",
+            ])
+        )
+    }
+
+    func testDocsDashStyleArgumentMapsToTheWireValue() {
+        XCTAssertEqual(DocsDashStyleArgument.solid.dashStyle.rawValue, "SOLID")
+        XCTAssertEqual(DocsDashStyleArgument.dot.dashStyle.rawValue, "DOT")
+        XCTAssertEqual(DocsDashStyleArgument.dash.dashStyle.rawValue, "DASH")
+    }
+
     // MARK: - docs heading
 
     func testDocsHeadingParsesLevelAndRange() throws {
