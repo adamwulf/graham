@@ -9,8 +9,13 @@ import XCTest
 /// fixture is static JSON; no test touches the network.
 final class DocsReadTests: XCTestCase {
     /// One realistic document that exercises every read feature this phase
-    /// adds. Body indices are internally consistent (each run's length in
-    /// UTF-16 code units), so the block ranges below are exact.
+    /// adds. The indices follow the Docs v1 layout rules exactly: each text
+    /// run's length is its span in UTF-16 code units, and the table nests by
+    /// Google's offsets (row 0 at table start + 1, the first cell at row
+    /// start + 1, a cell's paragraph at cell start + 1, a cell end at its last
+    /// paragraph end, the next row/cell at the previous one's end, and the
+    /// table end at the last row end + 1). A trailing paragraph follows the
+    /// table because a real document body never ends with a table.
     private static let fullJSON = #"""
     {
       "documentId": "doc-1",
@@ -61,24 +66,29 @@ final class DocsReadTests: XCTestCase {
               "footnoteId": "kix.fn1", "footnoteNumber": "1"}},
             {"startIndex": 62, "endIndex": 63, "textRun": {"content": "\n"}}
           ]}},
-        {"startIndex": 63, "endIndex": 78, "table": {
+        {"startIndex": 63, "endIndex": 83, "table": {
           "rows": 2, "columns": 2, "tableRows": [
-            {"startIndex": 64, "endIndex": 71, "tableCells": [
-              {"startIndex": 64, "endIndex": 67, "content": [
-                {"startIndex": 65, "endIndex": 68, "paragraph": {
+            {"startIndex": 64, "endIndex": 73, "tableCells": [
+              {"startIndex": 65, "endIndex": 69, "content": [
+                {"startIndex": 66, "endIndex": 69, "paragraph": {
                   "elements": [{"textRun": {"content": "A1\n"}}]}}]},
-              {"startIndex": 67, "endIndex": 70, "content": [
-                {"startIndex": 68, "endIndex": 71, "paragraph": {
+              {"startIndex": 69, "endIndex": 73, "content": [
+                {"startIndex": 70, "endIndex": 73, "paragraph": {
                   "elements": [{"textRun": {"content": "B1\n"}}]}}]}
             ]},
-            {"startIndex": 71, "endIndex": 78, "tableCells": [
-              {"startIndex": 71, "endIndex": 74, "content": [
-                {"startIndex": 72, "endIndex": 75, "paragraph": {
-                  "elements": [{"textRun": {"content": "A2\n"}}]}}]},
-              {"startIndex": 74, "endIndex": 77, "content": [
+            {"startIndex": 73, "endIndex": 82, "tableCells": [
+              {"startIndex": 74, "endIndex": 78, "content": [
                 {"startIndex": 75, "endIndex": 78, "paragraph": {
+                  "elements": [{"textRun": {"content": "A2\n"}}]}}]},
+              {"startIndex": 78, "endIndex": 82, "content": [
+                {"startIndex": 79, "endIndex": 82, "paragraph": {
                   "elements": [{"textRun": {"content": "B2\n"}}]}}]}
             ]}
+          ]}},
+        {"startIndex": 83, "endIndex": 84, "paragraph": {
+          "paragraphStyle": {"namedStyleType": "NORMAL_TEXT"},
+          "elements": [
+            {"startIndex": 83, "endIndex": 84, "textRun": {"content": "\n"}}
           ]}}
       ]},
       "inlineObjects": {
@@ -135,7 +145,7 @@ final class DocsReadTests: XCTestCase {
       "namedRanges": {
         "greeting": {"name": "greeting", "namedRanges": [
           {"namedRangeId": "nr1", "name": "greeting", "ranges": [
-            {"startIndex": 14, "endIndex": 31}]}]}
+            {"startIndex": 14, "endIndex": 31, "tabId": "t.0"}]}]}
       },
       "namedStyles": {"styles": [
         {"namedStyleType": "HEADING_1", "textStyle": {"bold": true},
@@ -161,7 +171,9 @@ final class DocsReadTests: XCTestCase {
         XCTAssertEqual(document.documentId, "doc-1")
         XCTAssertEqual(document.title, "A rich document")
         XCTAssertEqual(document.revisionId, "rev-123")
-        XCTAssertEqual(document.body?.content?.count, 8)
+        // Section break, heading, linked paragraph, two list items, the image
+        // paragraph, the footnote paragraph, the table, and a trailing paragraph.
+        XCTAssertEqual(document.body?.content?.count, 9)
     }
 
     func testInlineObjectImageIsExposed() throws {
@@ -212,8 +224,11 @@ final class DocsReadTests: XCTestCase {
 
         let named = try XCTUnwrap(document.namedRanges?["greeting"])
         XCTAssertEqual(named.namedRanges?.first?.namedRangeId, "nr1")
-        XCTAssertEqual(named.namedRanges?.first?.ranges?.first?.startIndex, 14)
-        XCTAssertEqual(named.namedRanges?.first?.ranges?.first?.endIndex, 31)
+        let range = try XCTUnwrap(named.namedRanges?.first?.ranges?.first)
+        XCTAssertEqual(range.startIndex, 14)
+        XCTAssertEqual(range.endIndex, 31)
+        // The range keeps its tab association (the live Range schema carries it).
+        XCTAssertEqual(range.tabId, "t.0")
 
         XCTAssertEqual(document.namedStyles?.styles?.first?.namedStyleType, "HEADING_1")
         XCTAssertEqual(document.namedStyles?.styles?.first?.textStyle?.bold, true)
@@ -257,21 +272,23 @@ final class DocsReadTests: XCTestCase {
         let document = try decodeDocument()
         XCTAssertEqual(
             document.plainText,
-            "Introduction\nSee Google here.\nFirst\nSecond\n\nCite this fact.\nA1\tB1\nA2\tB2\n")
+            "Introduction\nSee Google here.\nFirst\nSecond\n\nCite this fact.\nA1\tB1\nA2\tB2\n\n")
     }
 
     // MARK: - blockRows structure
 
     func testBlockRowsFlattenDepthFirstWithExpectedKinds() throws {
         let rows = try decodeDocument().blockRows
-        XCTAssertEqual(rows.count, 12)
+        XCTAssertEqual(rows.count, 13)
         XCTAssertEqual(rows.map(\.kind), [
             .sectionBreak, .heading, .paragraph, .listItem, .listItem,
             .paragraph, .paragraph, .table,
             // The four table cell paragraphs, flattened at depth 1.
             .paragraph, .paragraph, .paragraph, .paragraph,
+            // The trailing body paragraph after the table.
+            .paragraph,
         ])
-        XCTAssertEqual(rows.map(\.depth), [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1])
+        XCTAssertEqual(rows.map(\.depth), [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0])
     }
 
     func testBlockRowIndexRangesAreReportedAsIs() throws {
@@ -288,7 +305,18 @@ final class DocsReadTests: XCTestCase {
         XCTAssertEqual(rows[2].endIndex, 31)
         // The table's own range is its start index — what a table write needs.
         XCTAssertEqual(rows[7].startIndex, 63)
-        XCTAssertEqual(rows[7].endIndex, 78)
+        XCTAssertEqual(rows[7].endIndex, 83)
+        // The nested cell paragraphs carry their own real ranges: each starts at
+        // its cell start + 1 and the second cell/row follows the first's end.
+        XCTAssertEqual(rows[8].startIndex, 66)
+        XCTAssertEqual(rows[8].endIndex, 69)
+        XCTAssertEqual(rows[9].startIndex, 70)
+        XCTAssertEqual(rows[9].endIndex, 73)
+        XCTAssertEqual(rows[10].startIndex, 75)
+        XCTAssertEqual(rows[11].startIndex, 79)
+        // The trailing paragraph after the table sits just past the table end.
+        XCTAssertEqual(rows[12].startIndex, 83)
+        XCTAssertEqual(rows[12].endIndex, 84)
     }
 
     func testHeadingLevelAndNamedStyle() throws {
@@ -307,6 +335,77 @@ final class DocsReadTests: XCTestCase {
         XCTAssertEqual(rows[3].listId, "kix.list1")
         XCTAssertEqual(rows[3].nestingLevel, 0)
         XCTAssertEqual(rows[4].nestingLevel, 1)
+    }
+
+    /// A small document covering the heading-classification corners: `TITLE`
+    /// (a heading with no numeric level), the deepest valid heading
+    /// (`HEADING_6`), an out-of-range name (`HEADING_7`) that must NOT be a
+    /// heading, and a paragraph that is both bulleted and heading-styled (a
+    /// list item wins, but the heading style is still reported).
+    private static let headingEdgeJSON = #"""
+    {"documentId": "d", "body": {"content": [
+      {"startIndex": 1, "endIndex": 7, "paragraph": {
+        "paragraphStyle": {"namedStyleType": "TITLE"},
+        "elements": [{"textRun": {"content": "Title\n"}}]}},
+      {"startIndex": 7, "endIndex": 12, "paragraph": {
+        "paragraphStyle": {"namedStyleType": "HEADING_6"},
+        "elements": [{"textRun": {"content": "Deep\n"}}]}},
+      {"startIndex": 12, "endIndex": 18, "paragraph": {
+        "paragraphStyle": {"namedStyleType": "HEADING_7"},
+        "elements": [{"textRun": {"content": "Bogus\n"}}]}},
+      {"startIndex": 18, "endIndex": 27, "paragraph": {
+        "paragraphStyle": {"namedStyleType": "HEADING_2"},
+        "bullet": {"listId": "kix.l", "nestingLevel": 0},
+        "elements": [{"textRun": {"content": "Bulleted\n"}}]}}
+    ]}}
+    """#
+
+    func testHeadingClassificationEdgeCases() throws {
+        let document = try GoogleJSON.decoder.decode(
+            Document.self, from: Data(Self.headingEdgeJSON.utf8))
+        let rows = document.blockRows
+        XCTAssertEqual(rows.count, 4)
+
+        // TITLE: a heading, but with no numeric level.
+        XCTAssertEqual(rows[0].kind, .heading)
+        XCTAssertEqual(rows[0].namedStyleType, "TITLE")
+        XCTAssertNil(rows[0].headingLevel)
+
+        // HEADING_6: the deepest valid heading.
+        XCTAssertEqual(rows[1].kind, .heading)
+        XCTAssertEqual(rows[1].headingLevel, 6)
+
+        // HEADING_7: out of range, so it is a plain paragraph, not a heading,
+        // and carries no heading level — though its raw style is still reported.
+        XCTAssertEqual(rows[2].kind, .paragraph)
+        XCTAssertEqual(rows[2].namedStyleType, "HEADING_7")
+        XCTAssertNil(rows[2].headingLevel)
+
+        // A bulleted, heading-styled paragraph is a list item (list-item wins),
+        // yet its heading style and level are still reported.
+        XCTAssertEqual(rows[3].kind, .listItem)
+        XCTAssertEqual(rows[3].namedStyleType, "HEADING_2")
+        XCTAssertEqual(rows[3].headingLevel, 2)
+        XCTAssertEqual(rows[3].listId, "kix.l")
+        XCTAssertEqual(rows[3].nestingLevel, 0)
+    }
+
+    func testHeadingLevelHelperClampsToOneThroughSix() {
+        XCTAssertEqual(DocBlockRow.headingLevel(forNamedStyleType: "HEADING_1"), 1)
+        XCTAssertEqual(DocBlockRow.headingLevel(forNamedStyleType: "HEADING_6"), 6)
+        // Out of the 1...6 range, or not a heading name at all: no level.
+        XCTAssertNil(DocBlockRow.headingLevel(forNamedStyleType: "HEADING_0"))
+        XCTAssertNil(DocBlockRow.headingLevel(forNamedStyleType: "HEADING_7"))
+        XCTAssertNil(DocBlockRow.headingLevel(forNamedStyleType: "TITLE"))
+        XCTAssertNil(DocBlockRow.headingLevel(forNamedStyleType: nil))
+
+        // isHeading: TITLE and HEADING_1..6 are headings; the rest are not.
+        XCTAssertTrue(DocBlockRow.isHeading("TITLE"))
+        XCTAssertTrue(DocBlockRow.isHeading("HEADING_3"))
+        XCTAssertFalse(DocBlockRow.isHeading("HEADING_0"))
+        XCTAssertFalse(DocBlockRow.isHeading("HEADING_7"))
+        XCTAssertFalse(DocBlockRow.isHeading("NORMAL_TEXT"))
+        XCTAssertFalse(DocBlockRow.isHeading(nil))
     }
 
     func testBlockObjectIdsCorrelateWithInlineObjects() throws {

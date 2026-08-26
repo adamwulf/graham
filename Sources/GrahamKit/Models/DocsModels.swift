@@ -514,6 +514,9 @@ public struct DocRange: Codable, Sendable {
     public let endIndex: Int?
     /// The segment the range lives in; empty or nil is the document body.
     public let segmentId: String?
+    /// The tab the range lives in; keeps a named range's tab association when a
+    /// document uses tabs.
+    public let tabId: String?
 }
 
 /// The document's named styles.
@@ -655,11 +658,16 @@ public struct DocBlockRow: Codable, Sendable, Equatable {
         self.preview = preview
     }
 
-    /// The heading level 1...6 for a `HEADING_n` named style, or `nil` for any
-    /// other style (including `TITLE`).
+    /// The heading level 1...6 for a `HEADING_1`..`HEADING_6` named style, or
+    /// `nil` for any other style (including `TITLE`). Only levels 1 through 6
+    /// exist, so a name like `HEADING_0` or `HEADING_7` parses to `nil` and is
+    /// therefore not treated as a heading.
     static func headingLevel(forNamedStyleType named: String?) -> Int? {
         guard let named, named.hasPrefix("HEADING_") else { return nil }
-        return Int(named.dropFirst("HEADING_".count))
+        guard let level = Int(named.dropFirst("HEADING_".count)), (1...6).contains(level) else {
+            return nil
+        }
+        return level
     }
 
     /// Whether a named style is a heading: `TITLE` or `HEADING_1`..`HEADING_6`.
