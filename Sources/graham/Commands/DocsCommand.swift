@@ -7,7 +7,8 @@ struct Docs: AsyncParsableCommand {
         abstract: "Work with Google Docs documents.",
         subcommands: [
             Create.self, Cat.self, Structure.self, Insert.self, Delete.self,
-            Replace.self, Style.self, Paragraph.self, Heading.self, Images.self,
+            Replace.self, Style.self, Paragraph.self, Heading.self, Bullets.self,
+            Unbullet.self, Images.self,
         ]
     )
 
@@ -487,6 +488,94 @@ struct Docs: AsyncParsableCommand {
         }
     }
 
+    struct Bullets: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Turn the paragraphs in a range into a bulleted or numbered list.",
+            discussion: """
+                Applies a bullet --preset to every paragraph the zero-based UTF-16
+                range from --from up to but not including --to touches. The preset
+                names a family of glyphs (for example disc-circle-square or
+                checkbox) or numbering (for example decimal-alpha-roman); run
+                `docs bullets --help` to see every preset. Nesting comes from the
+                leading tab characters already in each paragraph, which the write
+                removes — this can shift later indices. In a named segment
+                (--segment) the content starts at index 0. Get index ranges from
+                `docs structure`.
+                """
+        )
+
+        @Argument(help: "The document ID.")
+        var documentID: String
+
+        @Option(help: "The zero-based UTF-16 start index (inclusive).")
+        var from: Int
+
+        @Option(help: "The zero-based UTF-16 end index (exclusive).")
+        var to: Int
+
+        @Option(help: "The bullet preset (glyphs or numbering) to apply.")
+        var preset: DocsBulletPresetArgument
+
+        @Option(help: "A header, footer, or footnote segment id. Omit for the body.")
+        var segment: String?
+
+        @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+        var requireRevision: String?
+
+        func run() async throws {
+            let client = DocsClient(api: try CLI.makeAPI())
+            _ = try await client.createParagraphBullets(
+                documentId: documentID,
+                startIndex: from,
+                endIndex: to,
+                preset: preset.bulletPreset,
+                segmentId: segment,
+                requiredRevisionId: requireRevision
+            )
+            print("Added \(preset.rawValue) bullets in [\(from), \(to)).")
+        }
+    }
+
+    struct Unbullet: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Remove bullets from the paragraphs in a range.",
+            discussion: """
+                Removes the list bullets from every paragraph the zero-based
+                UTF-16 range from --from up to but not including --to touches,
+                preserving the visual nesting through indents. In a named segment
+                (--segment) the content starts at index 0. Get index ranges from
+                `docs structure`.
+                """
+        )
+
+        @Argument(help: "The document ID.")
+        var documentID: String
+
+        @Option(help: "The zero-based UTF-16 start index (inclusive).")
+        var from: Int
+
+        @Option(help: "The zero-based UTF-16 end index (exclusive).")
+        var to: Int
+
+        @Option(help: "A header, footer, or footnote segment id. Omit for the body.")
+        var segment: String?
+
+        @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+        var requireRevision: String?
+
+        func run() async throws {
+            let client = DocsClient(api: try CLI.makeAPI())
+            _ = try await client.deleteParagraphBullets(
+                documentId: documentID,
+                startIndex: from,
+                endIndex: to,
+                segmentId: segment,
+                requiredRevisionId: requireRevision
+            )
+            print("Removed bullets in [\(from), \(to)).")
+        }
+    }
+
     struct Images: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "List every image in a document, or download them.",
@@ -678,4 +767,51 @@ enum DocsDirectionArgument: String, ExpressibleByArgument {
         case .rtl: return .rightToLeft
         }
     }
+}
+
+/// CLI-facing bullet-preset names, lower-kebab, mapping to the Docs v1
+/// `BulletGlyphPreset` wire values. Each case maps to a ``DocsBulletPreset``
+/// case, so the exact API spelling has a single source of truth (the GrahamKit
+/// enum's raw value) and never drifts from it. The client validates the string
+/// this produces.
+enum DocsBulletPresetArgument: String, ExpressibleByArgument, CaseIterable {
+    case discCircleSquare = "disc-circle-square"
+    case diamondxArrow3dSquare = "diamondx-arrow3d-square"
+    case checkbox
+    case arrowDiamondDisc = "arrow-diamond-disc"
+    case starCircleSquare = "star-circle-square"
+    case arrow3dCircleSquare = "arrow3d-circle-square"
+    case lefttriangleDiamondDisc = "lefttriangle-diamond-disc"
+    case diamondxHollowdiamondSquare = "diamondx-hollowdiamond-square"
+    case diamondCircleSquare = "diamond-circle-square"
+    case decimalAlphaRoman = "decimal-alpha-roman"
+    case decimalAlphaRomanParens = "decimal-alpha-roman-parens"
+    case decimalNested = "decimal-nested"
+    case upperalphaAlphaRoman = "upperalpha-alpha-roman"
+    case upperromanUpperalphaDecimal = "upperroman-upperalpha-decimal"
+    case zerodecimalAlphaRoman = "zerodecimal-alpha-roman"
+
+    /// The typed Docs API preset this argument maps to.
+    var preset: DocsBulletPreset {
+        switch self {
+        case .discCircleSquare: return .bulletDiscCircleSquare
+        case .diamondxArrow3dSquare: return .bulletDiamondxArrow3dSquare
+        case .checkbox: return .bulletCheckbox
+        case .arrowDiamondDisc: return .bulletArrowDiamondDisc
+        case .starCircleSquare: return .bulletStarCircleSquare
+        case .arrow3dCircleSquare: return .bulletArrow3dCircleSquare
+        case .lefttriangleDiamondDisc: return .bulletLefttriangleDiamondDisc
+        case .diamondxHollowdiamondSquare: return .bulletDiamondxHollowdiamondSquare
+        case .diamondCircleSquare: return .bulletDiamondCircleSquare
+        case .decimalAlphaRoman: return .numberedDecimalAlphaRoman
+        case .decimalAlphaRomanParens: return .numberedDecimalAlphaRomanParens
+        case .decimalNested: return .numberedDecimalNested
+        case .upperalphaAlphaRoman: return .numberedUpperalphaAlphaRoman
+        case .upperromanUpperalphaDecimal: return .numberedUpperromanUpperalphaDecimal
+        case .zerodecimalAlphaRoman: return .numberedZerodecimalAlphaRoman
+        }
+    }
+
+    /// The Docs API `bulletPreset` wire value this argument maps to.
+    var bulletPreset: String { preset.rawValue }
 }
