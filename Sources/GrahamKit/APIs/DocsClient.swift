@@ -210,6 +210,240 @@ public struct DocsClient: Sendable {
         return response.replies?.first?.replaceAllText?.occurrencesChanged ?? 0
     }
 
+    // MARK: - Styling
+    //
+    // Both style methods build a deterministic `fields` mask: one path per
+    // provided parameter, in a fixed documented order, and require at least one
+    // parameter or they throw ``GrahamError/invalidArgument(_:)`` and send
+    // nothing. The mask paths are relative to the style root, so they are bare
+    // field names. The range is zero-based UTF-16, with an empty `segmentId`
+    // normalized to the body exactly like the text edits above.
+
+    /// Normalizes a style range: an empty `segmentId` means the body (encoded
+    /// with no segment id), and `endIndex` must be greater than `startIndex`.
+    private static func makeStyleRange(
+        startIndex: Int, endIndex: Int, segmentId: String?
+    ) throws -> DocsRange {
+        // The Docs API reads an empty segment id as the document body, so
+        // normalize "" to nil: an empty or nil segmentId encodes no segmentId.
+        let segmentId = segmentId.flatMap { $0.isEmpty ? nil : $0 }
+        guard endIndex > startIndex else {
+            throw GrahamError.invalidArgument(
+                "endIndex (\(endIndex)) must be greater than startIndex (\(startIndex))")
+        }
+        return DocsRange(startIndex: startIndex, endIndex: endIndex, segmentId: segmentId)
+    }
+
+    /// Styles a range of text: bold, italic, underline, strikethrough, colors,
+    /// font, size, baseline offset, and link.
+    ///
+    /// - Parameters:
+    ///   - startIndex / endIndex: the zero-based, half-open UTF-16 range to
+    ///     style; `endIndex` must be greater than `startIndex`.
+    ///   - segmentId: a header, footer, or footnote segment; nil or an empty
+    ///     string targets the body.
+    ///   - bold / italic / underline / strikethrough: optional toggles; nil
+    ///     leaves each unchanged.
+    ///   - foregroundColor / backgroundColor: solid colors, already parsed to
+    ///     ``DocsOptionalColor`` (the CLI parses the hex through
+    ///     ``DocsOptionalColor/parse(_:)``).
+    ///   - fontSize: the point size; must be greater than zero.
+    ///   - fontFamily / fontWeight: the font. A `fontWeight` must be a multiple
+    ///     of 100 within 100...900 and requires a `fontFamily`; both go into the
+    ///     `weightedFontFamily` (Docs `TextStyle` has no bare family field).
+    ///   - baselineOffset: superscript, subscript, or none.
+    ///   - linkURL: sets a web link on the run.
+    ///
+    /// The `fields` mask is emitted in the fixed order `bold`, `italic`,
+    /// `underline`, `strikethrough`, `foregroundColor`, `backgroundColor`,
+    /// `fontSize`, `weightedFontFamily`, `baselineOffset`, `link`. At least one
+    /// style parameter is required.
+    public func styleText(
+        documentId: String,
+        startIndex: Int,
+        endIndex: Int,
+        segmentId: String? = nil,
+        bold: Bool? = nil,
+        italic: Bool? = nil,
+        underline: Bool? = nil,
+        strikethrough: Bool? = nil,
+        foregroundColor: DocsOptionalColor? = nil,
+        backgroundColor: DocsOptionalColor? = nil,
+        fontSize: Double? = nil,
+        fontFamily: String? = nil,
+        fontWeight: Int? = nil,
+        baselineOffset: DocsBaselineOffset? = nil,
+        linkURL: String? = nil,
+        requiredRevisionId: String? = nil
+    ) async throws -> DocsBatchUpdateResponse {
+        let range = try Self.makeStyleRange(
+            startIndex: startIndex, endIndex: endIndex, segmentId: segmentId)
+
+        // Weighted font family: a weight is a multiple of 100 in 100...900 and
+        // requires a family.
+        var weightedFontFamily: DocsWeightedFontFamily?
+        if let fontFamily {
+            if let fontWeight {
+                guard (100...900).contains(fontWeight), fontWeight % 100 == 0 else {
+                    throw GrahamError.invalidArgument(
+                        "font weight must be a multiple of 100 within 100 and 900, got \(fontWeight)")
+                }
+            }
+            weightedFontFamily = DocsWeightedFontFamily(fontFamily: fontFamily, weight: fontWeight)
+        } else if fontWeight != nil {
+            throw GrahamError.invalidArgument("a font weight requires a font family")
+        }
+
+        if let fontSize {
+            guard fontSize > 0 else {
+                throw GrahamError.invalidArgument(
+                    "font size must be greater than zero, got \(fontSize)")
+            }
+        }
+
+        let link = linkURL.map { DocsLink(url: $0) }
+
+        var mask: [String] = []
+        if bold != nil { mask.append("bold") }
+        if italic != nil { mask.append("italic") }
+        if underline != nil { mask.append("underline") }
+        if strikethrough != nil { mask.append("strikethrough") }
+        if foregroundColor != nil { mask.append("foregroundColor") }
+        if backgroundColor != nil { mask.append("backgroundColor") }
+        if fontSize != nil { mask.append("fontSize") }
+        if weightedFontFamily != nil { mask.append("weightedFontFamily") }
+        if baselineOffset != nil { mask.append("baselineOffset") }
+        if link != nil { mask.append("link") }
+
+        guard !mask.isEmpty else {
+            throw GrahamError.invalidArgument("style text requires at least one style option")
+        }
+
+        let style = DocsTextStyle(
+            bold: bold,
+            italic: italic,
+            underline: underline,
+            strikethrough: strikethrough,
+            foregroundColor: foregroundColor,
+            backgroundColor: backgroundColor,
+            fontSize: fontSize.map { DocsDimension(magnitude: $0, unit: .pt) },
+            weightedFontFamily: weightedFontFamily,
+            baselineOffset: baselineOffset,
+            link: link
+        )
+        let request = DocsBatchUpdateRequest.updateTextStyle(DocsUpdateTextStyleRequest(
+            textStyle: style, fields: mask.joined(separator: ","), range: range))
+        return try await batchUpdate(
+            documentId: documentId, requests: [request],
+            requiredRevisionId: requiredRevisionId)
+    }
+
+    /// Styles the paragraphs a range touches: named style, alignment,
+    /// direction, line spacing, spacing, and indents.
+    ///
+    /// - Parameters:
+    ///   - startIndex / endIndex: the zero-based, half-open UTF-16 range; every
+    ///     paragraph it touches is styled. `endIndex` must be greater than
+    ///     `startIndex`.
+    ///   - segmentId: a header, footer, or footnote segment; nil or an empty
+    ///     string targets the body.
+    ///   - namedStyleType: the named style (`NORMAL_TEXT`, `TITLE`, `SUBTITLE`,
+    ///     or `HEADING_1` through `HEADING_6`), matched case-insensitively; a
+    ///     value outside that set is rejected before any request goes out.
+    ///   - alignment / direction: the horizontal alignment and reading
+    ///     direction.
+    ///   - lineSpacing: a percent of normal (100 = single); must be greater
+    ///     than zero.
+    ///   - spaceAbove / spaceBelow / indentStart / indentEnd / indentFirstLine:
+    ///     point measurements; each must be 0 or greater.
+    ///
+    /// The `fields` mask is emitted in the fixed order `namedStyleType`,
+    /// `alignment`, `direction`, `lineSpacing`, `spaceAbove`, `spaceBelow`,
+    /// `indentStart`, `indentEnd`, `indentFirstLine`. At least one parameter is
+    /// required.
+    public func styleParagraphs(
+        documentId: String,
+        startIndex: Int,
+        endIndex: Int,
+        segmentId: String? = nil,
+        namedStyleType: String? = nil,
+        alignment: DocsParagraphAlignment? = nil,
+        direction: DocsContentDirection? = nil,
+        lineSpacing: Double? = nil,
+        spaceAbove: Double? = nil,
+        spaceBelow: Double? = nil,
+        indentStart: Double? = nil,
+        indentEnd: Double? = nil,
+        indentFirstLine: Double? = nil,
+        requiredRevisionId: String? = nil
+    ) async throws -> DocsBatchUpdateResponse {
+        let range = try Self.makeStyleRange(
+            startIndex: startIndex, endIndex: endIndex, segmentId: segmentId)
+
+        var resolvedNamedStyle: DocsNamedStyleType?
+        if let namedStyleType {
+            guard let value = DocsNamedStyleType(rawValue: namedStyleType.uppercased()) else {
+                throw GrahamError.invalidArgument(
+                    "unknown named style \"\(namedStyleType)\"; use one of NORMAL_TEXT, TITLE, "
+                    + "SUBTITLE, or HEADING_1 through HEADING_6")
+            }
+            resolvedNamedStyle = value
+        }
+
+        if let lineSpacing {
+            guard lineSpacing > 0 else {
+                throw GrahamError.invalidArgument(
+                    "line spacing must be greater than zero, got \(lineSpacing)")
+            }
+        }
+        func requireNonNegative(_ value: Double?, _ label: String) throws {
+            if let value, value < 0 {
+                throw GrahamError.invalidArgument("\(label) must be 0 or greater, got \(value)")
+            }
+        }
+        try requireNonNegative(spaceAbove, "space above")
+        try requireNonNegative(spaceBelow, "space below")
+        try requireNonNegative(indentStart, "indent start")
+        try requireNonNegative(indentEnd, "indent end")
+        try requireNonNegative(indentFirstLine, "first-line indent")
+
+        var mask: [String] = []
+        if resolvedNamedStyle != nil { mask.append("namedStyleType") }
+        if alignment != nil { mask.append("alignment") }
+        if direction != nil { mask.append("direction") }
+        if lineSpacing != nil { mask.append("lineSpacing") }
+        if spaceAbove != nil { mask.append("spaceAbove") }
+        if spaceBelow != nil { mask.append("spaceBelow") }
+        if indentStart != nil { mask.append("indentStart") }
+        if indentEnd != nil { mask.append("indentEnd") }
+        if indentFirstLine != nil { mask.append("indentFirstLine") }
+
+        guard !mask.isEmpty else {
+            throw GrahamError.invalidArgument(
+                "style paragraphs requires at least one style option")
+        }
+
+        func points(_ value: Double?) -> DocsDimension? {
+            value.map { DocsDimension(magnitude: $0, unit: .pt) }
+        }
+        let style = DocsParagraphStyle(
+            namedStyleType: resolvedNamedStyle,
+            alignment: alignment,
+            direction: direction,
+            lineSpacing: lineSpacing,
+            spaceAbove: points(spaceAbove),
+            spaceBelow: points(spaceBelow),
+            indentStart: points(indentStart),
+            indentEnd: points(indentEnd),
+            indentFirstLine: points(indentFirstLine)
+        )
+        let request = DocsBatchUpdateRequest.updateParagraphStyle(DocsUpdateParagraphStyleRequest(
+            paragraphStyle: style, fields: mask.joined(separator: ","), range: range))
+        return try await batchUpdate(
+            documentId: documentId, requests: [request],
+            requiredRevisionId: requiredRevisionId)
+    }
+
     // MARK: - Image download
 
     /// Downloads the bytes at an image `contentUri`.
