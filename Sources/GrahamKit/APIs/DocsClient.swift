@@ -869,6 +869,297 @@ public struct DocsClient: Sendable {
             requiredRevisionId: requiredRevisionId)
     }
 
+    // MARK: - Tables (styling)
+    //
+    // Each styling method builds a deterministic `fields` mask — one path per
+    // provided property, in a fixed documented order — and requires at least one
+    // style option or it throws ``GrahamError/invalidArgument(_:)`` and sends
+    // nothing, the same discipline as the text and paragraph styling above. The
+    // mask paths are relative to the style root, so they are bare field names.
+    // Cell styling addresses either a subset of cells (a ``DocsTableRange``) or
+    // the whole table (a ``DocsLocation`` at the table start); row and column
+    // styling take one-based CLI numbers and subtract one at the client boundary,
+    // with an empty list meaning every row or column. All point dimensions must
+    // be greater than zero, and a fixed column width must be at least 5 pt.
+
+    /// Styles a subset of table cells, or a whole table: background color, the
+    /// four cell borders, the four cell paddings, and the vertical content
+    /// alignment.
+    ///
+    /// - Parameters:
+    ///   - tableStartIndex: the table's zero-based UTF-16 start index (the value
+    ///     `docs structure` prints).
+    ///   - row / column: the one-based head cell of the range to style;
+    ///     translated to the API's zero-based indices. Provide **both** to style
+    ///     a range, or omit both to style the whole table. Providing only one is
+    ///     rejected.
+    ///   - rowSpan / columnSpan: the range's cell-count spans; each must be 1 or
+    ///     greater and defaults to 1. They are meaningful only with a `row` and
+    ///     `column`.
+    ///   - segmentId: a header, footer, or footnote segment; nil or an empty
+    ///     string targets the body.
+    ///   - backgroundColor: the cell background, already parsed to a
+    ///     ``DocsOptionalColor``.
+    ///   - borderColor: the color of all four cell borders. A border is set only
+    ///     when a color is given; passing a `borderWidth` or `borderDash` without
+    ///     a color is rejected.
+    ///   - borderWidth: the border width in points (defaults to 1); must be
+    ///     greater than zero.
+    ///   - borderDash: the border dash style (defaults to solid).
+    ///   - padding: the padding of all four cell sides in points; must be greater
+    ///     than zero.
+    ///   - contentAlignment: the vertical content alignment (top, middle, or
+    ///     bottom).
+    ///
+    /// A single `borderColor` sets all four borders and a single `padding` sets
+    /// all four paddings; the `fields` mask lists all four border paths when a
+    /// border is set and all four padding paths when a padding is set, plus
+    /// `backgroundColor` and/or `contentAlignment`, in the fixed order
+    /// `backgroundColor`, `borderLeft`, `borderRight`, `borderTop`,
+    /// `borderBottom`, `paddingLeft`, `paddingRight`, `paddingTop`,
+    /// `paddingBottom`, `contentAlignment`. At least one style option is required.
+    public func styleTableCells(
+        documentId: String,
+        tableStartIndex: Int,
+        row: Int? = nil,
+        column: Int? = nil,
+        rowSpan: Int? = nil,
+        columnSpan: Int? = nil,
+        segmentId: String? = nil,
+        backgroundColor: DocsOptionalColor? = nil,
+        borderColor: DocsOptionalColor? = nil,
+        borderWidth: Double? = nil,
+        borderDash: DocsDashStyle? = nil,
+        padding: Double? = nil,
+        contentAlignment: DocsContentAlignment? = nil,
+        requiredRevisionId: String? = nil
+    ) async throws -> DocsBatchUpdateResponse {
+        // A border is set only when a color is provided; a width or dash alone
+        // has nothing to attach to.
+        if borderColor == nil, borderWidth != nil || borderDash != nil {
+            throw GrahamError.invalidArgument(
+                "a cell border requires a color; set a border color to set its width or dash")
+        }
+        var border: DocsTableCellBorder?
+        if let borderColor {
+            let width = borderWidth ?? 1
+            guard width > 0 else {
+                throw GrahamError.invalidArgument(
+                    "border width must be greater than zero, got \(width)")
+            }
+            border = DocsTableCellBorder(
+                color: borderColor,
+                width: DocsDimension(magnitude: width, unit: .pt),
+                dashStyle: borderDash ?? .solid)
+        }
+
+        var paddingDimension: DocsDimension?
+        if let padding {
+            guard padding > 0 else {
+                throw GrahamError.invalidArgument(
+                    "cell padding must be greater than zero, got \(padding)")
+            }
+            paddingDimension = DocsDimension(magnitude: padding, unit: .pt)
+        }
+
+        var mask: [String] = []
+        if backgroundColor != nil { mask.append("backgroundColor") }
+        if border != nil {
+            mask.append(contentsOf: ["borderLeft", "borderRight", "borderTop", "borderBottom"])
+        }
+        if paddingDimension != nil {
+            mask.append(contentsOf: ["paddingLeft", "paddingRight", "paddingTop", "paddingBottom"])
+        }
+        if contentAlignment != nil { mask.append("contentAlignment") }
+
+        guard !mask.isEmpty else {
+            throw GrahamError.invalidArgument(
+                "style table cells requires at least one style option")
+        }
+
+        let style = DocsTableCellStyle(
+            backgroundColor: backgroundColor,
+            borderLeft: border,
+            borderRight: border,
+            borderTop: border,
+            borderBottom: border,
+            paddingLeft: paddingDimension,
+            paddingRight: paddingDimension,
+            paddingTop: paddingDimension,
+            paddingBottom: paddingDimension,
+            contentAlignment: contentAlignment)
+        let fields = mask.joined(separator: ",")
+
+        // A cell target is given when any of row/column/span is present; then
+        // both a row and a column are required. Otherwise the whole table is
+        // styled.
+        let styleRequest: DocsUpdateTableCellStyleRequest
+        if row != nil || column != nil || rowSpan != nil || columnSpan != nil {
+            guard let row, let column else {
+                throw GrahamError.invalidArgument(
+                    "provide both a row and a column to style a cell range, "
+                    + "or omit them to style the whole table")
+            }
+            let range = try Self.tableRange(
+                tableStartIndex: tableStartIndex, segmentId: segmentId,
+                row: row, column: column, rowSpan: rowSpan ?? 1, columnSpan: columnSpan ?? 1)
+            styleRequest = DocsUpdateTableCellStyleRequest(
+                tableCellStyle: style, fields: fields, tableRange: range)
+        } else {
+            let start = Self.tableStartLocation(
+                tableStartIndex: tableStartIndex, segmentId: segmentId)
+            styleRequest = DocsUpdateTableCellStyleRequest(
+                tableCellStyle: style, fields: fields, tableStartLocation: start)
+        }
+        return try await batchUpdate(
+            documentId: documentId,
+            requests: [.updateTableCellStyle(styleRequest)],
+            requiredRevisionId: requiredRevisionId)
+    }
+
+    /// Sets the row style of the listed rows, or every row: minimum height,
+    /// header flag, and overflow behavior.
+    ///
+    /// - Parameters:
+    ///   - tableStartIndex: the table's zero-based UTF-16 start index.
+    ///   - rows: the one-based rows to style; each is translated to a zero-based
+    ///     API index. An empty list styles every row (encoded as no
+    ///     `rowIndices`).
+    ///   - minRowHeight: the minimum row height in points; must be greater than
+    ///     zero.
+    ///   - tableHeader: mark the rows as repeated table headers.
+    ///   - preventOverflow: keep each row's content from spilling across a page
+    ///     break.
+    ///   - segmentId: a header, footer, or footnote segment; nil or an empty
+    ///     string targets the body.
+    ///
+    /// The `fields` mask is emitted in the fixed order `minRowHeight`,
+    /// `tableHeader`, `preventOverflow`. At least one style option is required.
+    public func styleTableRow(
+        documentId: String,
+        tableStartIndex: Int,
+        rows: [Int] = [],
+        minRowHeight: Double? = nil,
+        tableHeader: Bool? = nil,
+        preventOverflow: Bool? = nil,
+        segmentId: String? = nil,
+        requiredRevisionId: String? = nil
+    ) async throws -> DocsBatchUpdateResponse {
+        if let minRowHeight {
+            guard minRowHeight > 0 else {
+                throw GrahamError.invalidArgument(
+                    "minimum row height must be greater than zero, got \(minRowHeight)")
+            }
+        }
+        var mask: [String] = []
+        if minRowHeight != nil { mask.append("minRowHeight") }
+        if tableHeader != nil { mask.append("tableHeader") }
+        if preventOverflow != nil { mask.append("preventOverflow") }
+        guard !mask.isEmpty else {
+            throw GrahamError.invalidArgument(
+                "style table row requires at least one style option")
+        }
+
+        // One-based CLI rows become zero-based API indices; an empty list means
+        // every row, which the API expresses as an omitted rowIndices.
+        let rowIndices: [Int]?
+        if rows.isEmpty {
+            rowIndices = nil
+        } else {
+            for row in rows { try Self.requireOneBased(row, label: "table row") }
+            rowIndices = rows.map { $0 - 1 }
+        }
+
+        let start = Self.tableStartLocation(
+            tableStartIndex: tableStartIndex, segmentId: segmentId)
+        let style = DocsTableRowStyle(
+            minRowHeight: minRowHeight.map { DocsDimension(magnitude: $0, unit: .pt) },
+            tableHeader: tableHeader,
+            preventOverflow: preventOverflow)
+        let request = DocsUpdateTableRowStyleRequest(
+            tableStartLocation: start, rowIndices: rowIndices,
+            tableRowStyle: style, fields: mask.joined(separator: ","))
+        return try await batchUpdate(
+            documentId: documentId,
+            requests: [.updateTableRowStyle(request)],
+            requiredRevisionId: requiredRevisionId)
+    }
+
+    /// Sets the width of the listed columns, or every column: either a fixed
+    /// point width or evenly distributed.
+    ///
+    /// - Parameters:
+    ///   - tableStartIndex: the table's zero-based UTF-16 start index.
+    ///   - columns: the one-based columns to style; each is translated to a
+    ///     zero-based API index. An empty list styles every column (encoded as no
+    ///     `columnIndices`).
+    ///   - width: a fixed width in points; implies `FIXED_WIDTH` and must be at
+    ///     least 5 points. Mutually exclusive with `evenlyDistributed`.
+    ///   - evenlyDistributed: distribute the table width evenly across columns;
+    ///     implies `EVENLY_DISTRIBUTED` and carries no width. Mutually exclusive
+    ///     with `width`.
+    ///   - segmentId: a header, footer, or footnote segment; nil or an empty
+    ///     string targets the body.
+    ///
+    /// Exactly one of `width` or `evenlyDistributed` is required. The `fields`
+    /// mask is `widthType,width` for a fixed width and `widthType` for evenly
+    /// distributed.
+    public func styleTableColumnWidth(
+        documentId: String,
+        tableStartIndex: Int,
+        columns: [Int] = [],
+        width: Double? = nil,
+        evenlyDistributed: Bool = false,
+        segmentId: String? = nil,
+        requiredRevisionId: String? = nil
+    ) async throws -> DocsBatchUpdateResponse {
+        // Exactly one sizing mode: a fixed width or evenly distributed.
+        if width != nil, evenlyDistributed {
+            throw GrahamError.invalidArgument(
+                "provide either a fixed width or evenly-distributed, not both")
+        }
+        guard width != nil || evenlyDistributed else {
+            throw GrahamError.invalidArgument(
+                "provide a fixed width, or set the columns to evenly-distributed")
+        }
+
+        let properties: DocsTableColumnProperties
+        let mask: [String]
+        if let width {
+            guard width >= 5 else {
+                throw GrahamError.invalidArgument(
+                    "a fixed column width must be at least 5 points, got \(width)")
+            }
+            properties = DocsTableColumnProperties(
+                widthType: .fixedWidth, width: DocsDimension(magnitude: width, unit: .pt))
+            mask = ["widthType", "width"]
+        } else {
+            properties = DocsTableColumnProperties(widthType: .evenlyDistributed)
+            mask = ["widthType"]
+        }
+
+        // One-based CLI columns become zero-based API indices; an empty list
+        // means every column, which the API expresses as an omitted
+        // columnIndices.
+        let columnIndices: [Int]?
+        if columns.isEmpty {
+            columnIndices = nil
+        } else {
+            for column in columns { try Self.requireOneBased(column, label: "table column") }
+            columnIndices = columns.map { $0 - 1 }
+        }
+
+        let start = Self.tableStartLocation(
+            tableStartIndex: tableStartIndex, segmentId: segmentId)
+        let request = DocsUpdateTableColumnPropertiesRequest(
+            tableStartLocation: start, columnIndices: columnIndices,
+            tableColumnProperties: properties, fields: mask.joined(separator: ","))
+        return try await batchUpdate(
+            documentId: documentId,
+            requests: [.updateTableColumnProperties(request)],
+            requiredRevisionId: requiredRevisionId)
+    }
+
     // MARK: - Image download
 
     /// Downloads the bytes at an image `contentUri`.

@@ -579,7 +579,7 @@ struct Docs: AsyncParsableCommand {
     struct Table: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "table",
-            abstract: "Insert, delete, merge, and pin the rows and columns of a table.",
+            abstract: "Insert, delete, merge, pin, and style the rows and columns of a table.",
             discussion: """
                 Every command locates the table by its zero-based UTF-16 start \
                 index (--table for the edits, or --at for `create`), which you \
@@ -590,6 +590,7 @@ struct Docs: AsyncParsableCommand {
             subcommands: [
                 Create.self, AddRow.self, AddColumn.self, DeleteRow.self,
                 DeleteColumn.self, Merge.self, Unmerge.self, PinHeaders.self,
+                Style.self, RowStyle.self, ColumnWidth.self,
             ]
         )
 
@@ -1029,6 +1030,281 @@ struct Docs: AsyncParsableCommand {
                 }
             }
         }
+
+        struct Style: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "style",
+                abstract: "Style a range of table cells, or a whole table.",
+                discussion: """
+                    Sets cell background, borders, padding, and vertical \
+                    alignment. --table is the table's zero-based start index \
+                    from `docs structure`. Give --row and --column (one-based, \
+                    with optional --row-span and --column-span) to style a range \
+                    of cells; omit them to style the whole table. --border sets \
+                    all four cell borders and requires a color; its width \
+                    defaults to 1pt and its dash to solid unless --border-width \
+                    or --border-dash override them. --padding sets all four cell \
+                    paddings. Colors are a hex value like #FF0000. At least one \
+                    of --background, --border, --padding, or --align is required.
+                    """
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "The table's zero-based UTF-16 start index (from `docs structure`).")
+            var table: Int
+
+            @Option(help: "The one-based head row of the cell range. Omit to style the whole table.")
+            var row: Int?
+
+            @Option(help: "The one-based head column of the cell range. Omit to style the whole table.")
+            var column: Int?
+
+            @Option(help: "The number of rows to span (1 or greater; defaults to 1).")
+            var rowSpan: Int?
+
+            @Option(help: "The number of columns to span (1 or greater; defaults to 1).")
+            var columnSpan: Int?
+
+            @Option(help: "The cell background color as a hex value like #FF0000.")
+            var background: String?
+
+            @Option(help: "Set all four cell borders to this hex color, like #000000.")
+            var border: String?
+
+            @Option(
+                parsing: .unconditional,
+                help: "The border width in points; requires --border (defaults to 1)."
+            )
+            var borderWidth: Double?
+
+            @Option(help: "The border dash style: solid, dot, or dash; requires --border.")
+            var borderDash: DocsDashStyleArgument?
+
+            @Option(parsing: .unconditional, help: "Set all four cell paddings to this many points.")
+            var padding: Double?
+
+            @Option(help: "The vertical content alignment: top, middle, or bottom.")
+            var align: DocsContentAlignmentArgument?
+
+            @Option(help: "A header, footer, or footnote segment id. Omit for the body.")
+            var segment: String?
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func validate() throws {
+                let hasStyle =
+                    background != nil || border != nil || padding != nil || align != nil
+                guard hasStyle else {
+                    throw ValidationError(
+                        "Provide at least one of --background, --border, --padding, or --align.")
+                }
+                if (borderWidth != nil || borderDash != nil), border == nil {
+                    throw ValidationError("--border-width and --border-dash require --border.")
+                }
+                // A cell range needs both a row and a column; the spans require
+                // them too. Omitting all four styles the whole table.
+                if (rowSpan != nil || columnSpan != nil), row == nil || column == nil {
+                    throw ValidationError(
+                        "--row-span and --column-span require --row and --column.")
+                }
+                if (row == nil) != (column == nil) {
+                    throw ValidationError(
+                        "Provide both --row and --column to style a cell range, or neither "
+                        + "to style the whole table.")
+                }
+                if let row, row < 1 { throw ValidationError("--row must be one-based (1 or greater).") }
+                if let column, column < 1 {
+                    throw ValidationError("--column must be one-based (1 or greater).")
+                }
+                if let rowSpan, rowSpan < 1 {
+                    throw ValidationError("--row-span must be 1 or greater.")
+                }
+                if let columnSpan, columnSpan < 1 {
+                    throw ValidationError("--column-span must be 1 or greater.")
+                }
+                if let borderWidth, borderWidth <= 0 {
+                    throw ValidationError("--border-width must be greater than zero.")
+                }
+                if let padding, padding <= 0 {
+                    throw ValidationError("--padding must be greater than zero.")
+                }
+            }
+
+            func run() async throws {
+                let backgroundColor = try background.map { try DocsOptionalColor.parse($0) }
+                let borderColor = try border.map { try DocsOptionalColor.parse($0) }
+                let client = DocsClient(api: try CLI.makeAPI())
+                _ = try await client.styleTableCells(
+                    documentId: documentID,
+                    tableStartIndex: table,
+                    row: row,
+                    column: column,
+                    rowSpan: rowSpan,
+                    columnSpan: columnSpan,
+                    segmentId: segment,
+                    backgroundColor: backgroundColor,
+                    borderColor: borderColor,
+                    borderWidth: borderWidth,
+                    borderDash: borderDash?.dashStyle,
+                    padding: padding,
+                    contentAlignment: align?.contentAlignment,
+                    requiredRevisionId: requireRevision)
+                if row != nil, column != nil {
+                    print("Styled table cells at cell (\(row ?? 0), \(column ?? 0)).")
+                } else {
+                    print("Styled the whole table at index \(table).")
+                }
+            }
+        }
+
+        struct RowStyle: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "row-style",
+                abstract: "Set the height, header, and overflow of table rows.",
+                discussion: """
+                    --table is the table's zero-based start index from `docs \
+                    structure`. --rows is a list of one-based row numbers to \
+                    style; omit it to style every row. --min-height is in points. \
+                    --header marks the rows as repeated headers (--no-header \
+                    clears it); --prevent-overflow keeps a row's content from \
+                    splitting across a page (--no-prevent-overflow clears it). At \
+                    least one style option is required.
+                    """
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "The table's zero-based UTF-16 start index (from `docs structure`).")
+            var table: Int
+
+            @Option(
+                parsing: .upToNextOption,
+                help: "The one-based rows to style. Omit to style every row."
+            )
+            var rows: [Int] = []
+
+            @Option(parsing: .unconditional, help: "The minimum row height in points.")
+            var minHeight: Double?
+
+            @Flag(inversion: .prefixedNo, help: "Mark the rows as repeated headers.")
+            var header: Bool?
+
+            @Flag(
+                inversion: .prefixedNo,
+                help: "Keep each row's content from splitting across a page."
+            )
+            var preventOverflow: Bool?
+
+            @Option(help: "A header, footer, or footnote segment id. Omit for the body.")
+            var segment: String?
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func validate() throws {
+                let hasStyle = minHeight != nil || header != nil || preventOverflow != nil
+                guard hasStyle else {
+                    throw ValidationError(
+                        "Provide at least one of --min-height, --header, or --prevent-overflow.")
+                }
+                if let minHeight, minHeight <= 0 {
+                    throw ValidationError("--min-height must be greater than zero.")
+                }
+                for row in rows where row < 1 {
+                    throw ValidationError("--rows must be one-based (1 or greater).")
+                }
+            }
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                _ = try await client.styleTableRow(
+                    documentId: documentID,
+                    tableStartIndex: table,
+                    rows: rows,
+                    minRowHeight: minHeight,
+                    tableHeader: header,
+                    preventOverflow: preventOverflow,
+                    segmentId: segment,
+                    requiredRevisionId: requireRevision)
+                if rows.isEmpty {
+                    print("Styled every row of the table at index \(table).")
+                } else {
+                    print("Styled \(rows.count) row(s) of the table at index \(table).")
+                }
+            }
+        }
+
+        struct ColumnWidth: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "column-width",
+                abstract: "Set the width of table columns (fixed or evenly distributed).",
+                discussion: """
+                    --table is the table's zero-based start index from `docs \
+                    structure`. --columns is a list of one-based column numbers \
+                    to size; omit it to size every column. Give exactly one of \
+                    --width <points> (a fixed width, at least 5) or --evenly \
+                    (distribute the table width evenly across the columns).
+                    """
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "The table's zero-based UTF-16 start index (from `docs structure`).")
+            var table: Int
+
+            @Option(
+                parsing: .upToNextOption,
+                help: "The one-based columns to size. Omit to size every column."
+            )
+            var columns: [Int] = []
+
+            @Option(help: "The fixed column width in points (at least 5). Conflicts with --evenly.")
+            var width: Double?
+
+            @Flag(help: "Distribute the table width evenly across the columns. Conflicts with --width.")
+            var evenly = false
+
+            @Option(help: "A header, footer, or footnote segment id. Omit for the body.")
+            var segment: String?
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func validate() throws {
+                guard (width != nil) != evenly else {
+                    throw ValidationError("Provide exactly one of --width or --evenly.")
+                }
+                if let width, width < 5 {
+                    throw ValidationError("--width must be at least 5 points.")
+                }
+                for column in columns where column < 1 {
+                    throw ValidationError("--columns must be one-based (1 or greater).")
+                }
+            }
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                _ = try await client.styleTableColumnWidth(
+                    documentId: documentID,
+                    tableStartIndex: table,
+                    columns: columns,
+                    width: width,
+                    evenlyDistributed: evenly,
+                    segmentId: segment,
+                    requiredRevisionId: requireRevision)
+                let sizing = width.map { "a fixed width of \($0) points" } ?? "evenly distributed"
+                if columns.isEmpty {
+                    print("Set every column of the table at index \(table) to \(sizing).")
+                } else {
+                    print("Set \(columns.count) column(s) of the table at index \(table) to \(sizing).")
+                }
+            }
+        }
     }
 
     struct Images: AsyncParsableCommand {
@@ -1220,6 +1496,40 @@ enum DocsDirectionArgument: String, ExpressibleByArgument {
         switch self {
         case .ltr: return .leftToRight
         case .rtl: return .rightToLeft
+        }
+    }
+}
+
+/// CLI-facing table-cell content-alignment names mapping to the API
+/// ``DocsContentAlignment``. The user types the natural top/middle/bottom words.
+enum DocsContentAlignmentArgument: String, ExpressibleByArgument {
+    case top
+    case middle
+    case bottom
+
+    /// The Docs API content alignment this argument maps to.
+    var contentAlignment: DocsContentAlignment {
+        switch self {
+        case .top: return .top
+        case .middle: return .middle
+        case .bottom: return .bottom
+        }
+    }
+}
+
+/// CLI-facing table-cell border dash-style names mapping to the API
+/// ``DocsDashStyle``. graham exposes the three common styles.
+enum DocsDashStyleArgument: String, ExpressibleByArgument {
+    case solid
+    case dot
+    case dash
+
+    /// The Docs API dash style this argument maps to.
+    var dashStyle: DocsDashStyle {
+        switch self {
+        case .solid: return .solid
+        case .dot: return .dot
+        case .dash: return .dash
         }
     }
 }

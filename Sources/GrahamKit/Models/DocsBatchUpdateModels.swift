@@ -55,6 +55,15 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
     case unmergeTableCells(DocsUnmergeTableCellsRequest)
     /// Pins the first N rows of a table as headers; 0 unpins.
     case pinTableHeaderRows(DocsPinTableHeaderRowsRequest)
+    /// Styles a range of table cells, or a whole table (background, borders,
+    /// padding, alignment).
+    case updateTableCellStyle(DocsUpdateTableCellStyleRequest)
+    /// Sets the row style (height, header, overflow) of listed rows, or every
+    /// row.
+    case updateTableRowStyle(DocsUpdateTableRowStyleRequest)
+    /// Sets the column width (fixed or evenly distributed) of listed columns, or
+    /// every column.
+    case updateTableColumnProperties(DocsUpdateTableColumnPropertiesRequest)
 
     private enum CodingKeys: String, CodingKey {
         case insertText
@@ -72,6 +81,9 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
         case mergeTableCells
         case unmergeTableCells
         case pinTableHeaderRows
+        case updateTableCellStyle
+        case updateTableRowStyle
+        case updateTableColumnProperties
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -107,6 +119,12 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
             try container.encode(request, forKey: .unmergeTableCells)
         case .pinTableHeaderRows(let request):
             try container.encode(request, forKey: .pinTableHeaderRows)
+        case .updateTableCellStyle(let request):
+            try container.encode(request, forKey: .updateTableCellStyle)
+        case .updateTableRowStyle(let request):
+            try container.encode(request, forKey: .updateTableRowStyle)
+        case .updateTableColumnProperties(let request):
+            try container.encode(request, forKey: .updateTableColumnProperties)
         }
     }
 }
@@ -782,6 +800,239 @@ public struct DocsPinTableHeaderRowsRequest: Codable, Sendable, Equatable {
     public init(tableStartLocation: DocsLocation, pinnedHeaderRowsCount: Int) {
         self.tableStartLocation = tableStartLocation
         self.pinnedHeaderRowsCount = pinnedHeaderRowsCount
+    }
+}
+
+// MARK: - Tables (styling)
+//
+// These mirror the Docs v1 table styling operations: `updateTableCellStyle`,
+// `updateTableRowStyle`, and `updateTableColumnProperties`, and their
+// `TableCellStyle`, `TableCellBorder`, `TableRowStyle`, and
+// `TableColumnProperties` sub-models. Only the writable subset graham sets is
+// modeled; every style field is optional and the request's `fields` mask, not
+// the container, decides which properties the API applies — the same discipline
+// as the text and paragraph styling above. The three enums carry the exact API
+// spellings as raw values, and are prefixed `Docs` because `GrahamKit` is one
+// module and the bare `DashStyle`/`ContentAlignment` names already belong to the
+// Slides write models.
+
+/// A Docs v1 `TableCellStyle.contentAlignment` / `ContentAlignment`: the
+/// vertical alignment of a cell's content. The cases are the writable values
+/// graham sets; the API's `CONTENT_ALIGNMENT_UNSPECIFIED` and
+/// `CONTENT_ALIGNMENT_UNSUPPORTED` sentinels are never sent.
+public enum DocsContentAlignment: String, Codable, Sendable, Equatable {
+    case top = "TOP"
+    case middle = "MIDDLE"
+    case bottom = "BOTTOM"
+}
+
+/// A Docs v1 `TableCellBorder.dashStyle` / `DashStyle`: how a cell border is
+/// dashed. graham exposes the three common styles; the API's other dash styles
+/// (`DASH_DOT`, `LONG_DASH`, `LONG_DASH_DOT`) and its
+/// `DASH_STYLE_UNSPECIFIED` sentinel are not part of this styling slice.
+public enum DocsDashStyle: String, Codable, Sendable, Equatable {
+    case solid = "SOLID"
+    case dot = "DOT"
+    case dash = "DASH"
+}
+
+/// A Docs v1 `TableColumnProperties.widthType` / `WidthType`: how a table column
+/// is sized. `EVENLY_DISTRIBUTED` shares the table width across columns and
+/// forbids a `width`; `FIXED_WIDTH` pins the column to an explicit `width`
+/// (>= 5 pt). The API's `WIDTH_TYPE_UNSPECIFIED` sentinel is never sent.
+public enum DocsWidthType: String, Codable, Sendable, Equatable {
+    case evenlyDistributed = "EVENLY_DISTRIBUTED"
+    case fixedWidth = "FIXED_WIDTH"
+}
+
+/// The writable subset of a Docs `TableCellBorder`: the color, width, and dash
+/// style of one side of a cell.
+///
+/// Every field is optional, but graham always fills all three when it sets a
+/// border (see ``DocsClient/styleTableCells(documentId:tableStartIndex:row:column:rowSpan:columnSpan:segmentId:backgroundColor:borderColor:borderWidth:borderDash:padding:contentAlignment:requiredRevisionId:)``):
+/// a border requires a color, and defaults its width to 1 pt and its dash to
+/// solid. `color` is a ``DocsOptionalColor``; `width` is a ``DocsDimension`` in
+/// points.
+public struct DocsTableCellBorder: Codable, Sendable, Equatable {
+    public let color: DocsOptionalColor?
+    public let width: DocsDimension?
+    public let dashStyle: DocsDashStyle?
+
+    public init(
+        color: DocsOptionalColor? = nil,
+        width: DocsDimension? = nil,
+        dashStyle: DocsDashStyle? = nil
+    ) {
+        self.color = color
+        self.width = width
+        self.dashStyle = dashStyle
+    }
+}
+
+/// The writable subset of a Docs `TableCellStyle`.
+///
+/// Every field is optional; the request's `fields` mask, not this container,
+/// decides which properties the API applies. `backgroundColor` is a
+/// ``DocsOptionalColor``; the four borders are ``DocsTableCellBorder`` values;
+/// the four paddings are ``DocsDimension`` values in points; `contentAlignment`
+/// is the cell's vertical alignment. graham sets all four borders together and
+/// all four paddings together, but the type keeps each side separate to mirror
+/// the API exactly.
+public struct DocsTableCellStyle: Codable, Sendable, Equatable {
+    public let backgroundColor: DocsOptionalColor?
+    public let borderLeft: DocsTableCellBorder?
+    public let borderRight: DocsTableCellBorder?
+    public let borderTop: DocsTableCellBorder?
+    public let borderBottom: DocsTableCellBorder?
+    public let paddingLeft: DocsDimension?
+    public let paddingRight: DocsDimension?
+    public let paddingTop: DocsDimension?
+    public let paddingBottom: DocsDimension?
+    public let contentAlignment: DocsContentAlignment?
+
+    public init(
+        backgroundColor: DocsOptionalColor? = nil,
+        borderLeft: DocsTableCellBorder? = nil,
+        borderRight: DocsTableCellBorder? = nil,
+        borderTop: DocsTableCellBorder? = nil,
+        borderBottom: DocsTableCellBorder? = nil,
+        paddingLeft: DocsDimension? = nil,
+        paddingRight: DocsDimension? = nil,
+        paddingTop: DocsDimension? = nil,
+        paddingBottom: DocsDimension? = nil,
+        contentAlignment: DocsContentAlignment? = nil
+    ) {
+        self.backgroundColor = backgroundColor
+        self.borderLeft = borderLeft
+        self.borderRight = borderRight
+        self.borderTop = borderTop
+        self.borderBottom = borderBottom
+        self.paddingLeft = paddingLeft
+        self.paddingRight = paddingRight
+        self.paddingTop = paddingTop
+        self.paddingBottom = paddingBottom
+        self.contentAlignment = contentAlignment
+    }
+}
+
+/// The writable subset of a Docs `TableRowStyle`.
+///
+/// Every field is optional; the request's `fields` mask decides which the API
+/// applies. `minRowHeight` is a ``DocsDimension`` in points; `tableHeader` marks
+/// the row as a repeated header; `preventOverflow` keeps the row's content from
+/// spilling across a page break.
+public struct DocsTableRowStyle: Codable, Sendable, Equatable {
+    public let minRowHeight: DocsDimension?
+    public let tableHeader: Bool?
+    public let preventOverflow: Bool?
+
+    public init(
+        minRowHeight: DocsDimension? = nil,
+        tableHeader: Bool? = nil,
+        preventOverflow: Bool? = nil
+    ) {
+        self.minRowHeight = minRowHeight
+        self.tableHeader = tableHeader
+        self.preventOverflow = preventOverflow
+    }
+}
+
+/// The writable subset of a Docs `TableColumnProperties`.
+///
+/// `widthType` is required by the API when this is written; `width` is a
+/// ``DocsDimension`` in points and is required only when `widthType` is
+/// `FIXED_WIDTH` (and must be >= 5 pt). An `EVENLY_DISTRIBUTED` column carries
+/// no `width`. Both stay optional so the container can express either shape; the
+/// client enforces the pairing.
+public struct DocsTableColumnProperties: Codable, Sendable, Equatable {
+    public let widthType: DocsWidthType?
+    public let width: DocsDimension?
+
+    public init(widthType: DocsWidthType? = nil, width: DocsDimension? = nil) {
+        self.widthType = widthType
+        self.width = width
+    }
+}
+
+/// The `updateTableCellStyle` operation. `tableCellStyle` and `fields` (a
+/// comma-separated field mask of the ``DocsTableCellStyle`` paths to apply,
+/// relative to the style root) are required. The target is exactly one of a
+/// ``DocsTableRange`` (a subset of cells) or a ``DocsLocation`` at the table's
+/// start (the whole table); the two inits keep those mutually exclusive — only
+/// the chosen one is set, the other stays nil and is omitted when encoded, so a
+/// dual-target body is unrepresentable.
+public struct DocsUpdateTableCellStyleRequest: Codable, Sendable, Equatable {
+    public let tableCellStyle: DocsTableCellStyle
+    public let fields: String
+    public let tableRange: DocsTableRange?
+    public let tableStartLocation: DocsLocation?
+
+    /// Styles the subset of cells in `tableRange`.
+    public init(tableCellStyle: DocsTableCellStyle, fields: String, tableRange: DocsTableRange) {
+        self.tableCellStyle = tableCellStyle
+        self.fields = fields
+        self.tableRange = tableRange
+        self.tableStartLocation = nil
+    }
+
+    /// Styles the whole table at `tableStartLocation`.
+    public init(
+        tableCellStyle: DocsTableCellStyle, fields: String, tableStartLocation: DocsLocation
+    ) {
+        self.tableCellStyle = tableCellStyle
+        self.fields = fields
+        self.tableRange = nil
+        self.tableStartLocation = tableStartLocation
+    }
+}
+
+/// The `updateTableRowStyle` operation. `tableStartLocation`, `tableRowStyle`,
+/// and `fields` (a comma-separated field mask of the ``DocsTableRowStyle`` paths
+/// to apply) are required. `rowIndices` is the list of zero-based rows to style;
+/// when nil (omitted) the API styles every row. graham passes nil for "all
+/// rows" rather than an empty array — the two are equivalent to the API, and an
+/// omitted field is the cleaner wire form.
+public struct DocsUpdateTableRowStyleRequest: Codable, Sendable, Equatable {
+    public let tableStartLocation: DocsLocation
+    public let rowIndices: [Int]?
+    public let tableRowStyle: DocsTableRowStyle
+    public let fields: String
+
+    public init(
+        tableStartLocation: DocsLocation,
+        rowIndices: [Int]?,
+        tableRowStyle: DocsTableRowStyle,
+        fields: String
+    ) {
+        self.tableStartLocation = tableStartLocation
+        self.rowIndices = rowIndices
+        self.tableRowStyle = tableRowStyle
+        self.fields = fields
+    }
+}
+
+/// The `updateTableColumnProperties` operation. `tableStartLocation`,
+/// `tableColumnProperties`, and `fields` (a comma-separated field mask of the
+/// ``DocsTableColumnProperties`` paths to apply) are required. `columnIndices`
+/// is the list of zero-based columns to style; when nil (omitted) the API styles
+/// every column. graham passes nil for "all columns" rather than an empty array,
+/// matching the row-style shape above.
+public struct DocsUpdateTableColumnPropertiesRequest: Codable, Sendable, Equatable {
+    public let tableStartLocation: DocsLocation
+    public let columnIndices: [Int]?
+    public let tableColumnProperties: DocsTableColumnProperties
+    public let fields: String
+
+    public init(
+        tableStartLocation: DocsLocation,
+        columnIndices: [Int]?,
+        tableColumnProperties: DocsTableColumnProperties,
+        fields: String
+    ) {
+        self.tableStartLocation = tableStartLocation
+        self.columnIndices = columnIndices
+        self.tableColumnProperties = tableColumnProperties
+        self.fields = fields
     }
 }
 
