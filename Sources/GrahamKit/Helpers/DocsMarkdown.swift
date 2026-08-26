@@ -15,7 +15,8 @@ extension Document {
     ///   a `link.url` wraps the styled text as `[text](url)`.
     /// - A paragraph with a ``DocBullet`` becomes a list item: `1.` when the
     ///   list level's ``DocNestingLevel/glyphType`` is numeric, otherwise `-`,
-    ///   indented two spaces per nesting level.
+    ///   indented four spaces per nesting level so the nesting survives on
+    ///   GitHub even under an ordered parent.
     /// - A ``DocTable`` renders as a GitHub pipe table (header row, separator
     ///   row, body rows) with each cell collapsed to a single line.
     /// - A `horizontalRule` renders as `---`; a `pageBreak` as an HTML comment
@@ -114,12 +115,20 @@ private struct DocsMarkdownRenderer {
 
     // MARK: - Paragraphs and lists
 
+    /// Four spaces of indent per nesting level. A nested list item must indent
+    /// to at least its parent marker's content column to stay nested in
+    /// GFM/CommonMark — under an ordered `1. ` parent that column is 3, so two
+    /// spaces renders the sublist flat. Four is a safe uniform width: it clears
+    /// the widest marker graham emits (the ordered `1. `) yet stays under the
+    /// four-past-content threshold that would turn the line into a code block.
+    static let listIndentWidth = 4
+
     /// Renders a bulleted paragraph as one list item, indented by its nesting
     /// level and marked ordered or unordered by its list level's glyph.
     private mutating func renderListItem(_ paragraph: DocParagraph) -> String {
         let level = max(0, paragraph.bullet?.nestingLevel ?? 0)
         let ordered = isOrdered(listId: paragraph.bullet?.listId, level: level)
-        let indent = String(repeating: "  ", count: level)
+        let indent = String(repeating: " ", count: level * Self.listIndentWidth)
         let marker = ordered ? "1." : "-"
         let content = renderInline(paragraph.elements ?? [])
         return content.isEmpty ? "\(indent)\(marker)" : "\(indent)\(marker) \(content)"
@@ -166,25 +175,40 @@ private struct DocsMarkdownRenderer {
         return ""
     }
 
-    /// Renders one text run: strips the placeholder and newlines (each Docs
-    /// paragraph is one Markdown line), then wraps the text with the emphasis
-    /// and link the run's style asks for.
+    /// Renders one text run: strips the placeholder and the line-ending and soft
+    /// line-break control characters (each Docs paragraph is one Markdown line),
+    /// then wraps the text with the emphasis and link the run's style asks for.
+    ///
+    /// Any leading or trailing whitespace stays OUTSIDE the emphasis and link
+    /// delimiters — CommonMark renders a delimiter wrapped around a space
+    /// literally (`** bold **` shows the stars), so the delimiter must hug the
+    /// visible text and the surrounding spaces sit beside it.
     private func renderTextRun(_ run: DocTextRun) -> String {
         var text = run.content ?? ""
         text = text.replacingOccurrences(of: Self.objectPlaceholder, with: "")
-        text = text.replacingOccurrences(of: "\r", with: "")
-        text = text.replacingOccurrences(of: "\n", with: "")
+        for control in ["\r", "\n", "\u{000B}"] {
+            text = text.replacingOccurrences(of: control, with: "")
+        }
         guard !text.isEmpty else { return "" }
 
-        let style = run.textStyle
-        var styled = text
-        if style?.italic == true { styled = "_\(styled)_" }
-        if style?.bold == true { styled = "**\(styled)**" }
-        if style?.strikethrough == true { styled = "~~\(styled)~~" }
-        if let url = style?.link?.url, !url.isEmpty {
-            styled = "[\(styled)](\(url))"
+        let characters = Array(text)
+        guard let start = characters.firstIndex(where: { !$0.isWhitespace }),
+              let last = characters.lastIndex(where: { !$0.isWhitespace }) else {
+            // The run is all whitespace: nothing to emphasize, emit it as-is.
+            return text
         }
-        return styled
+        let leading = String(characters[..<start])
+        let trailing = String(characters[(last + 1)...])
+        var core = String(characters[start...last])
+
+        let style = run.textStyle
+        if style?.italic == true { core = "_\(core)_" }
+        if style?.bold == true { core = "**\(core)**" }
+        if style?.strikethrough == true { core = "~~\(core)~~" }
+        if let url = style?.link?.url, !url.isEmpty {
+            core = "[\(core)](\(url))"
+        }
+        return leading + core + trailing
     }
 
     /// Renders an inline object as an image, using the embedded object's title
@@ -214,7 +238,7 @@ private struct DocsMarkdownRenderer {
     /// Renders a table as a GitHub pipe table: the first row is the header, a
     /// separator row follows, then the remaining rows. Each cell collapses to a
     /// single line and escapes any pipe.
-    private func renderTable(_ table: DocTable) -> String {
+    private mutating func renderTable(_ table: DocTable) -> String {
         let rows = table.tableRows ?? []
         guard let headerRow = rows.first else { return "" }
         let header = cellTexts(headerRow)
@@ -228,11 +252,32 @@ private struct DocsMarkdownRenderer {
         return lines.joined(separator: "\n")
     }
 
-    private func cellTexts(_ row: DocTableRow) -> [String] {
-        (row.tableCells ?? []).map { cell in
-            let raw = (cell.content ?? []).map(\.plainText).joined()
-            return collapse(raw).replacingOccurrences(of: "|", with: "\\|")
+    private mutating func cellTexts(_ row: DocTableRow) -> [String] {
+        (row.tableCells ?? []).map { cellText($0) }
+    }
+
+    /// Renders one cell to a single line of inline Markdown, using the same
+    /// inline renderer as a body paragraph — so a cell's styling, links,
+    /// footnote references, and inline images survive (a footnote referenced
+    /// only in a cell still reaches the footnotes section). A cell cannot hold a
+    /// block-level table in GFM, so a nested table is flattened to its inline
+    /// text rather than dropped. Whitespace collapses to one line and pipes are
+    /// escaped last.
+    private mutating func cellText(_ cell: DocTableCell) -> String {
+        var parts: [String] = []
+        for element in cell.content ?? [] {
+            if let paragraph = element.paragraph {
+                let rendered = renderInline(paragraph.elements ?? [])
+                if !rendered.isEmpty { parts.append(rendered) }
+            } else if let table = element.table {
+                let flat = collapse(table.plainText)
+                if !flat.isEmpty { parts.append(flat) }
+            }
+            // A section break, a table of contents, and an unknown block carry
+            // no cell text.
         }
+        return collapse(parts.joined(separator: " "))
+            .replacingOccurrences(of: "|", with: "\\|")
     }
 
     private func pipeRow(_ cells: [String]) -> String {

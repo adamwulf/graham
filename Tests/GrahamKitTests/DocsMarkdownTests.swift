@@ -122,7 +122,8 @@ final class DocsMarkdownTests: XCTestCase {
     """#
 
     /// Decodes a fixture, swapping the `__E907__` token for the real placeholder
-    /// character the renderer must strip.
+    /// character the renderer must strip. The token lets the private-use
+    /// placeholder live inside a raw-string fixture.
     private func decode(_ json: String) throws -> Document {
         let resolved = json.replacingOccurrences(of: "__E907__", with: "\u{E907}")
         return try GoogleJSON.decoder.decode(Document.self, from: Data(resolved.utf8))
@@ -136,9 +137,9 @@ final class DocsMarkdownTests: XCTestCase {
             "Normal **bold** _italic_ ~~struck~~ and a [link](https://example.com).",
             "Combined: ~~**_all_**~~",
             "beforeafter",
-            "- Fruit\n  - Apple",
+            "- Fruit\n    - Apple",
             "Steps:",
-            "1. Step one\n  1. Sub step",
+            "1. Step one\n    1. Sub step",
             "---",
             "<!-- page break -->",
             "![Logo](https://ex.com/logo.png)",
@@ -190,6 +191,38 @@ final class DocsMarkdownTests: XCTestCase {
         XCTAssertEqual(try decode(json).markdown, "Bogus")
     }
 
+    // MARK: - Emphasis and control characters
+
+    /// Leading and trailing whitespace inside a styled run moves outside the
+    /// emphasis delimiters, which must hug the visible text (CommonMark shows a
+    /// delimiter wrapped around a space literally).
+    func testEmphasisDelimitersHugTextNotSurroundingSpaces() throws {
+        let json = #"""
+        {"documentId": "d", "body": {"content": [
+          {"paragraph": {"elements": [
+            {"textRun": {"content": "A"}},
+            {"textRun": {"content": " bold ", "textStyle": {
+              "bold": true, "italic": true, "strikethrough": true}}},
+            {"textRun": {"content": "end\n"}}
+          ]}}
+        ]}}
+        """#
+        XCTAssertEqual(try decode(json).markdown, "A ~~**_bold_**~~ end")
+    }
+
+    /// The U+000B soft line break the API can place inside a run is stripped,
+    /// just like a newline, so the raw control character never passes through.
+    /// The fixture builds the JSON escape for U+000B from an explicit backslash
+    /// scalar, so the source file holds no raw control byte.
+    func testSoftLineBreakIsStripped() throws {
+        let backslash = "\u{5C}"
+        let json = "{\"documentId\":\"d\",\"body\":{\"content\":["
+            + "{\"paragraph\":{\"elements\":[{\"textRun\":"
+            + "{\"content\":\"line\(backslash)u000bbreak\"}}]}}]}}"
+        let document = try GoogleJSON.decoder.decode(Document.self, from: Data(json.utf8))
+        XCTAssertEqual(document.markdown, "linebreak")
+    }
+
     // MARK: - Lists
 
     /// A list level whose glyph is a symbol (no numeric `glyphType`) is
@@ -212,16 +245,36 @@ final class DocsMarkdownTests: XCTestCase {
         XCTAssertEqual(try decode(json).markdown, "- dash\n\n1. num")
     }
 
-    /// A missing list, or a level past the list's defined levels, falls back to
-    /// an unordered marker.
-    func testUnknownListFallsBackToUnordered() throws {
+    /// A nested list item indents four spaces per level, so the sublist stays
+    /// nested on GitHub even under an ordered parent. A level past the list's
+    /// defined levels falls back to an unordered marker.
+    func testNestedListIndentsFourSpacesPerLevel() throws {
         let json = #"""
         {"documentId": "d", "body": {"content": [
-          {"paragraph": {"bullet": {"listId": "missing", "nestingLevel": 3},
+          {"paragraph": {"bullet": {"listId": "n", "nestingLevel": 0},
+            "elements": [{"textRun": {"content": "One\n"}}]}},
+          {"paragraph": {"bullet": {"listId": "n", "nestingLevel": 1},
+            "elements": [{"textRun": {"content": "Sub\n"}}]}}
+        ]},
+        "lists": {"n": {"listProperties": {"nestingLevels": [
+          {"glyphType": "DECIMAL"}
+        ]}}}}
+        """#
+        // Level 0 is ordered (DECIMAL); level 1 is past the one defined level, so
+        // it falls back to unordered, indented four spaces under the "1. " parent.
+        XCTAssertEqual(try decode(json).markdown, "1. One\n    - Sub")
+    }
+
+    /// A bullet whose list id is missing from the lists map falls back to an
+    /// unordered marker.
+    func testMissingListFallsBackToUnordered() throws {
+        let json = #"""
+        {"documentId": "d", "body": {"content": [
+          {"paragraph": {"bullet": {"listId": "missing", "nestingLevel": 0},
             "elements": [{"textRun": {"content": "Item\n"}}]}}
         ]}}
         """#
-        XCTAssertEqual(try decode(json).markdown, "      - Item")
+        XCTAssertEqual(try decode(json).markdown, "- Item")
     }
 
     // MARK: - Tables
@@ -241,15 +294,18 @@ final class DocsMarkdownTests: XCTestCase {
         XCTAssertEqual(try decode(json).markdown, "| A | B |\n| --- | --- |")
     }
 
-    /// A pipe inside a cell is escaped, and multi-line cell text collapses to a
-    /// single line.
+    /// A pipe inside a cell is escaped, and a multi-paragraph cell collapses to
+    /// a single line.
     func testTableCellsEscapePipesAndCollapseLines() throws {
         let json = #"""
         {"documentId": "d", "body": {"content": [
           {"table": {"tableRows": [
             {"tableCells": [
               {"content": [{"paragraph": {"elements": [{"textRun": {"content": "a|b\n"}}]}}]},
-              {"content": [{"paragraph": {"elements": [{"textRun": {"content": "one\ntwo\n"}}]}}]}
+              {"content": [
+                {"paragraph": {"elements": [{"textRun": {"content": "one\n"}}]}},
+                {"paragraph": {"elements": [{"textRun": {"content": "two\n"}}]}}
+              ]}
             ]},
             {"tableCells": [
               {"content": [{"paragraph": {"elements": [{"textRun": {"content": "1\n"}}]}}]},
@@ -261,6 +317,37 @@ final class DocsMarkdownTests: XCTestCase {
         XCTAssertEqual(
             try decode(json).markdown,
             "| a\\|b | one two |\n| --- | --- |\n| 1 | 2 |")
+    }
+
+    /// A cell renders inline Markdown — styling, a link, and a footnote
+    /// reference — collapsed to one line, and a footnote referenced only in a
+    /// cell still reaches the footnotes section.
+    func testTableCellRendersInlineMarkdownAndCellOnlyFootnote() throws {
+        let json = #"""
+        {"documentId": "d", "body": {"content": [
+          {"table": {"tableRows": [
+            {"tableCells": [
+              {"content": [{"paragraph": {"elements": [
+                {"textRun": {"content": "Bold", "textStyle": {"bold": true}}},
+                {"textRun": {"content": " and "}},
+                {"textRun": {"content": "link", "textStyle": {
+                  "link": {"url": "https://ex.com"}}}},
+                {"footnoteReference": {"footnoteId": "f", "footnoteNumber": "1"}},
+                {"textRun": {"content": "\n"}}
+              ]}}]},
+              {"content": [{"paragraph": {"elements": [{"textRun": {"content": "Plain\n"}}]}}]}
+            ]}
+          ]}}
+        ]},
+        "footnotes": {
+          "f": {"content": [{"paragraph": {"elements": [
+            {"textRun": {"content": "Note in cell.\n"}}]}}]}
+        }}
+        """#
+        XCTAssertEqual(
+            try decode(json).markdown,
+            "| **Bold** and [link](https://ex.com)[^1] | Plain |\n| --- | --- |"
+            + "\n\n[^1]: Note in cell.")
     }
 
     // MARK: - Footnotes
