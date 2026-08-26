@@ -534,6 +534,335 @@ public struct DocsClient: Sendable {
             requiredRevisionId: requiredRevisionId)
     }
 
+    // MARK: - Tables (structure)
+    //
+    // Every table structure op locates the table by its zero-based UTF-16 start
+    // index (the value `docs structure` prints) and, for the cell-addressed ops,
+    // a cell's row and column. The CLI shows and accepts one-based row and column
+    // numbers; these methods subtract one at the client boundary, exactly as the
+    // Slides table methods do. Spans are one-based counts (passed through), and a
+    // pinned-header count is a count of 0 or greater. An empty `segmentId`
+    // normalizes to the body (encoded with no segment id), matching the text and
+    // styling ops. Replies are empty objects.
+
+    /// Throws ``GrahamError/invalidArgument(_:)`` unless a one-based index or
+    /// span is at least one.
+    private static func requireOneBased(_ value: Int, label: String) throws {
+        guard value >= 1 else {
+            throw GrahamError.invalidArgument(
+                "\(label) must be one-based (1 or greater), got \(value)")
+        }
+    }
+
+    /// Builds a ``DocsLocation`` at a table's zero-based start index, normalizing
+    /// an empty `segmentId` to the body (encoded with no segment id).
+    private static func tableStartLocation(
+        tableStartIndex: Int, segmentId: String?
+    ) -> DocsLocation {
+        let segmentId = segmentId.flatMap { $0.isEmpty ? nil : $0 }
+        return DocsLocation(index: tableStartIndex, segmentId: segmentId)
+    }
+
+    /// Translates a one-based cell target to a ``DocsTableCellLocation`` at the
+    /// table's zero-based start index. `row` and `column` are validated as
+    /// one-based, then subtracted to the API's zero-based `rowIndex`/`columnIndex`.
+    private static func tableCellLocation(
+        tableStartIndex: Int, segmentId: String?, row: Int, column: Int
+    ) throws -> DocsTableCellLocation {
+        try requireOneBased(row, label: "table row")
+        try requireOneBased(column, label: "table column")
+        return DocsTableCellLocation(
+            tableStartLocation: tableStartLocation(
+                tableStartIndex: tableStartIndex, segmentId: segmentId),
+            rowIndex: row - 1,
+            columnIndex: column - 1
+        )
+    }
+
+    /// Inserts an empty `rows` x `columns` table and returns the batch response
+    /// plus the resulting table start index.
+    ///
+    /// The destination is exactly one of an explicit `index` (a ``DocsLocation``)
+    /// or the end of a segment (`endOfSegment`). The API inserts a newline before
+    /// the table, so when an `index` is given the table starts at `index + 1`;
+    /// that value is returned as `tableStartIndex` so the caller can address the
+    /// new table with the other table ops. For the end-of-segment path the
+    /// resulting index cannot be computed without re-reading the document, so
+    /// `tableStartIndex` is nil.
+    ///
+    /// - Parameters:
+    ///   - rows / columns: the table dimensions; each must be 1 or greater.
+    ///   - index: the zero-based UTF-16 body index to insert at. Required unless
+    ///     `endOfSegment` is set. The body's first editable index is 1 (index 0
+    ///     lands inside the initial section break); a named segment starts at 0.
+    ///   - endOfSegment: append to the end of the body (or the segment named by
+    ///     `segmentId`) without computing an index. `index` is ignored, and no
+    ///     index guard applies.
+    ///   - segmentId: a header, footer, or footnote segment; nil or an empty
+    ///     string targets the body.
+    public func insertTable(
+        documentId: String,
+        rows: Int,
+        columns: Int,
+        index: Int? = nil,
+        endOfSegment: Bool = false,
+        segmentId: String? = nil,
+        requiredRevisionId: String? = nil
+    ) async throws -> (response: DocsBatchUpdateResponse, tableStartIndex: Int?) {
+        guard rows >= 1 else {
+            throw GrahamError.invalidArgument("table rows must be 1 or greater, got \(rows)")
+        }
+        guard columns >= 1 else {
+            throw GrahamError.invalidArgument(
+                "table columns must be 1 or greater, got \(columns)")
+        }
+        // The Docs API reads an empty segment id as the document body, so
+        // normalize "" to nil before choosing the guard and building the target.
+        let segmentId = segmentId.flatMap { $0.isEmpty ? nil : $0 }
+        let insert: DocsInsertTableRequest
+        let tableStartIndex: Int?
+        if endOfSegment {
+            insert = DocsInsertTableRequest(
+                rows: rows, columns: columns,
+                endOfSegmentLocation: DocsEndOfSegmentLocation(segmentId: segmentId))
+            tableStartIndex = nil
+        } else {
+            guard let index else {
+                throw GrahamError.invalidArgument(
+                    "provide an index to insert at, or append to the end of the segment")
+            }
+            if segmentId == nil {
+                guard index >= 1 else {
+                    throw GrahamError.invalidArgument(
+                        "index must be 1 or greater; the document body starts at index 1")
+                }
+            } else {
+                guard index >= 0 else {
+                    throw GrahamError.invalidArgument(
+                        "index must be 0 or greater in a segment")
+                }
+            }
+            insert = DocsInsertTableRequest(
+                rows: rows, columns: columns,
+                location: DocsLocation(index: index, segmentId: segmentId))
+            // The API inserts a newline before the table, so the table starts one
+            // index past the insertion point.
+            tableStartIndex = index + 1
+        }
+        let request = DocsBatchUpdateRequest.insertTable(insert)
+        let response = try await batchUpdate(
+            documentId: documentId, requests: [request],
+            requiredRevisionId: requiredRevisionId)
+        return (response, tableStartIndex)
+    }
+
+    /// Inserts an empty row above or below a reference cell.
+    ///
+    /// - Parameters:
+    ///   - tableStartIndex: the table's zero-based UTF-16 start index.
+    ///   - row / column: the one-based reference cell; translated to zero-based.
+    ///   - below: true inserts below the reference row, false inserts above it.
+    ///   - segmentId: a header, footer, or footnote segment; nil or empty targets
+    ///     the body.
+    public func insertTableRow(
+        documentId: String,
+        tableStartIndex: Int,
+        row: Int,
+        column: Int,
+        below: Bool,
+        segmentId: String? = nil,
+        requiredRevisionId: String? = nil
+    ) async throws -> DocsBatchUpdateResponse {
+        let cell = try Self.tableCellLocation(
+            tableStartIndex: tableStartIndex, segmentId: segmentId, row: row, column: column)
+        let request = DocsBatchUpdateRequest.insertTableRow(
+            DocsInsertTableRowRequest(tableCellLocation: cell, insertBelow: below))
+        return try await batchUpdate(
+            documentId: documentId, requests: [request],
+            requiredRevisionId: requiredRevisionId)
+    }
+
+    /// Inserts an empty column left or right of a reference cell.
+    ///
+    /// - Parameters:
+    ///   - tableStartIndex: the table's zero-based UTF-16 start index.
+    ///   - row / column: the one-based reference cell; translated to zero-based.
+    ///   - right: true inserts to the right of the reference column, false to its
+    ///     left.
+    ///   - segmentId: a header, footer, or footnote segment; nil or empty targets
+    ///     the body.
+    public func insertTableColumn(
+        documentId: String,
+        tableStartIndex: Int,
+        row: Int,
+        column: Int,
+        right: Bool,
+        segmentId: String? = nil,
+        requiredRevisionId: String? = nil
+    ) async throws -> DocsBatchUpdateResponse {
+        let cell = try Self.tableCellLocation(
+            tableStartIndex: tableStartIndex, segmentId: segmentId, row: row, column: column)
+        let request = DocsBatchUpdateRequest.insertTableColumn(
+            DocsInsertTableColumnRequest(tableCellLocation: cell, insertRight: right))
+        return try await batchUpdate(
+            documentId: documentId, requests: [request],
+            requiredRevisionId: requiredRevisionId)
+    }
+
+    /// Deletes the row of a reference cell. A merged reference cell deletes every
+    /// row it spans.
+    ///
+    /// - Parameters:
+    ///   - tableStartIndex: the table's zero-based UTF-16 start index.
+    ///   - row / column: the one-based reference cell; translated to zero-based.
+    ///   - segmentId: a header, footer, or footnote segment; nil or empty targets
+    ///     the body.
+    public func deleteTableRow(
+        documentId: String,
+        tableStartIndex: Int,
+        row: Int,
+        column: Int,
+        segmentId: String? = nil,
+        requiredRevisionId: String? = nil
+    ) async throws -> DocsBatchUpdateResponse {
+        let cell = try Self.tableCellLocation(
+            tableStartIndex: tableStartIndex, segmentId: segmentId, row: row, column: column)
+        let request = DocsBatchUpdateRequest.deleteTableRow(
+            DocsDeleteTableRowRequest(tableCellLocation: cell))
+        return try await batchUpdate(
+            documentId: documentId, requests: [request],
+            requiredRevisionId: requiredRevisionId)
+    }
+
+    /// Deletes the column of a reference cell. A merged reference cell deletes
+    /// every column it spans.
+    ///
+    /// - Parameters:
+    ///   - tableStartIndex: the table's zero-based UTF-16 start index.
+    ///   - row / column: the one-based reference cell; translated to zero-based.
+    ///   - segmentId: a header, footer, or footnote segment; nil or empty targets
+    ///     the body.
+    public func deleteTableColumn(
+        documentId: String,
+        tableStartIndex: Int,
+        row: Int,
+        column: Int,
+        segmentId: String? = nil,
+        requiredRevisionId: String? = nil
+    ) async throws -> DocsBatchUpdateResponse {
+        let cell = try Self.tableCellLocation(
+            tableStartIndex: tableStartIndex, segmentId: segmentId, row: row, column: column)
+        let request = DocsBatchUpdateRequest.deleteTableColumn(
+            DocsDeleteTableColumnRequest(tableCellLocation: cell))
+        return try await batchUpdate(
+            documentId: documentId, requests: [request],
+            requiredRevisionId: requiredRevisionId)
+    }
+
+    /// Merges the cells of a table range into the range's head cell.
+    ///
+    /// - Parameters:
+    ///   - tableStartIndex: the table's zero-based UTF-16 start index.
+    ///   - row / column: the one-based head cell of the range; translated to
+    ///     zero-based.
+    ///   - rowSpan / columnSpan: the range's cell-count spans; each must be 1 or
+    ///     greater and is passed through unchanged.
+    ///   - segmentId: a header, footer, or footnote segment; nil or empty targets
+    ///     the body.
+    public func mergeTableCells(
+        documentId: String,
+        tableStartIndex: Int,
+        row: Int,
+        column: Int,
+        rowSpan: Int,
+        columnSpan: Int,
+        segmentId: String? = nil,
+        requiredRevisionId: String? = nil
+    ) async throws -> DocsBatchUpdateResponse {
+        let range = try Self.tableRange(
+            tableStartIndex: tableStartIndex, segmentId: segmentId,
+            row: row, column: column, rowSpan: rowSpan, columnSpan: columnSpan)
+        let request = DocsBatchUpdateRequest.mergeTableCells(
+            DocsMergeTableCellsRequest(tableRange: range))
+        return try await batchUpdate(
+            documentId: documentId, requests: [request],
+            requiredRevisionId: requiredRevisionId)
+    }
+
+    /// Unmerges every merged cell in a table range.
+    ///
+    /// - Parameters:
+    ///   - tableStartIndex: the table's zero-based UTF-16 start index.
+    ///   - row / column: the one-based head cell of the range; translated to
+    ///     zero-based.
+    ///   - rowSpan / columnSpan: the range's cell-count spans; each must be 1 or
+    ///     greater and is passed through unchanged.
+    ///   - segmentId: a header, footer, or footnote segment; nil or empty targets
+    ///     the body.
+    public func unmergeTableCells(
+        documentId: String,
+        tableStartIndex: Int,
+        row: Int,
+        column: Int,
+        rowSpan: Int,
+        columnSpan: Int,
+        segmentId: String? = nil,
+        requiredRevisionId: String? = nil
+    ) async throws -> DocsBatchUpdateResponse {
+        let range = try Self.tableRange(
+            tableStartIndex: tableStartIndex, segmentId: segmentId,
+            row: row, column: column, rowSpan: rowSpan, columnSpan: columnSpan)
+        let request = DocsBatchUpdateRequest.unmergeTableCells(
+            DocsUnmergeTableCellsRequest(tableRange: range))
+        return try await batchUpdate(
+            documentId: documentId, requests: [request],
+            requiredRevisionId: requiredRevisionId)
+    }
+
+    /// Builds a one-based ``DocsTableRange``, validating the head cell and spans
+    /// and translating the head cell to the API's zero-based convention.
+    private static func tableRange(
+        tableStartIndex: Int, segmentId: String?,
+        row: Int, column: Int, rowSpan: Int, columnSpan: Int
+    ) throws -> DocsTableRange {
+        let cell = try tableCellLocation(
+            tableStartIndex: tableStartIndex, segmentId: segmentId, row: row, column: column)
+        try requireOneBased(rowSpan, label: "table row span")
+        try requireOneBased(columnSpan, label: "table column span")
+        return DocsTableRange(
+            tableCellLocation: cell, rowSpan: rowSpan, columnSpan: columnSpan)
+    }
+
+    /// Pins the first `pinnedHeaderRowsCount` rows of a table as headers; 0
+    /// unpins.
+    ///
+    /// - Parameters:
+    ///   - tableStartIndex: the table's zero-based UTF-16 start index.
+    ///   - pinnedHeaderRowsCount: the number of leading rows to pin; must be 0 or
+    ///     greater.
+    ///   - segmentId: a header, footer, or footnote segment; nil or empty targets
+    ///     the body.
+    public func pinTableHeaderRows(
+        documentId: String,
+        tableStartIndex: Int,
+        pinnedHeaderRowsCount: Int,
+        segmentId: String? = nil,
+        requiredRevisionId: String? = nil
+    ) async throws -> DocsBatchUpdateResponse {
+        guard pinnedHeaderRowsCount >= 0 else {
+            throw GrahamError.invalidArgument(
+                "pinned header rows count must be 0 or greater, got \(pinnedHeaderRowsCount)")
+        }
+        let start = Self.tableStartLocation(
+            tableStartIndex: tableStartIndex, segmentId: segmentId)
+        let request = DocsBatchUpdateRequest.pinTableHeaderRows(
+            DocsPinTableHeaderRowsRequest(
+                tableStartLocation: start, pinnedHeaderRowsCount: pinnedHeaderRowsCount))
+        return try await batchUpdate(
+            documentId: documentId, requests: [request],
+            requiredRevisionId: requiredRevisionId)
+    }
+
     // MARK: - Image download
 
     /// Downloads the bytes at an image `contentUri`.

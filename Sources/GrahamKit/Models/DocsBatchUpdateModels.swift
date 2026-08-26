@@ -36,6 +36,25 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
     /// Removes bullets from the paragraphs overlapping a range, preserving
     /// visual nesting through indents.
     case deleteParagraphBullets(DocsDeleteParagraphBulletsRequest)
+    /// Inserts an empty rows x columns table at a location or the end of a
+    /// segment.
+    case insertTable(DocsInsertTableRequest)
+    /// Inserts an empty row above or below a reference cell.
+    case insertTableRow(DocsInsertTableRowRequest)
+    /// Inserts an empty column left or right of a reference cell.
+    case insertTableColumn(DocsInsertTableColumnRequest)
+    /// Deletes the row of a reference cell (a merged cell deletes every row it
+    /// spans).
+    case deleteTableRow(DocsDeleteTableRowRequest)
+    /// Deletes the column of a reference cell (a merged cell deletes every
+    /// column it spans).
+    case deleteTableColumn(DocsDeleteTableColumnRequest)
+    /// Merges the cells of a table range into the range's head cell.
+    case mergeTableCells(DocsMergeTableCellsRequest)
+    /// Unmerges every merged cell in a table range.
+    case unmergeTableCells(DocsUnmergeTableCellsRequest)
+    /// Pins the first N rows of a table as headers; 0 unpins.
+    case pinTableHeaderRows(DocsPinTableHeaderRowsRequest)
 
     private enum CodingKeys: String, CodingKey {
         case insertText
@@ -45,6 +64,14 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
         case updateParagraphStyle
         case createParagraphBullets
         case deleteParagraphBullets
+        case insertTable
+        case insertTableRow
+        case insertTableColumn
+        case deleteTableRow
+        case deleteTableColumn
+        case mergeTableCells
+        case unmergeTableCells
+        case pinTableHeaderRows
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -64,6 +91,22 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
             try container.encode(request, forKey: .createParagraphBullets)
         case .deleteParagraphBullets(let request):
             try container.encode(request, forKey: .deleteParagraphBullets)
+        case .insertTable(let request):
+            try container.encode(request, forKey: .insertTable)
+        case .insertTableRow(let request):
+            try container.encode(request, forKey: .insertTableRow)
+        case .insertTableColumn(let request):
+            try container.encode(request, forKey: .insertTableColumn)
+        case .deleteTableRow(let request):
+            try container.encode(request, forKey: .deleteTableRow)
+        case .deleteTableColumn(let request):
+            try container.encode(request, forKey: .deleteTableColumn)
+        case .mergeTableCells(let request):
+            try container.encode(request, forKey: .mergeTableCells)
+        case .unmergeTableCells(let request):
+            try container.encode(request, forKey: .unmergeTableCells)
+        case .pinTableHeaderRows(let request):
+            try container.encode(request, forKey: .pinTableHeaderRows)
         }
     }
 }
@@ -619,6 +662,126 @@ public struct DocsDeleteParagraphBulletsRequest: Codable, Sendable, Equatable {
 
     public init(range: DocsRange) {
         self.range = range
+    }
+}
+
+// MARK: - Tables (structure)
+//
+// These mirror the Docs v1 table structure operations: `insertTable`,
+// `insertTableRow`, `insertTableColumn`, `deleteTableRow`, `deleteTableColumn`,
+// `mergeTableCells`, `unmergeTableCells`, and `pinTableHeaderRows`. They reuse
+// the shared ``DocsLocation``, ``DocsEndOfSegmentLocation``,
+// ``DocsTableCellLocation``, and ``DocsTableRange`` location models. The API's
+// row and column indices are zero-based; the CLI shows one-based and
+// ``DocsClient`` subtracts one at the client boundary. The styling operations
+// (`updateTableCellStyle`, `updateTableRowStyle`, `updateTableColumnProperties`)
+// are a separate phase and are not modeled here.
+
+/// The `insertTable` operation. `rows` and `columns` are required and give the
+/// dimensions of the new, empty table. The destination is exactly one of a
+/// ``DocsLocation`` (an explicit index) or a ``DocsEndOfSegmentLocation``
+/// (append to the end of the body or a segment). The two inits keep those
+/// mutually exclusive: only the chosen one is set, and the other stays nil and
+/// is omitted when encoded. The API inserts a newline before the table, so the
+/// resulting table start index is the location index + 1.
+public struct DocsInsertTableRequest: Codable, Sendable, Equatable {
+    public let rows: Int
+    public let columns: Int
+    public let location: DocsLocation?
+    public let endOfSegmentLocation: DocsEndOfSegmentLocation?
+
+    public init(rows: Int, columns: Int, location: DocsLocation) {
+        self.rows = rows
+        self.columns = columns
+        self.location = location
+        self.endOfSegmentLocation = nil
+    }
+
+    public init(rows: Int, columns: Int, endOfSegmentLocation: DocsEndOfSegmentLocation) {
+        self.rows = rows
+        self.columns = columns
+        self.location = nil
+        self.endOfSegmentLocation = endOfSegmentLocation
+    }
+}
+
+/// The `insertTableRow` operation. `tableCellLocation` is the reference cell and
+/// `insertBelow` chooses the side: true inserts below the reference row, false
+/// inserts above it. Both are required by the API.
+public struct DocsInsertTableRowRequest: Codable, Sendable, Equatable {
+    public let tableCellLocation: DocsTableCellLocation
+    public let insertBelow: Bool
+
+    public init(tableCellLocation: DocsTableCellLocation, insertBelow: Bool) {
+        self.tableCellLocation = tableCellLocation
+        self.insertBelow = insertBelow
+    }
+}
+
+/// The `insertTableColumn` operation. `tableCellLocation` is the reference cell
+/// and `insertRight` chooses the side: true inserts to the right of the
+/// reference column, false inserts to its left. Both are required by the API.
+public struct DocsInsertTableColumnRequest: Codable, Sendable, Equatable {
+    public let tableCellLocation: DocsTableCellLocation
+    public let insertRight: Bool
+
+    public init(tableCellLocation: DocsTableCellLocation, insertRight: Bool) {
+        self.tableCellLocation = tableCellLocation
+        self.insertRight = insertRight
+    }
+}
+
+/// The `deleteTableRow` operation. The row containing `tableCellLocation` is
+/// deleted; a merged reference cell deletes every row it spans.
+public struct DocsDeleteTableRowRequest: Codable, Sendable, Equatable {
+    public let tableCellLocation: DocsTableCellLocation
+
+    public init(tableCellLocation: DocsTableCellLocation) {
+        self.tableCellLocation = tableCellLocation
+    }
+}
+
+/// The `deleteTableColumn` operation. The column containing `tableCellLocation`
+/// is deleted; a merged reference cell deletes every column it spans.
+public struct DocsDeleteTableColumnRequest: Codable, Sendable, Equatable {
+    public let tableCellLocation: DocsTableCellLocation
+
+    public init(tableCellLocation: DocsTableCellLocation) {
+        self.tableCellLocation = tableCellLocation
+    }
+}
+
+/// The `mergeTableCells` operation. Every cell of `tableRange` is merged into
+/// the range's head cell, concatenating the text.
+public struct DocsMergeTableCellsRequest: Codable, Sendable, Equatable {
+    public let tableRange: DocsTableRange
+
+    public init(tableRange: DocsTableRange) {
+        self.tableRange = tableRange
+    }
+}
+
+/// The `unmergeTableCells` operation. Every merged cell overlapping `tableRange`
+/// is unmerged back to individual cells.
+public struct DocsUnmergeTableCellsRequest: Codable, Sendable, Equatable {
+    public let tableRange: DocsTableRange
+
+    public init(tableRange: DocsTableRange) {
+        self.tableRange = tableRange
+    }
+}
+
+/// The `pinTableHeaderRows` operation. `tableStartLocation` is a
+/// ``DocsLocation`` at the table's start index and `pinnedHeaderRowsCount` is
+/// the number of leading rows to pin as headers (0 unpins). Both are required
+/// by the API.
+public struct DocsPinTableHeaderRowsRequest: Codable, Sendable, Equatable {
+    public let tableStartLocation: DocsLocation
+    public let pinnedHeaderRowsCount: Int
+
+    public init(tableStartLocation: DocsLocation, pinnedHeaderRowsCount: Int) {
+        self.tableStartLocation = tableStartLocation
+        self.pinnedHeaderRowsCount = pinnedHeaderRowsCount
     }
 }
 
