@@ -59,4 +59,23 @@ final class DocsReadParsingTests: XCTestCase {
     func testDocsImagesRequiresADocumentID() {
         XCTAssertThrowsError(try Docs.Images.parse([]))
     }
+
+    // MARK: - docs cat
+
+    func testDocsCatDefaultsToPlainText() throws {
+        let command = try Docs.Cat.parse(["doc-1"])
+        XCTAssertEqual(command.documentID, "doc-1")
+        XCTAssertFalse(command.json)
+        XCTAssertFalse(command.markdown)
+    }
+
+    func testDocsCatParsesTheMarkdownFlag() throws {
+        let command = try Docs.Cat.parse(["doc-1", "--markdown"])
+        XCTAssertTrue(command.markdown)
+        XCTAssertFalse(command.json)
+    }
+
+    func testDocsCatRejectsJsonAndMarkdownTogether() {
+        XCTAssertThrowsError(try Docs.Cat.parse(["doc-1", "--json", "--markdown"]))
+    }
 }

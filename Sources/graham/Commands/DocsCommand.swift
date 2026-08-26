@@ -25,7 +25,15 @@ struct Docs: AsyncParsableCommand {
 
     struct Cat: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Print the text of a document."
+            abstract: "Print the text of a document.",
+            discussion: """
+                By default the body text is printed as-is. Pass --markdown to \
+                render the document as GitHub-flavored Markdown (headings, bold / \
+                italic / strikethrough, links, lists, tables, horizontal rules, \
+                page-break markers, footnotes, and inline images), or --json for \
+                the full decoded document. --markdown and --json are mutually \
+                exclusive.
+                """
         )
 
         @Argument(help: "The document ID.")
@@ -34,11 +42,26 @@ struct Docs: AsyncParsableCommand {
         @Flag(help: "Print the decoded document as JSON instead of plain text.")
         var json = false
 
+        @Flag(help: "Render the document as Markdown instead of plain text.")
+        var markdown = false
+
+        func validate() throws {
+            if json && markdown {
+                throw ValidationError(
+                    "Pass either --json or --markdown, not both: --json prints the "
+                    + "decoded document and --markdown renders it as Markdown.")
+            }
+        }
+
         func run() async throws {
             let client = DocsClient(api: try CLI.makeAPI())
             let document = try await client.document(id: documentID)
             if json {
                 try CLI.printJSON(document)
+                return
+            }
+            if markdown {
+                print(document.markdown)
                 return
             }
             print(document.plainText, terminator: "")
