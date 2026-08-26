@@ -604,8 +604,11 @@ struct Docs: AsyncParsableCommand {
                     segment (--segment) the content starts at index 0. The API \
                     inserts a newline before the table, so with --at the table \
                     starts at index + 1; that start index is printed so you can \
-                    address the table with the other `docs table` commands. Get \
-                    index ranges from `docs structure`.
+                    address the table with the other `docs table` commands. The \
+                    table goes in the body, a header, or a footer (a footnote \
+                    cannot hold a table), and --at cannot point at an existing \
+                    table's start index (the server rejects that). Get index \
+                    ranges from `docs structure`.
                     """
             )
 
@@ -624,7 +627,7 @@ struct Docs: AsyncParsableCommand {
             @Flag(help: "Append the table to the end of the body or segment; --at is ignored.")
             var end = false
 
-            @Option(help: "A header, footer, or footnote segment id to insert into. Omit for the body.")
+            @Option(help: "A header or footer segment id to insert into. Omit for the body. A footnote cannot hold a table.")
             var segment: String?
 
             @Option(help: "Require the document be at this revision id; the write fails otherwise.")
@@ -653,7 +656,10 @@ struct Docs: AsyncParsableCommand {
                 if let start = result.tableStartIndex {
                     print("Created a \(rows)x\(columns) table; it starts at index \(start).")
                 } else {
-                    let destination = segment.map { "the end of segment \($0)" }
+                    // An empty --segment normalizes to the body, exactly as the
+                    // client does, so a blank id never reaches the message.
+                    let namedSegment = segment.flatMap { $0.isEmpty ? nil : $0 }
+                    let destination = namedSegment.map { "the end of segment \($0)" }
                         ?? "the end of the body"
                     print("Created a \(rows)x\(columns) table at \(destination).")
                 }

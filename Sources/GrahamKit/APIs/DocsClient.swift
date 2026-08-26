@@ -590,6 +590,12 @@ public struct DocsClient: Sendable {
     /// resulting index cannot be computed without re-reading the document, so
     /// `tableStartIndex` is nil.
     ///
+    /// A table can go in the body, a header, or a footer, but **not** a footnote
+    /// (the API rejects an `insertTable` there with a 400). The API also rejects
+    /// an insert location that is an existing table's start index; that is a
+    /// server-side rule this client cannot check, so such a call reaches Google
+    /// and returns its error.
+    ///
     /// - Parameters:
     ///   - rows / columns: the table dimensions; each must be 1 or greater.
     ///   - index: the zero-based UTF-16 body index to insert at. Required unless
@@ -598,8 +604,8 @@ public struct DocsClient: Sendable {
     ///   - endOfSegment: append to the end of the body (or the segment named by
     ///     `segmentId`) without computing an index. `index` is ignored, and no
     ///     index guard applies.
-    ///   - segmentId: a header, footer, or footnote segment; nil or an empty
-    ///     string targets the body.
+    ///   - segmentId: a header or footer segment (a footnote cannot hold a
+    ///     table); nil or an empty string targets the body.
     public func insertTable(
         documentId: String,
         rows: Int,
