@@ -51,29 +51,7 @@ keep the styling change reviewable:
   `docs paragraph` border flags. Same fields-mask discipline and exact-string
   tests.
 
-### Phase 7 — Headers, footers, footnotes (next up)
-
-Create replies carry the new segment id (`headerId` / `footerId` /
-`footnoteId`); print it so follow-up segment writes can target it.
-
-- **`createHeader`** *(useful)* — create a header; the only `type` is `DEFAULT`;
-  optional `sectionBreakLocation` scopes it to a section. First-page and
-  even-page headers are enabled through `updateDocumentStyle` flags, not here.
-  CLI `docs header create`.
-- **`createFooter`** *(useful)* — same shape for footers. CLI
-  `docs footer create`.
-- **`deleteHeader`** *(useful)* — delete a header by `headerId`. CLI
-  `docs header delete`.
-- **`deleteFooter`** *(useful)* — delete a footer by `footerId`. CLI
-  `docs footer delete`.
-- **`createFootnote`** *(useful)* — create a footnote segment and insert its
-  reference at a body location; the new segment starts with a space and a
-  newline. CLI `docs footnote <id> --at [--text]`; with `--text`, batch a
-  follow-up `insertText` into the returned `footnoteId` segment (segment content
-  starts at index 0, but the auto-inserted space occupies index 0-1, so insert
-  at index 1).
-
-### Phase 8 — Named ranges and document style
+### Phase 8 — Named ranges and document style (next up — last core+useful phase)
 
 - **`createNamedRange`** *(useful)* — name a range (name 1-256 UTF-16 units, not
   unique); the reply carries `namedRangeId`. CLI `docs range create`. Zero-based
