@@ -17,8 +17,10 @@ Named after Graham's number — a contrast to the googol that named Google.
   and list its block structure with index ranges; list or download its images;
   create a blank document; and through the shared `documents.batchUpdate` write
   path insert, delete, and replace text, style text and paragraphs, manage
-  bulleted and numbered lists, and edit table structure (insert and delete rows
-  and columns, merge and unmerge cells, and pin header rows).
+  bulleted and numbered lists, edit table structure (insert and delete rows
+  and columns, merge and unmerge cells, and pin header rows), and style tables
+  (cell background, borders, padding, and alignment; row height, header, and
+  overflow; and column width).
 - **Slides** — read presentation text; list every page element with its type,
   geometry, text, links, and alt text; list or download every image, including
   images nested in groups; add, move, and delete slides through the shared
@@ -168,6 +170,18 @@ graham docs table merge <document-id> --table 5 --row 1 --column 1 --row-span 1 
 graham docs table unmerge <document-id> --table 5 --row 1 --column 1 --row-span 1 --column-span 2
 # Pin the first N rows as headers; 0 unpins.
 graham docs table pin-headers <document-id> --table 5 --count 1
+# Style a cell range (give --row/--column, one-based, with optional --row-span/
+# --column-span) or the whole table (omit them). --border sets all four cell
+# borders and needs a color (width defaults to 1pt, dash to solid); --padding sets
+# all four paddings; --align is top/middle/bottom. At least one style is required.
+graham docs table style <document-id> --table 5 --row 1 --column 1 --background "#F1F3F4" --align middle
+graham docs table style <document-id> --table 5 --border "#000000" --border-width 1 --border-dash solid
+# Set row height/header/overflow for listed one-based --rows (omit for every row).
+graham docs table row-style <document-id> --table 5 --rows 1 --min-height 24 --header
+# Set the width of listed one-based --columns (omit for every column): a fixed
+# --width in points (>= 5) or --evenly distributed. Exactly one of the two.
+graham docs table column-width <document-id> --table 5 --columns 1 2 --width 90
+graham docs table column-width <document-id> --table 5 --evenly
 # Any write can require the document be at a known revision (optimistic concurrency);
 # the write fails instead of overwriting a concurrent edit.
 graham docs insert <document-id> --text "Hello" --at 1 --require-revision <revision-id>
