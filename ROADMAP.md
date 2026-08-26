@@ -99,11 +99,13 @@ column counts), `values` (read a range, with a `valueRenderOption`),
 `batchGetValues` (multi-range read), `setValues` (write a range, `USER_ENTERED`),
 `appendValues` (append rows after a table), `clearValues` (clear a range),
 `batchUpdate` (the shared batch-write path), `addChart` (a basic chart on its own
-new sheet), and the tab operations `addSheet` / `deleteSheet` / `renameSheet`
-(plus `sheetId(title:)` resolution). The CLI exposes these as `sheets get`,
+new sheet), the tab operations `addSheet` / `deleteSheet` / `renameSheet` (plus
+`sheetId(title:)` / `firstSheetId` resolution), and the grid-shape operations
+`freeze` and `resizeDimension`. The CLI exposes these as `sheets get`,
 `sheets values` (`--raw` / `--formulas`, one or more ranges), `sheets set`
 (`--row` / `--json-rows` / `--tsv`), `sheets append`, `sheets clear`,
-`sheets tab add` / `delete` / `rename`, and `sheets chart add`.
+`sheets tab add` / `delete` / `rename`, `sheets freeze`, `sheets resize`, and
+`sheets chart add`.
 
 `graham sheets test` runs the live end-to-end Sheets smoke test over that surface
 (`SheetsLiveTest.swift`), with real value write / append / clear
@@ -130,16 +132,6 @@ Index conventions (apply throughout): A1 ranges parse through `A1Range.parse`
 grid indices are zero-based (dimension ranges are also half-open); the CLI shows
 and accepts one-based (inclusive for dimensions) and `GrahamKit` translates.
 Building a fields mask reuses the Slides `update*Properties` mask convention.
-
-### Phase 3 — Grid shape
-
-- **Freeze** — `updateSheetProperties.gridProperties`
-  (`frozenRowCount` / `frozenColumnCount`). The read side (surfacing the counts
-  in `sheets get`) is already built; only the write remains.
-- **Resize** — `updateDimensionProperties` for row height / column width.
-  Dimension ranges are zero-based half-open; the CLI is one-based inclusive.
-- Grow `sheets test`: freeze the header row and read it back through `get`;
-  resize a column.
 
 ### Phase 4 — Cell formatting
 

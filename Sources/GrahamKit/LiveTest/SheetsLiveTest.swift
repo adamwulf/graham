@@ -231,6 +231,24 @@ public struct SheetsLiveTest: Sendable {
             }
         }
 
+        // Freeze the header row on the first sheet, then read the count back.
+        _ = await actionStep("freeze", recorder: recorder) {
+            let sheetId = try await sheets.firstSheetId(spreadsheetId: spreadsheetID)
+            try await sheets.freeze(spreadsheetId: spreadsheetID, sheetId: sheetId, rows: 1)
+            let after = try await sheets.spreadsheet(id: spreadsheetID)
+            guard after.sheets?.first?.properties?.gridProperties?.frozenRowCount == 1 else {
+                throw GrahamError.invalidResponse("the frozen row count did not round-trip")
+            }
+        }
+        // Resize the first column. The trimmed metadata carries no per-column
+        // width, so this step only confirms the write is accepted.
+        _ = await actionStep("resize", recorder: recorder) {
+            let sheetId = try await sheets.firstSheetId(spreadsheetId: spreadsheetID)
+            try await sheets.resizeDimension(
+                spreadsheetId: spreadsheetID, sheetId: sheetId,
+                dimension: .columns, start: 1, end: 1, pixelSize: 100)
+        }
+
         // A chart needs the data above, so it chains off the value write.
         _ = await valueStep(
             "chart-add", recorder: recorder,

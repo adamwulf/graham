@@ -524,6 +524,104 @@ final class SheetsWriteTests: XCTestCase {
         }
     }
 
+    // MARK: - Grid shape
+
+    func testFreezeEncodesRowCountWithAFieldsMask() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        try await client.freeze(spreadsheetId: "sheet-1", sheetId: 0, rows: 1)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateSheetProperties":{"fields":"gridProperties.frozenRowCount","properties":{"gridProperties":{"frozenRowCount":1},"sheetId":0}}}]}"#
+        )
+    }
+
+    func testFreezeEncodesBothCountsAndMasksBoth() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        try await client.freeze(spreadsheetId: "sheet-1", sheetId: 0, rows: 1, columns: 2)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateSheetProperties":{"fields":"gridProperties.frozenRowCount,gridProperties.frozenColumnCount","properties":{"gridProperties":{"frozenColumnCount":2,"frozenRowCount":1},"sheetId":0}}}]}"#
+        )
+    }
+
+    func testFreezeRejectsNoCountsAndNegativeCounts() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            try await client.freeze(spreadsheetId: "sheet-1", sheetId: 0)
+        }
+        await assertInvalidArgument {
+            try await client.freeze(spreadsheetId: "sheet-1", sheetId: 0, rows: -1)
+        }
+        XCTAssertTrue(transport.requests.isEmpty)
+    }
+
+    func testResizeTranslatesOneBasedInclusiveToZeroBasedHalfOpen() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        try await client.resizeDimension(
+            spreadsheetId: "sheet-1", sheetId: 0,
+            dimension: .columns, start: 2, end: 3, pixelSize: 120)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateDimensionProperties":{"fields":"pixelSize","properties":{"pixelSize":120},"range":{"dimension":"COLUMNS","endIndex":3,"sheetId":0,"startIndex":1}}}]}"#
+        )
+    }
+
+    func testResizeSingleDimensionWhenEndEqualsStart() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        try await client.resizeDimension(
+            spreadsheetId: "sheet-1", sheetId: 0,
+            dimension: .rows, start: 2, end: 2, pixelSize: 40)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateDimensionProperties":{"fields":"pixelSize","properties":{"pixelSize":40},"range":{"dimension":"ROWS","endIndex":2,"sheetId":0,"startIndex":1}}}]}"#
+        )
+    }
+
+    func testResizeRejectsBadRangeAndPixelSize() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        for (start, end, pixels) in [(0, 1, 10), (3, 2, 10), (1, 1, 0)] {
+            await assertInvalidArgument {
+                try await client.resizeDimension(
+                    spreadsheetId: "sheet-1", sheetId: 0,
+                    dimension: .columns, start: start, end: end, pixelSize: pixels)
+            }
+        }
+        XCTAssertTrue(transport.requests.isEmpty)
+    }
+
+    func testFirstSheetIdReturnsTheFirstSheetsId() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        stubSpreadsheet(transport, sheets: [(5, "First"), (6, "Second")])
+
+        let id = try await client.firstSheetId(spreadsheetId: "sheet-1")
+        XCTAssertEqual(id, 5)
+    }
+
     // MARK: - Helpers
 
     private func stubSpreadsheet(

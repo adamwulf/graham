@@ -136,6 +136,59 @@ final class SheetsWriteParsingTests: XCTestCase {
         XCTAssertThrowsError(try Sheets.Tab.Rename.parse(["sheet-1", "--to", "New"]))
     }
 
+    // MARK: - Grid shape
+
+    func testSheetsRegistersFreezeAndResizeSubcommands() {
+        let names = Sheets.configuration.subcommands.map { String(describing: $0) }
+        XCTAssertTrue(names.contains("Freeze"), "sheets should list Freeze: \(names)")
+        XCTAssertTrue(names.contains("Resize"), "sheets should list Resize: \(names)")
+    }
+
+    func testSheetsFreezeParsesCountsAndSelector() throws {
+        let command = try Sheets.Freeze.parse([
+            "sheet-1", "--rows", "1", "--columns", "2", "--sheet-id", "0",
+        ])
+        XCTAssertEqual(command.rows, 1)
+        XCTAssertEqual(command.columns, 2)
+        XCTAssertEqual(command.sheetId, 0)
+    }
+
+    func testSheetsFreezeRequiresACountAndAtMostOneSelector() {
+        // No counts is rejected.
+        XCTAssertThrowsError(try Sheets.Freeze.parse(["sheet-1"]))
+        // Two selectors are rejected.
+        XCTAssertThrowsError(try Sheets.Freeze.parse([
+            "sheet-1", "--rows", "1", "--sheet-id", "0", "--sheet", "Data",
+        ]))
+        // No selector is allowed (defaults to the first sheet).
+        XCTAssertNoThrow(try Sheets.Freeze.parse(["sheet-1", "--rows", "1"]))
+    }
+
+    func testSheetsResizeParsesDimensionRangeAndPixels() throws {
+        let command = try Sheets.Resize.parse([
+            "sheet-1", "--dimension", "columns", "--from", "2", "--to", "3", "--pixels", "120",
+        ])
+        XCTAssertEqual(command.dimension, .columns)
+        XCTAssertEqual(command.from, 2)
+        XCTAssertEqual(command.to, 3)
+        XCTAssertEqual(command.pixels, 120)
+
+        let single = try Sheets.Resize.parse([
+            "sheet-1", "--dimension", "rows", "--from", "2", "--pixels", "40",
+        ])
+        XCTAssertNil(single.to)
+    }
+
+    func testSheetsResizeRejectsMissingOptionsAndUnknownDimension() {
+        XCTAssertThrowsError(try Sheets.Resize.parse(["sheet-1", "--from", "1", "--pixels", "10"]))
+        XCTAssertThrowsError(try Sheets.Resize.parse([
+            "sheet-1", "--dimension", "diagonal", "--from", "1", "--pixels", "10",
+        ]))
+        XCTAssertThrowsError(try Sheets.Resize.parse([
+            "sheet-1", "--dimension", "rows", "--pixels", "10",
+        ]))
+    }
+
     func testSheetsChartAddParsesOptions() throws {
         let command = try Sheets.Chart.Add.parse([
             "sheet-1",

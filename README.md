@@ -15,9 +15,9 @@ Named after Graham's number — a contrast to the googol that named Google.
 - **Sheets and Docs** — read a spreadsheet (with frozen row / column counts) and
   its values (formatted, raw, or as formulas, one range or several at once);
   write cell values from comma rows, a JSON array, or tab-separated stdin; append
-  rows after a table; clear a range; add, rename, and delete tabs; add a basic
-  chart on its own sheet, and run a live end-to-end smoke test of the Sheets
-  command surface; read a document,
+  rows after a table; clear a range; add, rename, and delete tabs; freeze rows
+  or columns and resize them; add a basic chart on its own sheet, and run a live
+  end-to-end smoke test of the Sheets command surface; read a document,
   render it as Markdown,
   and list its block structure with index ranges; list or download its images;
   create a blank document; and through the shared `documents.batchUpdate` write
@@ -157,6 +157,10 @@ graham sheets clear <spreadsheet-id> "Sheet1!A1:B10"
 graham sheets tab add <spreadsheet-id> "Q3" --index 2
 graham sheets tab rename <spreadsheet-id> --sheet "Q3" --to "Q3 2026"
 graham sheets tab delete <spreadsheet-id> --sheet-id 1234567
+# Freeze rows and/or columns; omit the selector to target the first sheet.
+graham sheets freeze <spreadsheet-id> --rows 1 --columns 1
+# Resize rows or columns to a pixel size (--from/--to are one-based inclusive).
+graham sheets resize <spreadsheet-id> --dimension columns --from 1 --to 3 --pixels 120
 # Add a chart and print the chart id; pass it to `slides create chart --chart-id`.
 graham sheets chart add <spreadsheet-id> --range "Sheet1!A1:B3" --title "Sales" --type column
 # Exercise the live Sheets API surface (a value write and read-back, metadata,

@@ -293,6 +293,83 @@ public struct SheetsClient: Sendable {
         }
         return id
     }
+
+    /// The numeric id of the spreadsheet's first sheet, used as the default
+    /// target when a command names no specific tab.
+    public func firstSheetId(spreadsheetId: String) async throws -> Int {
+        let metadata = try await spreadsheet(id: spreadsheetId)
+        guard let id = (metadata.sheets ?? []).first?.properties?.sheetId else {
+            throw GrahamError.invalidResponse("the spreadsheet has no sheets")
+        }
+        return id
+    }
+
+    // MARK: - Grid shape
+
+    /// Freezes rows and/or columns on a sheet. At least one of `rows` or
+    /// `columns` must be given; each is a count and must be non-negative. The
+    /// `fields` mask names only the counts provided, so an unset one is left as
+    /// is.
+    public func freeze(
+        spreadsheetId: String,
+        sheetId: Int,
+        rows: Int? = nil,
+        columns: Int? = nil
+    ) async throws {
+        guard rows != nil || columns != nil else {
+            throw GrahamError.invalidArgument("provide a row and/or column count to freeze")
+        }
+        if let rows, rows < 0 {
+            throw GrahamError.invalidArgument("the frozen row count must be non-negative")
+        }
+        if let columns, columns < 0 {
+            throw GrahamError.invalidArgument("the frozen column count must be non-negative")
+        }
+        var fields: [String] = []
+        if rows != nil { fields.append("gridProperties.frozenRowCount") }
+        if columns != nil { fields.append("gridProperties.frozenColumnCount") }
+        let request = SheetsBatchUpdateRequest.updateSheetProperties(UpdateSheetPropertiesRequest(
+            properties: SheetPropertiesRequest(
+                sheetId: sheetId,
+                gridProperties: GridPropertiesRequest(
+                    frozenRowCount: rows, frozenColumnCount: columns)),
+            fields: fields.joined(separator: ",")))
+        _ = try await batchUpdate(spreadsheetId: spreadsheetId, requests: [request])
+    }
+
+    /// Resizes a span of rows or columns to `pixelSize`.
+    ///
+    /// `start` and `end` are one-based, inclusive positions (the CLI convention);
+    /// they translate to the API's zero-based, half-open `DimensionRange`. Omit
+    /// `end` (pass it equal to `start`) to resize a single row or column.
+    public func resizeDimension(
+        spreadsheetId: String,
+        sheetId: Int,
+        dimension: SheetsDimension,
+        start: Int,
+        end: Int,
+        pixelSize: Int
+    ) async throws {
+        guard start >= 1 else {
+            throw GrahamError.invalidArgument("the start position must be one-based (>= 1)")
+        }
+        guard end >= start else {
+            throw GrahamError.invalidArgument("the end position must be at or after the start")
+        }
+        guard pixelSize > 0 else {
+            throw GrahamError.invalidArgument("the pixel size must be positive")
+        }
+        let request = SheetsBatchUpdateRequest.updateDimensionProperties(
+            UpdateDimensionPropertiesRequest(
+                range: DimensionRange(
+                    sheetId: sheetId,
+                    dimension: dimension.rawValue,
+                    startIndex: start - 1,
+                    endIndex: end),
+                properties: DimensionProperties(pixelSize: pixelSize),
+                fields: "pixelSize"))
+        _ = try await batchUpdate(spreadsheetId: spreadsheetId, requests: [request])
+    }
 }
 
 /// An empty JSON request body (`{}`), for POST endpoints such as

@@ -7,9 +7,33 @@ struct Sheets: AsyncParsableCommand {
         abstract: "Work with Google Sheets spreadsheets.",
         subcommands: [
             Get.self, Values.self, Set.self, Append.self, Clear.self, Tab.self,
-            Chart.self, Test.self,
+            Freeze.self, Resize.self, Chart.self, Test.self,
         ]
     )
+
+    /// Resolves the sheet a grid command targets: an explicit id, a title, or —
+    /// when neither is given — the spreadsheet's first sheet.
+    enum SheetTarget {
+        static func validate(sheetId: Int?, sheet: String?) throws {
+            guard !(sheetId != nil && sheet != nil) else {
+                throw ValidationError(
+                    "Select the sheet with at most one of --sheet-id or --sheet.")
+            }
+        }
+
+        static func resolve(
+            _ client: SheetsClient,
+            spreadsheetID: String,
+            sheetId: Int?,
+            sheet: String?
+        ) async throws -> Int {
+            if let sheetId { return sheetId }
+            if let sheet {
+                return try await client.sheetId(spreadsheetId: spreadsheetID, title: sheet)
+            }
+            return try await client.firstSheetId(spreadsheetId: spreadsheetID)
+        }
+    }
 
     struct Test: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
@@ -411,6 +435,97 @@ struct Sheets: AsyncParsableCommand {
         }
     }
 
+    struct Freeze: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Freeze rows and/or columns on a sheet.",
+            discussion: """
+                Give a row count, a column count, or both. Counts are inclusive
+                (--rows 1 freezes the header row). Target a sheet with --sheet-id
+                or --sheet; omit both to use the first sheet.
+                """
+        )
+
+        @Argument(help: "The spreadsheet ID.")
+        var spreadsheetID: String
+
+        @Option(help: "The number of rows to freeze from the top.")
+        var rows: Int?
+
+        @Option(help: "The number of columns to freeze from the left.")
+        var columns: Int?
+
+        @Option(help: "The numeric sheet id to target.")
+        var sheetId: Int?
+
+        @Option(help: "The title of the sheet to target.")
+        var sheet: String?
+
+        func validate() throws {
+            try SheetTarget.validate(sheetId: sheetId, sheet: sheet)
+            guard rows != nil || columns != nil else {
+                throw ValidationError("Provide --rows and/or --columns to freeze.")
+            }
+        }
+
+        func run() async throws {
+            let client = SheetsClient(api: try CLI.makeAPI())
+            let id = try await SheetTarget.resolve(
+                client, spreadsheetID: spreadsheetID, sheetId: sheetId, sheet: sheet)
+            try await client.freeze(
+                spreadsheetId: spreadsheetID, sheetId: id, rows: rows, columns: columns)
+        }
+    }
+
+    struct Resize: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Resize a span of rows or columns to a pixel size.",
+            discussion: """
+                --from and --to are one-based, inclusive positions; omit --to to
+                resize a single row or column. Target a sheet with --sheet-id or
+                --sheet; omit both to use the first sheet.
+                """
+        )
+
+        @Argument(help: "The spreadsheet ID.")
+        var spreadsheetID: String
+
+        @Option(help: "The dimension to resize: rows or columns.")
+        var dimension: SheetsDimension
+
+        @Option(help: "The first (one-based) row or column to resize.")
+        var from: Int
+
+        @Option(help: "The last (one-based) row or column to resize. Defaults to --from.")
+        var to: Int?
+
+        @Option(help: "The new size in pixels.")
+        var pixels: Int
+
+        @Option(help: "The numeric sheet id to target.")
+        var sheetId: Int?
+
+        @Option(help: "The title of the sheet to target.")
+        var sheet: String?
+
+        func validate() throws {
+            try SheetTarget.validate(sheetId: sheetId, sheet: sheet)
+        }
+
+        func run() async throws {
+            let client = SheetsClient(api: try CLI.makeAPI())
+            let id = try await SheetTarget.resolve(
+                client, spreadsheetID: spreadsheetID, sheetId: sheetId, sheet: sheet)
+            try await client.resizeDimension(
+                spreadsheetId: spreadsheetID,
+                sheetId: id,
+                dimension: dimension,
+                start: from,
+                end: to ?? from,
+                pixelSize: pixels
+            )
+        }
+    }
+
     struct Chart: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Work with embedded spreadsheet charts.",
@@ -455,6 +570,12 @@ struct Sheets: AsyncParsableCommand {
 }
 
 extension BasicChartType: ExpressibleByArgument {
+    public init?(argument: String) {
+        self.init(rawValue: argument.uppercased())
+    }
+}
+
+extension SheetsDimension: ExpressibleByArgument {
     public init?(argument: String) {
         self.init(rawValue: argument.uppercased())
     }

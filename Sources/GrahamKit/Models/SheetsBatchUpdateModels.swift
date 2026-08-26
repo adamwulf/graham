@@ -19,14 +19,17 @@ public enum SheetsBatchUpdateRequest: Encodable, Sendable, Equatable {
     case addSheet(AddSheetRequest)
     /// Deletes a sheet (tab) by its numeric id.
     case deleteSheet(DeleteSheetRequest)
-    /// Updates sheet (tab) properties, e.g. its title or position.
+    /// Updates sheet (tab) properties, e.g. its title, position, or freeze.
     case updateSheetProperties(UpdateSheetPropertiesRequest)
+    /// Resizes a row or column dimension (its pixel size).
+    case updateDimensionProperties(UpdateDimensionPropertiesRequest)
 
     private enum CodingKeys: String, CodingKey {
         case addChart
         case addSheet
         case deleteSheet
         case updateSheetProperties
+        case updateDimensionProperties
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -40,6 +43,8 @@ public enum SheetsBatchUpdateRequest: Encodable, Sendable, Equatable {
             try container.encode(request, forKey: .deleteSheet)
         case .updateSheetProperties(let request):
             try container.encode(request, forKey: .updateSheetProperties)
+        case .updateDimensionProperties(let request):
+            try container.encode(request, forKey: .updateDimensionProperties)
         }
     }
 }
@@ -197,17 +202,79 @@ public struct GridRange: Codable, Sendable, Equatable {
 
 // MARK: - Sheet (tab) requests
 
+/// The writable grid properties of a sheet: the frozen row / column counts.
+public struct GridPropertiesRequest: Codable, Sendable, Equatable {
+    public let frozenRowCount: Int?
+    public let frozenColumnCount: Int?
+
+    public init(frozenRowCount: Int? = nil, frozenColumnCount: Int? = nil) {
+        self.frozenRowCount = frozenRowCount
+        self.frozenColumnCount = frozenColumnCount
+    }
+}
+
 /// The writable subset of a sheet's properties used by the add and update
 /// operations. Every field is optional so a caller sets only what it changes.
 public struct SheetPropertiesRequest: Codable, Sendable, Equatable {
     public let sheetId: Int?
     public let title: String?
     public let index: Int?
+    public let gridProperties: GridPropertiesRequest?
 
-    public init(sheetId: Int? = nil, title: String? = nil, index: Int? = nil) {
+    public init(
+        sheetId: Int? = nil,
+        title: String? = nil,
+        index: Int? = nil,
+        gridProperties: GridPropertiesRequest? = nil
+    ) {
         self.sheetId = sheetId
         self.title = title
         self.index = index
+        self.gridProperties = gridProperties
+    }
+}
+
+/// The dimension a resize targets.
+public enum SheetsDimension: String, Sendable, CaseIterable, Equatable {
+    case rows = "ROWS"
+    case columns = "COLUMNS"
+}
+
+/// A zero-based, half-open span of rows or columns on one sheet.
+public struct DimensionRange: Codable, Sendable, Equatable {
+    public let sheetId: Int
+    public let dimension: String
+    public let startIndex: Int
+    public let endIndex: Int
+
+    public init(sheetId: Int, dimension: String, startIndex: Int, endIndex: Int) {
+        self.sheetId = sheetId
+        self.dimension = dimension
+        self.startIndex = startIndex
+        self.endIndex = endIndex
+    }
+}
+
+/// The writable properties of a row or column dimension.
+public struct DimensionProperties: Codable, Sendable, Equatable {
+    public let pixelSize: Int?
+
+    public init(pixelSize: Int? = nil) {
+        self.pixelSize = pixelSize
+    }
+}
+
+/// The `updateDimensionProperties` operation. `fields` is a mask relative to
+/// `properties` (for example `pixelSize`).
+public struct UpdateDimensionPropertiesRequest: Codable, Sendable, Equatable {
+    public let range: DimensionRange
+    public let properties: DimensionProperties
+    public let fields: String
+
+    public init(range: DimensionRange, properties: DimensionProperties, fields: String) {
+        self.range = range
+        self.properties = properties
+        self.fields = fields
     }
 }
 

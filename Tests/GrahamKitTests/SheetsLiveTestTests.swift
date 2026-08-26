@@ -164,7 +164,8 @@ final class SheetsLiveTestTests: XCTestCase {
     private static let expectedStepNames = [
         "folder", "create-spreadsheet",
         "set-values", "values-read", "append", "append-read", "raw-read", "batch-get",
-        "get", "tab-add", "tab-rename", "tab-delete", "chart-add", "clear", "clear-read",
+        "get", "tab-add", "tab-rename", "tab-delete", "freeze", "resize",
+        "chart-add", "clear", "clear-read",
         "drive-trash-spreadsheet",
     ]
 }
@@ -202,8 +203,10 @@ private final class SheetsLiveFixture: @unchecked Sendable {
 
     // The grid the runner last wrote, returned on the matching values read.
     private var storedValues: [[String]] = []
-    // The sheets (tabs) the spreadsheet holds, mutated by the tab operations.
-    private var sheets: [(id: Int, title: String)] = [(0, "Sheet1")]
+    // The sheets (tabs) the spreadsheet holds, mutated by the tab and freeze
+    // operations.
+    private var sheets: [(id: Int, title: String, frozenRows: Int, frozenCols: Int)] =
+        [(0, "Sheet1", 0, 0)]
     private var nextSheetId = 1
 
     init(
@@ -394,8 +397,15 @@ private final class SheetsLiveFixture: @unchecked Sendable {
             return batchUpdateResponse(request)
         }
         if path == "/v4/spreadsheets/sheet-1", request.method == "GET" {
-            let sheetJSON = sheets.map { sheet in
-                ["properties": ["sheetId": sheet.id, "title": sheet.title]]
+            let sheetJSON = sheets.map { sheet -> [String: Any] in
+                ["properties": [
+                    "sheetId": sheet.id,
+                    "title": sheet.title,
+                    "gridProperties": [
+                        "frozenRowCount": sheet.frozenRows,
+                        "frozenColumnCount": sheet.frozenCols,
+                    ],
+                ]]
             }
             return json([
                 "spreadsheetId": "sheet-1",
@@ -428,7 +438,7 @@ private final class SheetsLiveFixture: @unchecked Sendable {
             let title = properties?["title"] as? String ?? ""
             let id = nextSheetId
             nextSheetId += 1
-            sheets.append((id: id, title: title))
+            sheets.append((id: id, title: title, frozenRows: 0, frozenCols: 0))
             return json([
                 "spreadsheetId": "sheet-1",
                 "replies": [["addSheet": ["properties": ["sheetId": id, "title": title]]]],
@@ -440,10 +450,20 @@ private final class SheetsLiveFixture: @unchecked Sendable {
         case "updateSheetProperties":
             let properties =
                 (first["updateSheetProperties"] as? [String: Any])?["properties"] as? [String: Any]
-            if let id = properties?["sheetId"] as? Int, let title = properties?["title"] as? String,
+            if let id = properties?["sheetId"] as? Int,
                let index = sheets.firstIndex(where: { $0.id == id }) {
-                sheets[index].title = title
+                if let title = properties?["title"] as? String { sheets[index].title = title }
+                if let grid = properties?["gridProperties"] as? [String: Any] {
+                    if let frozenRows = grid["frozenRowCount"] as? Int {
+                        sheets[index].frozenRows = frozenRows
+                    }
+                    if let frozenCols = grid["frozenColumnCount"] as? Int {
+                        sheets[index].frozenCols = frozenCols
+                    }
+                }
             }
+            return json(["spreadsheetId": "sheet-1", "replies": [[:]]])
+        case "updateDimensionProperties":
             return json(["spreadsheetId": "sheet-1", "replies": [[:]]])
         default:
             return json(["spreadsheetId": "sheet-1", "replies": [[:]]])
