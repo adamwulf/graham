@@ -582,7 +582,7 @@ public enum DocsContentDirection: String, Codable, Sendable, Equatable {
 /// decides which properties the API applies. `foregroundColor` and
 /// `backgroundColor` are ``DocsOptionalColor`` values; the font family is set
 /// through ``weightedFontFamily`` because Docs `TextStyle` has no bare
-/// `fontFamily` field.
+/// `fontFamily` field. `smallCaps` renders the text in small capital letters.
 public struct DocsTextStyle: Codable, Sendable, Equatable {
     public let bold: Bool?
     public let italic: Bool?
@@ -594,6 +594,7 @@ public struct DocsTextStyle: Codable, Sendable, Equatable {
     public let weightedFontFamily: DocsWeightedFontFamily?
     public let baselineOffset: DocsBaselineOffset?
     public let link: DocsLink?
+    public let smallCaps: Bool?
 
     public init(
         bold: Bool? = nil,
@@ -605,7 +606,8 @@ public struct DocsTextStyle: Codable, Sendable, Equatable {
         fontSize: DocsDimension? = nil,
         weightedFontFamily: DocsWeightedFontFamily? = nil,
         baselineOffset: DocsBaselineOffset? = nil,
-        link: DocsLink? = nil
+        link: DocsLink? = nil,
+        smallCaps: Bool? = nil
     ) {
         self.bold = bold
         self.italic = italic
@@ -617,7 +619,31 @@ public struct DocsTextStyle: Codable, Sendable, Equatable {
         self.weightedFontFamily = weightedFontFamily
         self.baselineOffset = baselineOffset
         self.link = link
+        self.smallCaps = smallCaps
     }
+}
+
+/// A Docs v1 `Shading`: the shading (background fill) of a paragraph. The API
+/// models it with a single ``DocsOptionalColor`` `backgroundColor`. It reaches
+/// the wire through ``DocsParagraphStyle/shading``, whose `fields` mask names the
+/// `shading` root so the whole shading is replaced.
+public struct DocsShading: Codable, Sendable, Equatable {
+    public let backgroundColor: DocsOptionalColor?
+
+    public init(backgroundColor: DocsOptionalColor? = nil) {
+        self.backgroundColor = backgroundColor
+    }
+}
+
+/// A Docs v1 `ParagraphStyle.spacingMode` / `SpacingMode`: how a paragraph's
+/// space-above and space-below combine with its neighbors' spacing.
+/// `NEVER_COLLAPSE` always renders both; `COLLAPSE_LISTS` skips the spacing
+/// between list-item paragraphs. The cases are the writable values; the API's
+/// `SPACING_MODE_UNSPECIFIED` sentinel is never sent, exactly like the other
+/// `*_UNSPECIFIED` sentinels in these models.
+public enum DocsSpacingMode: String, Codable, Sendable, Equatable {
+    case neverCollapse = "NEVER_COLLAPSE"
+    case collapseLists = "COLLAPSE_LISTS"
 }
 
 /// The writable subset of a Docs `ParagraphStyle`.
@@ -625,7 +651,10 @@ public struct DocsTextStyle: Codable, Sendable, Equatable {
 /// Every field is optional; the request's `fields` mask, not this container,
 /// decides which properties the API applies. `lineSpacing` is a percent of
 /// normal (100 = single); the spacing and indent dimensions are in points.
-/// Paragraph borders and shading are out of this slice.
+/// `keepLinesTogether`, `keepWithNext`, `avoidWidowAndOrphan`, and
+/// `pageBreakBefore` are the pagination toggles; `shading` sets the paragraph
+/// background fill; `spacingMode` chooses how the space-above/below collapse.
+/// Paragraph borders and tab stops are out of this slice.
 public struct DocsParagraphStyle: Codable, Sendable, Equatable {
     public let namedStyleType: DocsNamedStyleType?
     public let alignment: DocsParagraphAlignment?
@@ -636,6 +665,12 @@ public struct DocsParagraphStyle: Codable, Sendable, Equatable {
     public let indentStart: DocsDimension?
     public let indentEnd: DocsDimension?
     public let indentFirstLine: DocsDimension?
+    public let keepLinesTogether: Bool?
+    public let keepWithNext: Bool?
+    public let avoidWidowAndOrphan: Bool?
+    public let pageBreakBefore: Bool?
+    public let shading: DocsShading?
+    public let spacingMode: DocsSpacingMode?
 
     public init(
         namedStyleType: DocsNamedStyleType? = nil,
@@ -646,7 +681,13 @@ public struct DocsParagraphStyle: Codable, Sendable, Equatable {
         spaceBelow: DocsDimension? = nil,
         indentStart: DocsDimension? = nil,
         indentEnd: DocsDimension? = nil,
-        indentFirstLine: DocsDimension? = nil
+        indentFirstLine: DocsDimension? = nil,
+        keepLinesTogether: Bool? = nil,
+        keepWithNext: Bool? = nil,
+        avoidWidowAndOrphan: Bool? = nil,
+        pageBreakBefore: Bool? = nil,
+        shading: DocsShading? = nil,
+        spacingMode: DocsSpacingMode? = nil
     ) {
         self.namedStyleType = namedStyleType
         self.alignment = alignment
@@ -657,6 +698,12 @@ public struct DocsParagraphStyle: Codable, Sendable, Equatable {
         self.indentStart = indentStart
         self.indentEnd = indentEnd
         self.indentFirstLine = indentFirstLine
+        self.keepLinesTogether = keepLinesTogether
+        self.keepWithNext = keepWithNext
+        self.avoidWidowAndOrphan = avoidWidowAndOrphan
+        self.pageBreakBefore = pageBreakBefore
+        self.shading = shading
+        self.spacingMode = spacingMode
     }
 }
 
@@ -1517,10 +1564,12 @@ public struct DocsDocumentFormat: Codable, Sendable, Equatable {
 /// ``DocsDimension`` values in points; `useFirstPageHeaderFooter` and
 /// `useEvenPageHeaderFooter` toggle the first-page and even-page header/footer
 /// ids; `background` sets the document background color; `documentFormat` carries
-/// the document mode (pages vs pageless). The API's read-only fields (the
-/// header/footer ids, `useCustomHeaderFooterMargins`) and the advanced fields
-/// (`marginHeader`, `marginFooter`, `pageNumberStart`, `flipPageOrientation`) are
-/// out of this slice.
+/// the document mode (pages vs pageless). `pageNumberStart` is the first visible
+/// page number; `marginHeader` and `marginFooter` are the header and footer
+/// margins in points, and take effect only when `useCustomHeaderFooterMargins`
+/// is true (the client sets that flag whenever it sets a header or footer
+/// margin); `flipPageOrientation` swaps the page width and height (landscape).
+/// The read-only header/footer ids are out of this slice.
 public struct DocsDocumentStyle: Codable, Sendable, Equatable {
     public let pageSize: DocsSize?
     public let marginTop: DocsDimension?
@@ -1531,6 +1580,11 @@ public struct DocsDocumentStyle: Codable, Sendable, Equatable {
     public let useEvenPageHeaderFooter: Bool?
     public let background: DocsBackground?
     public let documentFormat: DocsDocumentFormat?
+    public let pageNumberStart: Int?
+    public let marginHeader: DocsDimension?
+    public let marginFooter: DocsDimension?
+    public let useCustomHeaderFooterMargins: Bool?
+    public let flipPageOrientation: Bool?
 
     public init(
         pageSize: DocsSize? = nil,
@@ -1541,7 +1595,12 @@ public struct DocsDocumentStyle: Codable, Sendable, Equatable {
         useFirstPageHeaderFooter: Bool? = nil,
         useEvenPageHeaderFooter: Bool? = nil,
         background: DocsBackground? = nil,
-        documentFormat: DocsDocumentFormat? = nil
+        documentFormat: DocsDocumentFormat? = nil,
+        pageNumberStart: Int? = nil,
+        marginHeader: DocsDimension? = nil,
+        marginFooter: DocsDimension? = nil,
+        useCustomHeaderFooterMargins: Bool? = nil,
+        flipPageOrientation: Bool? = nil
     ) {
         self.pageSize = pageSize
         self.marginTop = marginTop
@@ -1552,6 +1611,11 @@ public struct DocsDocumentStyle: Codable, Sendable, Equatable {
         self.useEvenPageHeaderFooter = useEvenPageHeaderFooter
         self.background = background
         self.documentFormat = documentFormat
+        self.pageNumberStart = pageNumberStart
+        self.marginHeader = marginHeader
+        self.marginFooter = marginFooter
+        self.useCustomHeaderFooterMargins = useCustomHeaderFooterMargins
+        self.flipPageOrientation = flipPageOrientation
     }
 }
 

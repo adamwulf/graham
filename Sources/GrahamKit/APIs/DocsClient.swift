@@ -267,11 +267,12 @@ public struct DocsClient: Sendable {
     ///     `weightedFontFamily` (Docs `TextStyle` has no bare family field).
     ///   - baselineOffset: superscript, subscript, or none.
     ///   - linkURL: sets a web link on the run.
+    ///   - smallCaps: render the text in small capital letters.
     ///
     /// The `fields` mask is emitted in the fixed order `bold`, `italic`,
     /// `underline`, `strikethrough`, `foregroundColor`, `backgroundColor`,
-    /// `fontSize`, `weightedFontFamily`, `baselineOffset`, `link`. At least one
-    /// style parameter is required.
+    /// `fontSize`, `weightedFontFamily`, `baselineOffset`, `link`, `smallCaps`.
+    /// At least one style parameter is required.
     public func styleText(
         documentId: String,
         startIndex: Int,
@@ -288,6 +289,7 @@ public struct DocsClient: Sendable {
         fontWeight: Int? = nil,
         baselineOffset: DocsBaselineOffset? = nil,
         linkURL: String? = nil,
+        smallCaps: Bool? = nil,
         requiredRevisionId: String? = nil
     ) async throws -> DocsBatchUpdateResponse {
         let range = try Self.makeStyleRange(
@@ -333,6 +335,7 @@ public struct DocsClient: Sendable {
         if weightedFontFamily != nil { mask.append("weightedFontFamily") }
         if baselineOffset != nil { mask.append("baselineOffset") }
         if link != nil { mask.append("link") }
+        if smallCaps != nil { mask.append("smallCaps") }
 
         guard !mask.isEmpty else {
             throw GrahamError.invalidArgument("style text requires at least one style option")
@@ -348,7 +351,8 @@ public struct DocsClient: Sendable {
             fontSize: fontSize.map { DocsDimension(magnitude: $0, unit: .pt) },
             weightedFontFamily: weightedFontFamily,
             baselineOffset: baselineOffset,
-            link: link
+            link: link,
+            smallCaps: smallCaps
         )
         let request = DocsBatchUpdateRequest.updateTextStyle(DocsUpdateTextStyleRequest(
             textStyle: style, fields: mask.joined(separator: ","), range: range))
@@ -375,11 +379,18 @@ public struct DocsClient: Sendable {
     ///     than zero.
     ///   - spaceAbove / spaceBelow / indentStart / indentEnd / indentFirstLine:
     ///     point measurements; each must be 0 or greater.
+    ///   - keepLinesTogether / keepWithNext / avoidWidowAndOrphan /
+    ///     pageBreakBefore: the pagination toggles; nil leaves each unchanged.
+    ///   - shadingBackgroundColor: the paragraph background fill, already parsed
+    ///     to a ``DocsOptionalColor``; wrapped into a ``DocsShading``.
+    ///   - spacingMode: how the space-above/below collapse (never or lists).
     ///
     /// The `fields` mask is emitted in the fixed order `namedStyleType`,
     /// `alignment`, `direction`, `lineSpacing`, `spaceAbove`, `spaceBelow`,
-    /// `indentStart`, `indentEnd`, `indentFirstLine`. At least one parameter is
-    /// required.
+    /// `indentStart`, `indentEnd`, `indentFirstLine`, `keepLinesTogether`,
+    /// `keepWithNext`, `avoidWidowAndOrphan`, `pageBreakBefore`, `shading`,
+    /// `spacingMode`. At least one parameter is required. Tab stops are out of
+    /// scope (a complex repeated `TabStop` list the API models separately).
     public func styleParagraphs(
         documentId: String,
         startIndex: Int,
@@ -394,6 +405,12 @@ public struct DocsClient: Sendable {
         indentStart: Double? = nil,
         indentEnd: Double? = nil,
         indentFirstLine: Double? = nil,
+        keepLinesTogether: Bool? = nil,
+        keepWithNext: Bool? = nil,
+        avoidWidowAndOrphan: Bool? = nil,
+        pageBreakBefore: Bool? = nil,
+        shadingBackgroundColor: DocsOptionalColor? = nil,
+        spacingMode: DocsSpacingMode? = nil,
         requiredRevisionId: String? = nil
     ) async throws -> DocsBatchUpdateResponse {
         let range = try Self.makeStyleRange(
@@ -426,6 +443,8 @@ public struct DocsClient: Sendable {
         try requireNonNegative(indentEnd, "indent end")
         try requireNonNegative(indentFirstLine, "first-line indent")
 
+        let shading = shadingBackgroundColor.map { DocsShading(backgroundColor: $0) }
+
         var mask: [String] = []
         if resolvedNamedStyle != nil { mask.append("namedStyleType") }
         if alignment != nil { mask.append("alignment") }
@@ -436,6 +455,12 @@ public struct DocsClient: Sendable {
         if indentStart != nil { mask.append("indentStart") }
         if indentEnd != nil { mask.append("indentEnd") }
         if indentFirstLine != nil { mask.append("indentFirstLine") }
+        if keepLinesTogether != nil { mask.append("keepLinesTogether") }
+        if keepWithNext != nil { mask.append("keepWithNext") }
+        if avoidWidowAndOrphan != nil { mask.append("avoidWidowAndOrphan") }
+        if pageBreakBefore != nil { mask.append("pageBreakBefore") }
+        if shading != nil { mask.append("shading") }
+        if spacingMode != nil { mask.append("spacingMode") }
 
         guard !mask.isEmpty else {
             throw GrahamError.invalidArgument(
@@ -454,7 +479,13 @@ public struct DocsClient: Sendable {
             spaceBelow: points(spaceBelow),
             indentStart: points(indentStart),
             indentEnd: points(indentEnd),
-            indentFirstLine: points(indentFirstLine)
+            indentFirstLine: points(indentFirstLine),
+            keepLinesTogether: keepLinesTogether,
+            keepWithNext: keepWithNext,
+            avoidWidowAndOrphan: avoidWidowAndOrphan,
+            pageBreakBefore: pageBreakBefore,
+            shading: shading,
+            spacingMode: spacingMode
         )
         let request = DocsBatchUpdateRequest.updateParagraphStyle(DocsUpdateParagraphStyleRequest(
             paragraphStyle: style, fields: mask.joined(separator: ","), range: range))
@@ -1791,11 +1822,20 @@ public struct DocsClient: Sendable {
     ///     ``DocsOptionalColor`` (a document background cannot be transparent).
     ///   - documentMode: the document mode, pages or pageless. It masks the nested
     ///     `documentFormat.documentMode` path so only the mode is set.
+    ///   - pageNumberStart: the first visible page number; must be 1 or greater.
+    ///   - marginHeader / marginFooter: the header and footer margins in points;
+    ///     each must be a finite value greater than zero when given. Setting
+    ///     either implies `useCustomHeaderFooterMargins = true` (the API otherwise
+    ///     ignores the custom margins), so the client sets that flag and masks it
+    ///     whenever a header or footer margin is set.
+    ///   - flipPageOrientation: swap the page width and height (landscape).
     ///
     /// The `fields` mask is emitted in the fixed order `pageSize`, `marginTop`,
     /// `marginBottom`, `marginLeft`, `marginRight`, `useFirstPageHeaderFooter`,
-    /// `useEvenPageHeaderFooter`, `background`, `documentFormat.documentMode`. At
-    /// least one parameter is required.
+    /// `useEvenPageHeaderFooter`, `background`, `documentFormat.documentMode`,
+    /// `pageNumberStart`, `marginHeader`, `marginFooter`,
+    /// `useCustomHeaderFooterMargins`, `flipPageOrientation`. At least one
+    /// parameter is required.
     public func updateDocumentStyle(
         documentId: String,
         pageWidth: Double? = nil,
@@ -1808,6 +1848,10 @@ public struct DocsClient: Sendable {
         useEvenPageHeaderFooter: Bool? = nil,
         background: DocsOptionalColor? = nil,
         documentMode: DocsDocumentMode? = nil,
+        pageNumberStart: Int? = nil,
+        marginHeader: Double? = nil,
+        marginFooter: Double? = nil,
+        flipPageOrientation: Bool? = nil,
         requiredRevisionId: String? = nil
     ) async throws -> DocsBatchUpdateResponse {
         // Page size is a pair: masking `pageSize` replaces the whole Size, so a
@@ -1832,6 +1876,23 @@ public struct DocsClient: Sendable {
         try requirePositive(marginBottom, "bottom margin")
         try requirePositive(marginLeft, "left margin")
         try requirePositive(marginRight, "right margin")
+        try requirePositive(marginHeader, "header margin")
+        try requirePositive(marginFooter, "footer margin")
+
+        // A page number must be a real one-based page number.
+        if let pageNumberStart {
+            guard pageNumberStart >= 1 else {
+                throw GrahamError.invalidArgument(
+                    "page number start must be 1 or greater, got \(pageNumberStart)")
+            }
+        }
+
+        // The API ignores marginHeader/marginFooter unless custom header/footer
+        // margins are turned on, so setting either implies the flag. The client
+        // sets and masks it whenever a header or footer margin is set; otherwise
+        // it stays nil and is neither sent nor masked.
+        let useCustomHeaderFooterMargins: Bool? =
+            (marginHeader != nil || marginFooter != nil) ? true : nil
 
         func points(_ value: Double?) -> DocsDimension? {
             value.map { DocsDimension(magnitude: $0, unit: .pt) }
@@ -1859,6 +1920,12 @@ public struct DocsClient: Sendable {
         // The mode masks the nested path so only the mode is set, never clearing
         // any other (future) DocumentFormat field.
         if documentFormat != nil { mask.append("documentFormat.documentMode") }
+        if pageNumberStart != nil { mask.append("pageNumberStart") }
+        if marginHeader != nil { mask.append("marginHeader") }
+        if marginFooter != nil { mask.append("marginFooter") }
+        // The implied flag rides right after the margins it enables.
+        if useCustomHeaderFooterMargins != nil { mask.append("useCustomHeaderFooterMargins") }
+        if flipPageOrientation != nil { mask.append("flipPageOrientation") }
 
         guard !mask.isEmpty else {
             throw GrahamError.invalidArgument("page setup requires at least one style option")
@@ -1873,7 +1940,12 @@ public struct DocsClient: Sendable {
             useFirstPageHeaderFooter: useFirstPageHeaderFooter,
             useEvenPageHeaderFooter: useEvenPageHeaderFooter,
             background: backgroundValue,
-            documentFormat: documentFormat)
+            documentFormat: documentFormat,
+            pageNumberStart: pageNumberStart,
+            marginHeader: points(marginHeader),
+            marginFooter: points(marginFooter),
+            useCustomHeaderFooterMargins: useCustomHeaderFooterMargins,
+            flipPageOrientation: flipPageOrientation)
         let request = DocsBatchUpdateRequest.updateDocumentStyle(
             DocsUpdateDocumentStyleRequest(
                 documentStyle: style, fields: mask.joined(separator: ",")))
