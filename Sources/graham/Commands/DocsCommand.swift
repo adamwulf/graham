@@ -372,8 +372,14 @@ struct Docs: AsyncParsableCommand {
                 --keep-with-next, --avoid-widows, and --page-break-before are
                 pagination toggles (use the --no- form to turn one off). --shading
                 is a hex background color; --spacing-mode is never-collapse or
-                collapse-lists. In a named segment (--segment) the content starts
-                at index 0. Get index ranges from `docs structure`.
+                collapse-lists. --border sets the four outer paragraph borders
+                (top, bottom, left, right) and --border-between sets the
+                between-paragraph border; both take a hex color. --border-width
+                (points, default 1; 0 hides a border), --border-dash (solid, dot,
+                or dash; default solid), and --border-padding (points, default 0)
+                are shared by both borders and require a border color. In a named
+                segment (--segment) the content starts at index 0. Get index
+                ranges from `docs structure`.
                 """
         )
 
@@ -452,26 +458,65 @@ struct Docs: AsyncParsableCommand {
         @Option(help: "The spacing mode: never-collapse or collapse-lists.")
         var spacingMode: DocsSpacingModeArgument?
 
+        @Option(help: "Set the four outer paragraph borders to this hex color, like #000000.")
+        var border: String?
+
+        @Option(help: "Set the between-paragraph border to this hex color, like #000000.")
+        var borderBetween: String?
+
+        @Option(
+            parsing: .unconditional,
+            help: "The border width in points; requires a border color (defaults to 1)."
+        )
+        var borderWidth: Double?
+
+        @Option(help: "The border dash style: solid, dot, or dash; requires a border color.")
+        var borderDash: DocsDashStyleArgument?
+
+        @Option(
+            parsing: .unconditional,
+            help: "The border padding in points; requires a border color (defaults to 0)."
+        )
+        var borderPadding: Double?
+
         @Option(help: "Require the document be at this revision id; the write fails otherwise.")
         var requireRevision: String?
 
         func validate() throws {
+            // A border's width, dash, and padding attach to a border color; a
+            // width/dash/padding with neither --border nor --border-between has
+            // nothing to attach to. This is checked before the at-least-one gate
+            // so a lone --border-width earns its specific message.
+            if borderWidth != nil || borderDash != nil || borderPadding != nil,
+                border == nil, borderBetween == nil {
+                throw ValidationError(
+                    "--border-width, --border-dash, and --border-padding require "
+                    + "--border or --border-between.")
+            }
             let hasStyle =
                 style != nil || align != nil || direction != nil || lineSpacing != nil
                 || spaceAbove != nil || spaceBelow != nil || indentStart != nil
                 || indentEnd != nil || indentFirstLine != nil || keepLinesTogether != nil
                 || keepWithNext != nil || avoidWidows != nil || pageBreakBefore != nil
-                || shading != nil || spacingMode != nil
+                || shading != nil || spacingMode != nil || border != nil || borderBetween != nil
             guard hasStyle else {
                 throw ValidationError("Provide at least one style flag.")
             }
             if let lineSpacing, lineSpacing <= 0 {
                 throw ValidationError("--line-spacing must be greater than zero.")
             }
+            if let borderWidth, borderWidth < 0 {
+                throw ValidationError("--border-width must not be negative (0 hides the border).")
+            }
+            if let borderPadding, borderPadding < 0 {
+                throw ValidationError("--border-padding must not be negative (0 means no padding).")
+            }
         }
 
         func run() async throws {
             let shadingColor = try shading.map { try DocsOptionalColor.parse($0) }
+            let outerBorderColor = try border.map { try DocsOptionalColor.parse($0) }
+            let betweenBorderColor = try borderBetween.map { try DocsOptionalColor.parse($0) }
             let client = DocsClient(api: try CLI.makeAPI())
             _ = try await client.styleParagraphs(
                 documentId: documentID,
@@ -493,6 +538,11 @@ struct Docs: AsyncParsableCommand {
                 pageBreakBefore: pageBreakBefore,
                 shadingBackgroundColor: shadingColor,
                 spacingMode: spacingMode?.spacingMode,
+                outerBorderColor: outerBorderColor,
+                betweenBorderColor: betweenBorderColor,
+                borderWidth: borderWidth,
+                borderDash: borderDash?.dashStyle,
+                borderPadding: borderPadding,
                 requiredRevisionId: requireRevision
             )
             print("Styled paragraphs in [\(from), \(to)).")
