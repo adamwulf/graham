@@ -16,7 +16,7 @@ public struct SheetsClient: Sendable {
             "\(Self.baseURL)/spreadsheets/\(GoogleURL.escapePathComponent(id))",
             query: [("fields",
                 "spreadsheetId,properties.title,spreadsheetUrl,sheets.properties,"
-                    + "sheets.charts.chartId,sheets.charts.spec.title")]
+                    + "sheets.charts.chartId,sheets.charts.spec.title,namedRanges")]
         )
         return try await api.getJSON(Spreadsheet.self, from: url)
     }
@@ -766,6 +766,136 @@ public struct SheetsClient: Sendable {
             innerHorizontal: innerHorizontal ? border : nil,
             innerVertical: innerVertical ? border : nil))
         _ = try await batchUpdate(spreadsheetId: spreadsheetId, requests: [request])
+    }
+
+    // MARK: - Structure
+
+    /// Merges the cells in an A1 `range`. `mergeType` chooses whether the whole
+    /// range becomes one cell, or each row / column merges on its own. The sheet
+    /// comes from the range's tab name, or the first sheet when it names none.
+    public func mergeCells(
+        spreadsheetId: String,
+        range: String,
+        mergeType: SheetsMergeType
+    ) async throws {
+        let gridRange = try await resolveGridRange(spreadsheetId: spreadsheetId, range: range)
+        _ = try await batchUpdate(
+            spreadsheetId: spreadsheetId,
+            requests: [.mergeCells(MergeCellsRequest(
+                range: gridRange, mergeType: mergeType.rawValue))])
+    }
+
+    /// Splits any merged cells overlapping an A1 `range` back into single cells.
+    public func unmergeCells(
+        spreadsheetId: String,
+        range: String
+    ) async throws {
+        let gridRange = try await resolveGridRange(spreadsheetId: spreadsheetId, range: range)
+        _ = try await batchUpdate(
+            spreadsheetId: spreadsheetId,
+            requests: [.unmergeCells(UnmergeCellsRequest(range: gridRange))])
+    }
+
+    /// Sorts the rows of an A1 `range` by one or more of its columns.
+    ///
+    /// Each ``SheetsSortKey`` names a one-based column within the range; the
+    /// client validates it falls inside the range and translates it to the
+    /// absolute zero-based sheet `dimensionIndex` the API expects. The specs
+    /// apply in order, so the first is the primary sort key.
+    public func sortRange(
+        spreadsheetId: String,
+        range: String,
+        specs: [SheetsSortKey]
+    ) async throws {
+        guard !specs.isEmpty else {
+            throw GrahamError.invalidArgument("provide at least one --by sort column")
+        }
+        let gridRange = try await resolveGridRange(spreadsheetId: spreadsheetId, range: range)
+        let width = gridRange.endColumnIndex - gridRange.startColumnIndex
+        let sortSpecs = try specs.map { key -> SortSpec in
+            guard key.column >= 1, key.column <= width else {
+                throw GrahamError.invalidArgument(
+                    "sort column \(key.column) is outside the range's \(width) column(s)")
+            }
+            return SortSpec(
+                dimensionIndex: gridRange.startColumnIndex + (key.column - 1),
+                sortOrder: key.order.rawValue)
+        }
+        _ = try await batchUpdate(
+            spreadsheetId: spreadsheetId,
+            requests: [.sortRange(SortRangeRequest(range: gridRange, sortSpecs: sortSpecs))])
+    }
+
+    /// Auto-sizes a span of rows or columns to fit their contents.
+    ///
+    /// `start` and `end` are one-based, inclusive positions (the CLI
+    /// convention); they translate to the API's zero-based, half-open
+    /// ``DimensionRange``. Omit `end` (pass it equal to `start`) to size a
+    /// single row or column.
+    public func autoResizeDimension(
+        spreadsheetId: String,
+        sheetId: Int,
+        dimension: SheetsDimension,
+        start: Int,
+        end: Int
+    ) async throws {
+        guard start >= 1 else {
+            throw GrahamError.invalidArgument("the start position must be one-based (>= 1)")
+        }
+        guard end >= start else {
+            throw GrahamError.invalidArgument("the end position must be at or after the start")
+        }
+        let request = SheetsBatchUpdateRequest.autoResizeDimensions(
+            AutoResizeDimensionsRequest(dimensions: DimensionRange(
+                sheetId: sheetId,
+                dimension: dimension.rawValue,
+                startIndex: start - 1,
+                endIndex: end)))
+        _ = try await batchUpdate(spreadsheetId: spreadsheetId, requests: [request])
+    }
+
+    // MARK: - Named ranges
+
+    /// Defines a named range over an A1 `range` and returns its new id. The
+    /// sheet comes from the range's tab name, or the first sheet when it names
+    /// none.
+    public func addNamedRange(
+        spreadsheetId: String,
+        name: String,
+        range: String
+    ) async throws -> String {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            throw GrahamError.invalidArgument("the named range needs a non-empty name")
+        }
+        let gridRange = try await resolveGridRange(spreadsheetId: spreadsheetId, range: range)
+        let request = SheetsBatchUpdateRequest.addNamedRange(AddNamedRangeRequest(
+            namedRange: NamedRangeRequest(name: trimmedName, range: gridRange)))
+        let response = try await batchUpdate(spreadsheetId: spreadsheetId, requests: [request])
+        guard let id = response.replies?.first?.addNamedRange?.namedRange?.namedRangeId else {
+            throw GrahamError.invalidResponse("addNamedRange returned no namedRangeId")
+        }
+        return id
+    }
+
+    /// Deletes a named range by its id.
+    public func deleteNamedRange(
+        spreadsheetId: String,
+        namedRangeId: String
+    ) async throws {
+        let trimmed = namedRangeId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw GrahamError.invalidArgument("provide the named range id to delete")
+        }
+        _ = try await batchUpdate(
+            spreadsheetId: spreadsheetId,
+            requests: [.deleteNamedRange(DeleteNamedRangeRequest(namedRangeId: trimmed))])
+    }
+
+    /// Lists the named ranges defined on a spreadsheet, read from its metadata.
+    public func namedRanges(spreadsheetId: String) async throws -> [NamedRange] {
+        let metadata = try await spreadsheet(id: spreadsheetId)
+        return metadata.namedRanges ?? []
     }
 }
 

@@ -47,6 +47,18 @@ public enum SheetsBatchUpdateRequest: Encodable, Sendable, Equatable {
     case deleteProtectedRange(DeleteProtectedRangeRequest)
     /// Sets or clears cell borders across a range.
     case updateBorders(UpdateBordersRequest)
+    /// Merges a range of cells into one, or into merged rows/columns.
+    case mergeCells(MergeCellsRequest)
+    /// Splits any merged cells within a range back into individual cells.
+    case unmergeCells(UnmergeCellsRequest)
+    /// Sorts a range's rows by one or more of its columns.
+    case sortRange(SortRangeRequest)
+    /// Auto-sizes a span of rows or columns to fit their contents.
+    case autoResizeDimensions(AutoResizeDimensionsRequest)
+    /// Defines a named range over a rectangle of cells.
+    case addNamedRange(AddNamedRangeRequest)
+    /// Deletes a named range by its id.
+    case deleteNamedRange(DeleteNamedRangeRequest)
 
     private enum CodingKeys: String, CodingKey {
         case addChart
@@ -66,6 +78,12 @@ public enum SheetsBatchUpdateRequest: Encodable, Sendable, Equatable {
         case addProtectedRange
         case deleteProtectedRange
         case updateBorders
+        case mergeCells
+        case unmergeCells
+        case sortRange
+        case autoResizeDimensions
+        case addNamedRange
+        case deleteNamedRange
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -105,6 +123,18 @@ public enum SheetsBatchUpdateRequest: Encodable, Sendable, Equatable {
             try container.encode(request, forKey: .deleteProtectedRange)
         case .updateBorders(let request):
             try container.encode(request, forKey: .updateBorders)
+        case .mergeCells(let request):
+            try container.encode(request, forKey: .mergeCells)
+        case .unmergeCells(let request):
+            try container.encode(request, forKey: .unmergeCells)
+        case .sortRange(let request):
+            try container.encode(request, forKey: .sortRange)
+        case .autoResizeDimensions(let request):
+            try container.encode(request, forKey: .autoResizeDimensions)
+        case .addNamedRange(let request):
+            try container.encode(request, forKey: .addNamedRange)
+        case .deleteNamedRange(let request):
+            try container.encode(request, forKey: .deleteNamedRange)
         }
     }
 }
@@ -679,6 +709,159 @@ public struct UpdateBordersRequest: Codable, Sendable, Equatable {
     }
 }
 
+// MARK: - Merge cells
+
+/// How a `mergeCells` operation combines the cells in its range.
+public enum SheetsMergeType: String, Sendable, CaseIterable, Equatable {
+    /// Merge the whole range into one cell.
+    case mergeAll = "MERGE_ALL"
+    /// Merge each column of the range into one cell per column.
+    case mergeColumns = "MERGE_COLUMNS"
+    /// Merge each row of the range into one cell per row.
+    case mergeRows = "MERGE_ROWS"
+}
+
+/// The `mergeCells` operation. `mergeType` is a ``SheetsMergeType`` raw value.
+public struct MergeCellsRequest: Codable, Sendable, Equatable {
+    public let range: GridRange
+    public let mergeType: String
+
+    public init(range: GridRange, mergeType: String) {
+        self.range = range
+        self.mergeType = mergeType
+    }
+}
+
+/// The `unmergeCells` operation. Splits any merged cells overlapping the range.
+public struct UnmergeCellsRequest: Codable, Sendable, Equatable {
+    public let range: GridRange
+
+    public init(range: GridRange) {
+        self.range = range
+    }
+}
+
+// MARK: - Sort range
+
+/// The direction a sort spec orders its column.
+public enum SheetsSortOrder: String, Sendable, CaseIterable, Equatable {
+    case ascending = "ASCENDING"
+    case descending = "DESCENDING"
+}
+
+/// One sort key of a `sortRange`. `dimensionIndex` is the ZERO-BASED column
+/// index of the sort key within the sheet (not within the range).
+public struct SortSpec: Codable, Sendable, Equatable {
+    public let dimensionIndex: Int
+    public let sortOrder: String
+
+    public init(dimensionIndex: Int, sortOrder: String) {
+        self.dimensionIndex = dimensionIndex
+        self.sortOrder = sortOrder
+    }
+}
+
+/// The `sortRange` operation: sorts the rows of `range` by `sortSpecs`, in
+/// order (the first spec is the primary key).
+public struct SortRangeRequest: Codable, Sendable, Equatable {
+    public let range: GridRange
+    public let sortSpecs: [SortSpec]
+
+    public init(range: GridRange, sortSpecs: [SortSpec]) {
+        self.range = range
+        self.sortSpecs = sortSpecs
+    }
+}
+
+/// A CLI-friendly sort key for ``SheetsClient/sortRange(spreadsheetId:range:specs:)``.
+/// `column` is a ONE-BASED column position within the sorted range; the client
+/// translates it to an absolute zero-based sheet ``SortSpec/dimensionIndex``.
+public struct SheetsSortKey: Sendable, Equatable {
+    public let column: Int
+    public let order: SheetsSortOrder
+
+    public init(column: Int, order: SheetsSortOrder) {
+        self.column = column
+        self.order = order
+    }
+
+    /// Parses a `--by` token of the form `col` or `col:asc` / `col:desc` (case
+    /// insensitive), where `col` is a one-based column within the range. A bare
+    /// column defaults to ascending. Throws ``GrahamError/invalidArgument(_:)``
+    /// on any other form.
+    public static func parse(_ input: String) throws -> SheetsSortKey {
+        let parts = input.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 1 || parts.count == 2 else {
+            throw GrahamError.invalidArgument(
+                "invalid --by \"\(input)\"; use <col> or <col>:asc / <col>:desc")
+        }
+        guard let column = Int(parts[0]), column >= 1 else {
+            throw GrahamError.invalidArgument(
+                "invalid --by \"\(input)\"; the column must be a one-based number")
+        }
+        let order: SheetsSortOrder
+        if parts.count == 2 {
+            switch parts[1].lowercased() {
+            case "asc", "ascending":
+                order = .ascending
+            case "desc", "descending":
+                order = .descending
+            default:
+                throw GrahamError.invalidArgument(
+                    "invalid --by \"\(input)\"; the order must be asc or desc")
+            }
+        } else {
+            order = .ascending
+        }
+        return SheetsSortKey(column: column, order: order)
+    }
+}
+
+// MARK: - Auto-resize dimensions
+
+/// The `autoResizeDimensions` operation: sizes each row or column in
+/// `dimensions` to fit its contents.
+public struct AutoResizeDimensionsRequest: Codable, Sendable, Equatable {
+    public let dimensions: DimensionRange
+
+    public init(dimensions: DimensionRange) {
+        self.dimensions = dimensions
+    }
+}
+
+// MARK: - Named ranges
+
+/// The `namedRange` payload of an `addNamedRange`: a name and the rectangle it
+/// covers. `namedRangeId` is deliberately absent — Google assigns it and
+/// reports it in the batch-update reply.
+public struct NamedRangeRequest: Codable, Sendable, Equatable {
+    public let name: String
+    public let range: GridRange
+
+    public init(name: String, range: GridRange) {
+        self.name = name
+        self.range = range
+    }
+}
+
+/// The `addNamedRange` operation.
+public struct AddNamedRangeRequest: Codable, Sendable, Equatable {
+    public let namedRange: NamedRangeRequest
+
+    public init(namedRange: NamedRangeRequest) {
+        self.namedRange = namedRange
+    }
+}
+
+/// The `deleteNamedRange` operation.
+public struct DeleteNamedRangeRequest: Codable, Sendable, Equatable {
+    public let namedRangeId: String
+
+    public init(namedRangeId: String) {
+        self.namedRangeId = namedRangeId
+    }
+}
+
 // MARK: - Responses
 
 /// The response of a `spreadsheets.batchUpdate` call.
@@ -695,6 +878,17 @@ public struct SheetsBatchUpdateReply: Codable, Sendable {
     public let addSheet: AddSheetReply?
     public let addFilterView: AddFilterViewReply?
     public let addProtectedRange: AddProtectedRangeReply?
+    public let addNamedRange: AddNamedRangeReply?
+}
+
+/// The reply of an `addNamedRange` operation, carrying the new range's id.
+public struct AddNamedRangeReply: Codable, Sendable {
+    public let namedRange: AddedNamedRange?
+}
+
+/// The server-assigned identity of a newly added named range.
+public struct AddedNamedRange: Codable, Sendable {
+    public let namedRangeId: String?
 }
 
 /// The reply of an `addSheet` operation, carrying the new sheet's properties.

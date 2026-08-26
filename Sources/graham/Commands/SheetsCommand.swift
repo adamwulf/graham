@@ -11,6 +11,7 @@ struct Sheets: AsyncParsableCommand {
             ConditionalFormat.self, Validation.self, Filter.self, FilterView.self,
             Protect.self,
             Border.self,
+            Merge.self, Unmerge.self, Sort.self, Autoresize.self, NamedRange.self,
         ]
     )
 
@@ -1117,6 +1118,206 @@ struct Sheets: AsyncParsableCommand {
             }
         }
     }
+
+    struct Merge: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Merge the cells in a range into one.",
+            discussion: """
+                --type chooses how to merge: merge_all (the whole range into one
+                cell, the default), merge_columns (one cell per column), or
+                merge_rows (one cell per row). The sheet comes from the range's
+                tab name, or the first sheet when the range names none.
+                """
+        )
+
+        @Argument(help: "The spreadsheet ID.")
+        var spreadsheetID: String
+
+        @Argument(help: "The range to merge, for example 'Sheet1!A1:C1'.")
+        var range: String
+
+        @Option(help: "How to merge: merge_all, merge_columns, or merge_rows.")
+        var type: SheetsMergeType = .mergeAll
+
+        func run() async throws {
+            let client = SheetsClient(api: try CLI.makeAPI())
+            try await client.mergeCells(
+                spreadsheetId: spreadsheetID, range: range, mergeType: type)
+        }
+    }
+
+    struct Unmerge: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Split any merged cells within a range back into single cells.",
+            discussion: """
+                The sheet comes from the range's tab name, or the first sheet
+                when the range names none.
+                """
+        )
+
+        @Argument(help: "The spreadsheet ID.")
+        var spreadsheetID: String
+
+        @Argument(help: "The range to unmerge, for example 'Sheet1!A1:C1'.")
+        var range: String
+
+        func run() async throws {
+            let client = SheetsClient(api: try CLI.makeAPI())
+            try await client.unmergeCells(spreadsheetId: spreadsheetID, range: range)
+        }
+    }
+
+    struct Sort: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Sort a range's rows by one or more of its columns.",
+            discussion: """
+                Repeat --by for each sort key, in priority order. Each value is a
+                one-based column within the range, optionally suffixed with :asc
+                or :desc (ascending by default), for example --by 2:desc --by 1.
+                The sheet comes from the range's tab name, or the first sheet
+                when the range names none.
+                """
+        )
+
+        @Argument(help: "The spreadsheet ID.")
+        var spreadsheetID: String
+
+        @Argument(help: "The range to sort, for example 'Sheet1!A2:D20'.")
+        var range: String
+
+        @Option(help: "A one-based column within the range, e.g. '2:desc'. Repeatable.")
+        var by: [String] = []
+
+        func validate() throws {
+            guard !by.isEmpty else {
+                throw ValidationError("Provide at least one --by sort column.")
+            }
+        }
+
+        func run() async throws {
+            let specs = try by.map { try SheetsSortKey.parse($0) }
+            let client = SheetsClient(api: try CLI.makeAPI())
+            try await client.sortRange(
+                spreadsheetId: spreadsheetID, range: range, specs: specs)
+        }
+    }
+
+    struct Autoresize: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Auto-size a span of rows or columns to fit their contents.",
+            discussion: """
+                --from and --to are one-based, inclusive positions; omit --to to
+                size a single row or column. Target a sheet with --sheet-id or
+                --sheet; omit both to use the first sheet.
+                """
+        )
+
+        @Argument(help: "The spreadsheet ID.")
+        var spreadsheetID: String
+
+        @Option(help: "The dimension to size: rows or columns.")
+        var dimension: SheetsDimension
+
+        @Option(help: "The first (one-based) row or column to size.")
+        var from: Int
+
+        @Option(help: "The last (one-based) row or column to size. Defaults to --from.")
+        var to: Int?
+
+        @Option(help: "The numeric sheet id to target.")
+        var sheetId: Int?
+
+        @Option(help: "The title of the sheet to target.")
+        var sheet: String?
+
+        func validate() throws {
+            try SheetTarget.validate(sheetId: sheetId, sheet: sheet)
+        }
+
+        func run() async throws {
+            let client = SheetsClient(api: try CLI.makeAPI())
+            let id = try await SheetTarget.resolve(
+                client, spreadsheetID: spreadsheetID, sheetId: sheetId, sheet: sheet)
+            try await client.autoResizeDimension(
+                spreadsheetId: spreadsheetID,
+                sheetId: id,
+                dimension: dimension,
+                start: from,
+                end: to ?? from
+            )
+        }
+    }
+
+    struct NamedRange: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "named-range",
+            abstract: "Manage the named ranges defined on a spreadsheet.",
+            subcommands: [Add.self, Delete.self, List.self]
+        )
+
+        struct Add: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Define a named range and print its new id.",
+                discussion: """
+                    The sheet comes from the range's tab name, or the first sheet
+                    when the range names none.
+                    """
+            )
+
+            @Argument(help: "The spreadsheet ID.")
+            var spreadsheetID: String
+
+            @Argument(help: "The name of the range.")
+            var name: String
+
+            @Argument(help: "The range to name, for example 'Sheet1!A1:B10'.")
+            var range: String
+
+            func run() async throws {
+                let client = SheetsClient(api: try CLI.makeAPI())
+                let id = try await client.addNamedRange(
+                    spreadsheetId: spreadsheetID, name: name, range: range)
+                print(id)
+            }
+        }
+
+        struct Delete: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Delete a named range by its id."
+            )
+
+            @Argument(help: "The spreadsheet ID.")
+            var spreadsheetID: String
+
+            @Option(name: .customLong("named-range-id"),
+                    help: "The id of the named range to delete.")
+            var namedRangeId: String
+
+            func run() async throws {
+                let client = SheetsClient(api: try CLI.makeAPI())
+                try await client.deleteNamedRange(
+                    spreadsheetId: spreadsheetID, namedRangeId: namedRangeId)
+            }
+        }
+
+        struct List: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "List the named ranges defined on a spreadsheet."
+            )
+
+            @Argument(help: "The spreadsheet ID.")
+            var spreadsheetID: String
+
+            @Option(help: "The output format: table, json, jsonl, or id.")
+            var format: OutputFormat = .table
+
+            func run() async throws {
+                let client = SheetsClient(api: try CLI.makeAPI())
+                let ranges = try await client.namedRanges(spreadsheetId: spreadsheetID)
+                print(try OutputFormatter.render(ranges, format: format))
+            }
+        }
+    }
 }
 
 extension BasicChartType: ExpressibleByArgument {
@@ -1150,6 +1351,12 @@ extension SheetsNumberFormatType: ExpressibleByArgument {
 }
 
 extension SheetsBorderStyle: ExpressibleByArgument {
+    public init?(argument: String) {
+        self.init(rawValue: argument.uppercased())
+    }
+}
+
+extension SheetsMergeType: ExpressibleByArgument {
     public init?(argument: String) {
         self.init(rawValue: argument.uppercased())
     }
