@@ -24,8 +24,8 @@ Named after Graham's number — a contrast to the googol that named Google.
   section breaks, insert an inline image from a URI, replace an image, and
   delete a positioned object), manage headers, footers, and footnotes
   (create and delete headers and footers, and create a footnote with optional
-  text), fill templates with named ranges (create, delete, and replace the
-  content of a named range by id or name), and set document-wide page style
+  text), fill templates with named ranges (create, list, delete, and replace
+  the content of a named range by id or name), and set document-wide page style
   (page size, margins, first-page and even-page header/footer flags, background,
   and page mode).
 - **Slides** — read presentation text; list every page element with its type,
@@ -227,6 +227,10 @@ graham docs footnote <document-id> --end --text "See the appendix."
 # Name a zero-based UTF-16 range (name 1-256 units, need not be unique) and print
 # its new id; later `fill` it to replace its content (the template-filling primitive).
 graham docs range create <document-id> --name greeting --from 2 --to 8
+# List the document's existing named ranges (id, name, and index spans) so their
+# ids and names can be used with delete/fill. --format json adds segment/tab ids.
+graham docs range list <document-id>
+graham docs range list <document-id> --format json
 # Delete a named range by id, or every range sharing a name (exactly one selector).
 graham docs range delete <document-id> --id <named-range-id>
 graham docs range delete <document-id> --name greeting
