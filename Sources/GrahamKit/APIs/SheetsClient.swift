@@ -493,6 +493,184 @@ public struct SheetsClient: Sendable {
             fields: fields.joined(separator: ",")))
         _ = try await batchUpdate(spreadsheetId: spreadsheetId, requests: [request])
     }
+
+    // MARK: - Data tooling
+
+    /// Resolves an A1 `range` to a ``GridRange``: the sheet id comes from the
+    /// range's tab name, or the spreadsheet's first sheet when the range names
+    /// none. This is the shared range-to-grid path for the data-tooling writes.
+    private func resolveGridRange(
+        spreadsheetId: String,
+        range: String
+    ) async throws -> GridRange {
+        let parsed = try A1Range.parse(range)
+        let targetSheetId: Int
+        if let name = parsed.sheetName {
+            targetSheetId = try await sheetId(spreadsheetId: spreadsheetId, title: name)
+        } else {
+            targetSheetId = try await firstSheetId(spreadsheetId: spreadsheetId)
+        }
+        return GridRange(
+            sheetId: targetSheetId,
+            startRowIndex: parsed.startRowIndex,
+            endRowIndex: parsed.endRowIndex,
+            startColumnIndex: parsed.startColumnIndex,
+            endColumnIndex: parsed.endColumnIndex)
+    }
+
+    /// Adds a conditional-format rule over an A1 `range`: when a cell satisfies
+    /// the boolean condition (`type` + `values`), its background is set to
+    /// `backgroundColor`. `index` is the zero-based insertion position within the
+    /// sheet's rule list. The condition's value count is validated before any
+    /// request is sent.
+    public func addConditionalFormatRule(
+        spreadsheetId: String,
+        range: String,
+        type: SheetsConditionType,
+        values: [String],
+        backgroundColor: SheetsColor,
+        index: Int = 0
+    ) async throws {
+        guard index >= 0 else {
+            throw GrahamError.invalidArgument("the rule index must be non-negative")
+        }
+        let condition = try SheetsBooleanCondition.make(type: type, values: values)
+        let gridRange = try await resolveGridRange(spreadsheetId: spreadsheetId, range: range)
+        let rule = ConditionalFormatRule(
+            ranges: [gridRange],
+            booleanRule: BooleanRule(
+                condition: condition,
+                format: SheetsCellFormat(backgroundColor: backgroundColor)))
+        _ = try await batchUpdate(
+            spreadsheetId: spreadsheetId,
+            requests: [.addConditionalFormatRule(
+                AddConditionalFormatRuleRequest(rule: rule, index: index))])
+    }
+
+    /// Deletes the conditional-format rule at `index` on `sheetId`.
+    public func deleteConditionalFormatRule(
+        spreadsheetId: String,
+        sheetId: Int,
+        index: Int
+    ) async throws {
+        guard index >= 0 else {
+            throw GrahamError.invalidArgument("the rule index must be non-negative")
+        }
+        _ = try await batchUpdate(
+            spreadsheetId: spreadsheetId,
+            requests: [.deleteConditionalFormatRule(
+                DeleteConditionalFormatRuleRequest(sheetId: sheetId, index: index))])
+    }
+
+    /// Sets a data-validation rule on an A1 `range` from a boolean condition.
+    /// `strict` rejects invalid input; `showCustomUi` draws the in-cell dropdown;
+    /// `inputMessage` is the hover help. The value count is validated before any
+    /// request is sent.
+    public func setDataValidation(
+        spreadsheetId: String,
+        range: String,
+        type: SheetsConditionType,
+        values: [String],
+        strict: Bool? = nil,
+        showCustomUi: Bool? = nil,
+        inputMessage: String? = nil
+    ) async throws {
+        let condition = try SheetsBooleanCondition.make(type: type, values: values)
+        let gridRange = try await resolveGridRange(spreadsheetId: spreadsheetId, range: range)
+        let rule = DataValidationRule(
+            condition: condition,
+            inputMessage: inputMessage,
+            strict: strict,
+            showCustomUi: showCustomUi)
+        _ = try await batchUpdate(
+            spreadsheetId: spreadsheetId,
+            requests: [.setDataValidation(
+                SetDataValidationRequest(range: gridRange, rule: rule))])
+    }
+
+    /// Clears data validation on an A1 `range` by sending a `nil` rule.
+    public func clearDataValidation(
+        spreadsheetId: String,
+        range: String
+    ) async throws {
+        let gridRange = try await resolveGridRange(spreadsheetId: spreadsheetId, range: range)
+        _ = try await batchUpdate(
+            spreadsheetId: spreadsheetId,
+            requests: [.setDataValidation(
+                SetDataValidationRequest(range: gridRange, rule: nil))])
+    }
+
+    /// Sets the basic filter over an A1 `range`. One basic filter exists per
+    /// sheet, so setting it replaces any existing one.
+    public func setBasicFilter(
+        spreadsheetId: String,
+        range: String
+    ) async throws {
+        let gridRange = try await resolveGridRange(spreadsheetId: spreadsheetId, range: range)
+        _ = try await batchUpdate(
+            spreadsheetId: spreadsheetId,
+            requests: [.setBasicFilter(SetBasicFilterRequest(filter: BasicFilter(range: gridRange)))])
+    }
+
+    /// Clears the basic filter from `sheetId`.
+    public func clearBasicFilter(
+        spreadsheetId: String,
+        sheetId: Int
+    ) async throws {
+        _ = try await batchUpdate(
+            spreadsheetId: spreadsheetId,
+            requests: [.clearBasicFilter(ClearBasicFilterRequest(sheetId: sheetId))])
+    }
+
+    /// Adds a titled filter view over an A1 `range` and returns its new numeric
+    /// id.
+    public func addFilterView(
+        spreadsheetId: String,
+        range: String,
+        title: String
+    ) async throws -> Int {
+        let gridRange = try await resolveGridRange(spreadsheetId: spreadsheetId, range: range)
+        let response = try await batchUpdate(
+            spreadsheetId: spreadsheetId,
+            requests: [.addFilterView(AddFilterViewRequest(
+                filter: FilterViewRequest(title: title, range: gridRange)))])
+        guard let id = response.replies?.first?.addFilterView?.filter?.filterViewId else {
+            throw GrahamError.invalidResponse("addFilterView returned no filterViewId")
+        }
+        return id
+    }
+
+    /// Adds a protected range over an A1 `range` and returns its new numeric id.
+    /// `warningOnly` makes the protection advisory rather than enforced.
+    public func addProtectedRange(
+        spreadsheetId: String,
+        range: String,
+        description: String? = nil,
+        warningOnly: Bool? = nil
+    ) async throws -> Int {
+        let gridRange = try await resolveGridRange(spreadsheetId: spreadsheetId, range: range)
+        let response = try await batchUpdate(
+            spreadsheetId: spreadsheetId,
+            requests: [.addProtectedRange(AddProtectedRangeRequest(
+                protectedRange: ProtectedRangeRequest(
+                    range: gridRange, description: description, warningOnly: warningOnly)))])
+        guard let id = response.replies?.first?.addProtectedRange?.protectedRange?.protectedRangeId
+        else {
+            throw GrahamError.invalidResponse("addProtectedRange returned no protectedRangeId")
+        }
+        return id
+    }
+
+    /// Deletes a protected range by its numeric id.
+    public func deleteProtectedRange(
+        spreadsheetId: String,
+        protectedRangeId: Int
+    ) async throws {
+        _ = try await batchUpdate(
+            spreadsheetId: spreadsheetId,
+            requests: [.deleteProtectedRange(
+                DeleteProtectedRangeRequest(protectedRangeId: protectedRangeId))])
+    }
 }
 
 /// An empty JSON request body (`{}`), for POST endpoints such as
