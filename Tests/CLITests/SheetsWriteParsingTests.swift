@@ -204,10 +204,37 @@ final class SheetsWriteParsingTests: XCTestCase {
         ])
         XCTAssertEqual(command.spreadsheetID, "sheet-1")
         XCTAssertEqual(command.range, "Sheet1!A1:B1")
-        XCTAssertTrue(command.bold)
+        XCTAssertEqual(command.bold, true)
         XCTAssertEqual(command.background, "#FFCC00")
         XCTAssertEqual(command.numberFormat, "#,##0.00")
         XCTAssertEqual(command.align, .center)
+    }
+
+    func testSheetsFormatParsesNoBoldAndTextAndNumberType() throws {
+        let command = try Sheets.Format.parse([
+            "sheet-1", "A1:B1",
+            "--no-bold",
+            "--text-color", "#202124",
+            "--font", "Roboto",
+            "--font-size", "14",
+            "--number-type", "currency",
+        ])
+        XCTAssertEqual(command.bold, false)
+        XCTAssertEqual(command.textColor, "#202124")
+        XCTAssertEqual(command.font, "Roboto")
+        XCTAssertEqual(command.fontSize, 14)
+        XCTAssertEqual(command.numberType, .currency)
+    }
+
+    func testSheetsFormatParsesClearFlags() throws {
+        let command = try Sheets.Format.parse([
+            "sheet-1", "A1:B1",
+            "--clear-background", "--clear-number-format", "--clear-align",
+        ])
+        XCTAssertTrue(command.clearBackground)
+        XCTAssertTrue(command.clearNumberFormat)
+        XCTAssertTrue(command.clearAlign)
+        XCTAssertNil(command.bold)
     }
 
     func testSheetsFormatRequiresAtLeastOneAspectAndAValidAlignment() {
@@ -215,6 +242,39 @@ final class SheetsWriteParsingTests: XCTestCase {
         XCTAssertThrowsError(try Sheets.Format.parse([
             "sheet-1", "A1:B1", "--align", "middle",
         ]))
+    }
+
+    func testSheetsFormatRejectsSettingAndClearingTheSameAspect() {
+        XCTAssertThrowsError(try Sheets.Format.parse([
+            "sheet-1", "A1:B1", "--background", "#FFCC00", "--clear-background",
+        ]))
+        XCTAssertThrowsError(try Sheets.Format.parse([
+            "sheet-1", "A1:B1", "--align", "left", "--clear-align",
+        ]))
+    }
+
+    func testSheetsRegistersBorderSubcommand() {
+        let names = Sheets.configuration.subcommands.map { String(describing: $0) }
+        XCTAssertTrue(names.contains("Border"), "sheets should list Border: \(names)")
+    }
+
+    func testSheetsBorderParsesSidesStyleAndColor() throws {
+        let command = try Sheets.Border.parse([
+            "sheet-1", "Sheet1!A1:B4",
+            "--all", "--style", "solid_thick", "--color", "#000000",
+        ])
+        XCTAssertEqual(command.spreadsheetID, "sheet-1")
+        XCTAssertEqual(command.range, "Sheet1!A1:B4")
+        XCTAssertTrue(command.all)
+        XCTAssertEqual(command.style, .solidThick)
+        XCTAssertEqual(command.color, "#000000")
+    }
+
+    func testSheetsBorderRequiresAStyleAndAtLeastOneSide() {
+        // Missing --style.
+        XCTAssertThrowsError(try Sheets.Border.parse(["sheet-1", "A1:B4", "--top"]))
+        // A style but no side.
+        XCTAssertThrowsError(try Sheets.Border.parse(["sheet-1", "A1:B4", "--style", "solid"]))
     }
 
     func testSheetsChartAddParsesOptions() throws {

@@ -10,6 +10,7 @@ struct Sheets: AsyncParsableCommand {
             Freeze.self, Resize.self, Format.self, Chart.self, Test.self,
             ConditionalFormat.self, Validation.self, Filter.self, FilterView.self,
             Protect.self,
+            Border.self,
         ]
     )
 
@@ -532,10 +533,17 @@ struct Sheets: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Apply a cell format across a range.",
             discussion: """
-                Set at least one of --bold, --background, --number-format, or
-                --align. Only the aspects you set are changed. The sheet comes
-                from the range's tab name, or the first sheet when the range
-                names none.
+                Set at least one aspect: --bold/--no-bold, --background,
+                --text-color, --font, --font-size, --number-format,
+                --number-type, or --align. Only the aspects you name are changed.
+
+                To reset an aspect to the cell default, use --no-bold,
+                --clear-background, --clear-number-format, or --clear-align; a
+                set and a clear of the same aspect together are rejected. Colors
+                are hex values (#RRGGBB or #RGB). The number format type defaults
+                to NUMBER, so an existing --number-format pattern keeps its old
+                behavior. The sheet comes from the range's tab name, or the first
+                sheet when the range names none.
                 """
         )
 
@@ -545,35 +553,154 @@ struct Sheets: AsyncParsableCommand {
         @Argument(help: "The range to format, for example 'Sheet1!A1:B1'.")
         var range: String
 
-        @Flag(help: "Make the cells bold.")
-        var bold = false
+        @Flag(inversion: .prefixedNo, help: "Make the cells bold; --no-bold clears bold.")
+        var bold: Bool?
 
         @Option(help: "Background color as a hex value, e.g. #FFCC00 or #FC0.")
         var background: String?
 
+        @Flag(name: .customLong("clear-background"), help: "Clear the background to the cell default.")
+        var clearBackground = false
+
+        @Option(name: .customLong("text-color"), help: "Text color as a hex value, e.g. #202124.")
+        var textColor: String?
+
+        @Option(help: "The font family, e.g. 'Roboto' or 'Arial'.")
+        var font: String?
+
+        @Option(name: .customLong("font-size"), help: "The font size in points.")
+        var fontSize: Int?
+
         @Option(name: .customLong("number-format"), help: "A number format pattern, e.g. '#,##0.00'.")
         var numberFormat: String?
+
+        @Option(
+            name: .customLong("number-type"),
+            help: "The number format type: number, percent, currency, date, time, date_time, scientific, or text (default number).")
+        var numberType: SheetsNumberFormatType?
+
+        @Flag(
+            name: .customLong("clear-number-format"),
+            help: "Clear the number format to the cell default.")
+        var clearNumberFormat = false
 
         @Option(help: "Horizontal alignment: left, center, or right.")
         var align: SheetsHorizontalAlignment?
 
+        @Flag(name: .customLong("clear-align"), help: "Clear the horizontal alignment to the cell default.")
+        var clearAlign = false
+
         func validate() throws {
-            guard bold || background != nil || numberFormat != nil || align != nil else {
+            let touchesSomething = bold != nil
+                || background != nil || clearBackground
+                || textColor != nil || font != nil || fontSize != nil
+                || numberFormat != nil || numberType != nil || clearNumberFormat
+                || align != nil || clearAlign
+            guard touchesSomething else {
                 throw ValidationError(
-                    "Provide at least one of --bold, --background, --number-format, or --align.")
+                    "Provide at least one of --bold/--no-bold, --background, --text-color, "
+                    + "--font, --font-size, --number-format, --number-type, or --align "
+                    + "(or a --clear-* flag).")
+            }
+            if background != nil, clearBackground {
+                throw ValidationError("Set --background or --clear-background, not both.")
+            }
+            if numberFormat != nil || numberType != nil, clearNumberFormat {
+                throw ValidationError(
+                    "Set --number-format/--number-type or --clear-number-format, not both.")
+            }
+            if align != nil, clearAlign {
+                throw ValidationError("Set --align or --clear-align, not both.")
             }
         }
 
         func run() async throws {
             let client = SheetsClient(api: try CLI.makeAPI())
-            let color = try background.map { try SheetsColor.parse($0) }
+            let background = try self.background.map { try SheetsColor.parse($0) }
+            let textColor = try self.textColor.map { try SheetsColor.parse($0) }
             try await client.formatCells(
                 spreadsheetId: spreadsheetID,
                 range: range,
-                bold: bold ? true : nil,
-                backgroundColor: color,
+                bold: bold,
+                backgroundColor: background,
+                clearBackground: clearBackground,
                 numberFormat: numberFormat,
-                horizontalAlignment: align
+                numberFormatType: numberType,
+                clearNumberFormat: clearNumberFormat,
+                horizontalAlignment: align,
+                clearAlignment: clearAlign,
+                textColor: textColor,
+                fontFamily: font,
+                fontSize: fontSize
+            )
+        }
+    }
+
+    struct Border: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Set or clear cell borders across a range.",
+            discussion: """
+                Choose the sides with --all, or any of --top, --bottom, --left,
+                --right, and --inner (--inner draws the interior horizontal and
+                vertical lines). Every chosen side gets the same --style and
+                optional --color. Use --style none to clear the chosen sides. The
+                sheet comes from the range's tab name, or the first sheet when the
+                range names none.
+                """
+        )
+
+        @Argument(help: "The spreadsheet ID.")
+        var spreadsheetID: String
+
+        @Argument(help: "The range to border, for example 'Sheet1!A1:B4'.")
+        var range: String
+
+        @Flag(help: "Apply to all four edges and the interior lines.")
+        var all = false
+
+        @Flag(help: "Apply to the top edge.")
+        var top = false
+
+        @Flag(help: "Apply to the bottom edge.")
+        var bottom = false
+
+        @Flag(help: "Apply to the left edge.")
+        var left = false
+
+        @Flag(help: "Apply to the right edge.")
+        var right = false
+
+        @Flag(help: "Apply to the interior horizontal and vertical lines.")
+        var inner = false
+
+        @Option(
+            help: "The line style: solid, solid_medium, solid_thick, dashed, dotted, double, or none.")
+        var style: SheetsBorderStyle
+
+        @Option(help: "The border color as a hex value, e.g. #000000. Defaults to black.")
+        var color: String?
+
+        func validate() throws {
+            guard all || top || bottom || left || right || inner else {
+                throw ValidationError(
+                    "Choose at least one side: --all, --top, --bottom, --left, --right, or --inner.")
+            }
+        }
+
+        func run() async throws {
+            let client = SheetsClient(api: try CLI.makeAPI())
+            let color = try self.color.map { try SheetsColor.parse($0) }
+            try await client.setBorders(
+                spreadsheetId: spreadsheetID,
+                range: range,
+                style: style,
+                color: color,
+                top: all || top,
+                bottom: all || bottom,
+                left: all || left,
+                right: all || right,
+                innerHorizontal: all || inner,
+                innerVertical: all || inner
             )
         }
     }
@@ -1011,6 +1138,18 @@ extension SheetsHorizontalAlignment: ExpressibleByArgument {
 }
 
 extension SheetsConditionType: ExpressibleByArgument {
+    public init?(argument: String) {
+        self.init(rawValue: argument.uppercased())
+    }
+}
+
+extension SheetsNumberFormatType: ExpressibleByArgument {
+    public init?(argument: String) {
+        self.init(rawValue: argument.uppercased())
+    }
+}
+
+extension SheetsBorderStyle: ExpressibleByArgument {
     public init?(argument: String) {
         self.init(rawValue: argument.uppercased())
     }
