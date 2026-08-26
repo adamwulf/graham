@@ -36,6 +36,32 @@ final class DocsWriteParsingTests: XCTestCase {
         XCTAssertThrowsError(try Docs.Insert.parse(["doc-1", "--at", "1"]))
     }
 
+    func testDocsInsertParsesRequireRevision() throws {
+        let command = try Docs.Insert.parse([
+            "doc-1", "--text", "hi", "--at", "1", "--require-revision", "rev-7",
+        ])
+        XCTAssertEqual(command.requireRevision, "rev-7")
+    }
+
+    func testDocsInsertDefaultsRequireRevisionToNil() throws {
+        let command = try Docs.Insert.parse(["doc-1", "--text", "hi", "--at", "1"])
+        XCTAssertNil(command.requireRevision)
+    }
+
+    func testDocsDeleteParsesRequireRevision() throws {
+        let command = try Docs.Delete.parse([
+            "doc-1", "--from", "1", "--to", "4", "--require-revision", "rev-8",
+        ])
+        XCTAssertEqual(command.requireRevision, "rev-8")
+    }
+
+    func testDocsReplaceParsesRequireRevision() throws {
+        let command = try Docs.Replace.parse([
+            "doc-1", "--find", "a", "--replace", "b", "--require-revision", "rev-9",
+        ])
+        XCTAssertEqual(command.requireRevision, "rev-9")
+    }
+
     func testDocsDeleteParsesRange() throws {
         let command = try Docs.Delete.parse([
             "doc-1",

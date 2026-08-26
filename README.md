@@ -118,6 +118,9 @@ graham docs insert <document-id> --text "Hello" --at 1
 graham docs delete <document-id> --from 1 --to 6
 # Replace all matches and print how many were changed (case-insensitive unless --match-case).
 graham docs replace <document-id> --find "old" --replace "new" --match-case
+# Any write can require the document be at a known revision (optimistic concurrency);
+# the write fails instead of overwriting a concurrent edit.
+graham docs insert <document-id> --text "Hello" --at 1 --require-revision <revision-id>
 
 graham slides cat <presentation-id>
 # List every element; JSON includes raw geometry, links, alt text, and image URLs.

@@ -45,9 +45,37 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
     }
 }
 
+/// Optimistic-concurrency control for a `documents.batchUpdate` write.
+///
+/// `requiredRevisionId` makes the write apply only if the document is still at
+/// that revision, failing otherwise so a concurrent edit is never silently
+/// overwritten. `targetRevisionId` applies the write against an older revision,
+/// transforming it forward. The two are mutually exclusive; graham sets only
+/// `requiredRevisionId`. Both encode only when set, so a body with no write
+/// control omits the field entirely. The document's current revision is
+/// `Document.revisionId` (populated by the richer read phase).
+public struct DocsWriteControl: Codable, Sendable, Equatable {
+    public let requiredRevisionId: String?
+    public let targetRevisionId: String?
+
+    public init(requiredRevisionId: String? = nil, targetRevisionId: String? = nil) {
+        self.requiredRevisionId = requiredRevisionId
+        self.targetRevisionId = targetRevisionId
+    }
+}
+
 /// The body of a `documents.batchUpdate` POST.
+///
+/// `writeControl` is included only when the caller supplies one, so an ordinary
+/// write body stays `{"requests": [...]}`.
 struct DocsBatchUpdateRequestBody: Encodable, Sendable {
     let requests: [DocsBatchUpdateRequest]
+    let writeControl: DocsWriteControl?
+
+    init(requests: [DocsBatchUpdateRequest], writeControl: DocsWriteControl? = nil) {
+        self.requests = requests
+        self.writeControl = writeControl
+    }
 }
 
 // MARK: - Shared locations
@@ -204,6 +232,10 @@ public struct DocsBatchUpdateResponse: Codable, Sendable {
     /// One reply per request, in request order. Operations such as
     /// `insertText` and `deleteContentRange` return an empty reply object.
     public let replies: [DocsBatchUpdateReply]?
+    /// The write control after the write, carrying the resulting
+    /// `requiredRevisionId`/`targetRevisionId`. Optional and decoded
+    /// defensively, like every other response field.
+    public let writeControl: DocsWriteControl?
 }
 
 /// One reply in a Docs batch-update response.

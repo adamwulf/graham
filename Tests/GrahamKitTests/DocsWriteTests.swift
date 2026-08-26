@@ -246,6 +246,108 @@ final class DocsWriteTests: XCTestCase {
         }
     }
 
+    // MARK: - WriteControl
+
+    func testInsertTextWithRequiredRevisionCarriesWriteControl() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
+
+        _ = try await client.insertText(
+            documentId: "doc-1", text: "Hello", index: 5, requiredRevisionId: "rev-1")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        // The write control rides alongside the requests, carrying only the
+        // required revision (targetRevisionId stays nil and is omitted).
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"insertText":{"location":{"index":5},"text":"Hello"}}],"writeControl":{"requiredRevisionId":"rev-1"}}"#
+        )
+    }
+
+    func testDeleteContentRangeWithRequiredRevisionCarriesWriteControl() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
+
+        _ = try await client.deleteContentRange(
+            documentId: "doc-1", startIndex: 5, endIndex: 12, requiredRevisionId: "rev-9")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"deleteContentRange":{"range":{"endIndex":12,"startIndex":5}}}],"writeControl":{"requiredRevisionId":"rev-9"}}"#
+        )
+    }
+
+    func testReplaceAllTextWithRequiredRevisionCarriesWriteControl() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"replies":[{"replaceAllText":{"occurrencesChanged":1}}]}"#
+        )
+
+        _ = try await client.replaceAllText(
+            documentId: "doc-1", find: "old", replace: "new", matchCase: true,
+            requiredRevisionId: "rev-3")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"replaceAllText":{"containsText":{"matchCase":true,"text":"old"},"replaceText":"new"}}],"writeControl":{"requiredRevisionId":"rev-3"}}"#
+        )
+    }
+
+    func testWriteControlOmittedWhenRevisionIsNil() async throws {
+        // The default (no required revision) sends an ordinary body with no
+        // writeControl key at all, so existing callers are unchanged.
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
+
+        _ = try await client.insertText(documentId: "doc-1", text: "Hello", index: 5)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"insertText":{"location":{"index":5},"text":"Hello"}}]}"#
+        )
+        XCTAssertFalse(Self.bodyString(request).contains("writeControl"))
+    }
+
+    func testBatchUpdateDecodesWriteControlInTheResponse() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"documentId":"doc-1","replies":[{}],"writeControl":{"requiredRevisionId":"rev-2"}}"#
+        )
+
+        let response = try await client.insertText(documentId: "doc-1", text: "Hi", index: 1)
+
+        XCTAssertEqual(response.writeControl?.requiredRevisionId, "rev-2")
+        XCTAssertNil(response.writeControl?.targetRevisionId)
+    }
+
+    func testWriteControlEncodesOnlyTheFieldsThatAreSet() throws {
+        XCTAssertEqual(
+            String(data: try GoogleJSON.encoder.encode(
+                DocsWriteControl(requiredRevisionId: "r")), encoding: .utf8),
+            #"{"requiredRevisionId":"r"}"#
+        )
+        XCTAssertEqual(
+            String(data: try GoogleJSON.encoder.encode(
+                DocsWriteControl(targetRevisionId: "t")), encoding: .utf8),
+            #"{"targetRevisionId":"t"}"#
+        )
+        // An empty write control encodes to an empty object.
+        XCTAssertEqual(
+            String(data: try GoogleJSON.encoder.encode(DocsWriteControl()), encoding: .utf8),
+            "{}"
+        )
+    }
+
     // MARK: - Encoding a mixed batch
 
     /// The union encodes each case under its own JSON key, so a caller can mix

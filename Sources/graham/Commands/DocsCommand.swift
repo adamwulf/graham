@@ -63,9 +63,14 @@ struct Docs: AsyncParsableCommand {
         @Option(help: "The zero-based UTF-16 index to insert at (minimum 1; the body starts at 1).")
         var at: Int
 
+        @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+        var requireRevision: String?
+
         func run() async throws {
             let client = DocsClient(api: try CLI.makeAPI())
-            _ = try await client.insertText(documentId: documentID, text: text, index: at)
+            _ = try await client.insertText(
+                documentId: documentID, text: text, index: at,
+                requiredRevisionId: requireRevision)
             print("Inserted \(text.utf16.count) UTF-16 code units at index \(at).")
         }
     }
@@ -89,12 +94,16 @@ struct Docs: AsyncParsableCommand {
         @Option(help: "The zero-based UTF-16 end index (exclusive).")
         var to: Int
 
+        @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+        var requireRevision: String?
+
         func run() async throws {
             let client = DocsClient(api: try CLI.makeAPI())
             _ = try await client.deleteContentRange(
                 documentId: documentID,
                 startIndex: from,
-                endIndex: to
+                endIndex: to,
+                requiredRevisionId: requireRevision
             )
             print("Deleted content in [\(from), \(to)).")
         }
@@ -117,13 +126,17 @@ struct Docs: AsyncParsableCommand {
         @Flag(help: "Match case exactly (default is case-insensitive).")
         var matchCase = false
 
+        @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+        var requireRevision: String?
+
         func run() async throws {
             let client = DocsClient(api: try CLI.makeAPI())
             let count = try await client.replaceAllText(
                 documentId: documentID,
                 find: find,
                 replace: replace,
-                matchCase: matchCase
+                matchCase: matchCase,
+                requiredRevisionId: requireRevision
             )
             print(count)
         }

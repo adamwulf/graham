@@ -41,18 +41,28 @@ public struct DocsClient: Sendable {
     ///
     /// This is the shared Docs batch-write path. High-level operations build
     /// typed ``DocsBatchUpdateRequest`` values and go through this method.
+    ///
+    /// When `requiredRevisionId` is set, it is carried as a ``DocsWriteControl``
+    /// so the write applies only if the document is still at that revision —
+    /// optimistic concurrency that fails the write rather than overwriting a
+    /// concurrent edit. When nil (the default), no write control is sent and
+    /// the body stays `{"requests": [...]}`.
     public func batchUpdate(
         documentId: String,
-        requests: [DocsBatchUpdateRequest]
+        requests: [DocsBatchUpdateRequest],
+        requiredRevisionId: String? = nil
     ) async throws -> DocsBatchUpdateResponse {
         let url = try GoogleURL.build(
             "\(Self.baseURL)/documents/\(GoogleURL.escapePathComponent(documentId)):batchUpdate"
         )
+        let writeControl = requiredRevisionId.map {
+            DocsWriteControl(requiredRevisionId: $0)
+        }
         return try await api.sendJSON(
             DocsBatchUpdateResponse.self,
             method: "POST",
             url: url,
-            body: DocsBatchUpdateRequestBody(requests: requests)
+            body: DocsBatchUpdateRequestBody(requests: requests, writeControl: writeControl)
         )
     }
 
@@ -66,7 +76,8 @@ public struct DocsClient: Sendable {
     public func insertText(
         documentId: String,
         text: String,
-        index: Int
+        index: Int,
+        requiredRevisionId: String? = nil
     ) async throws -> DocsBatchUpdateResponse {
         guard !text.isEmpty else {
             throw GrahamError.invalidArgument("text must not be empty")
@@ -79,7 +90,9 @@ public struct DocsClient: Sendable {
             text: text,
             location: DocsLocation(index: index)
         ))
-        return try await batchUpdate(documentId: documentId, requests: [request])
+        return try await batchUpdate(
+            documentId: documentId, requests: [request],
+            requiredRevisionId: requiredRevisionId)
     }
 
     /// Deletes the content in the half-open range `[startIndex, endIndex)`.
@@ -89,7 +102,8 @@ public struct DocsClient: Sendable {
     public func deleteContentRange(
         documentId: String,
         startIndex: Int,
-        endIndex: Int
+        endIndex: Int,
+        requiredRevisionId: String? = nil
     ) async throws -> DocsBatchUpdateResponse {
         guard startIndex >= 1 else {
             throw GrahamError.invalidArgument(
@@ -102,7 +116,9 @@ public struct DocsClient: Sendable {
         let request = DocsBatchUpdateRequest.deleteContentRange(DocsDeleteContentRangeRequest(
             range: DocsRange(startIndex: startIndex, endIndex: endIndex)
         ))
-        return try await batchUpdate(documentId: documentId, requests: [request])
+        return try await batchUpdate(
+            documentId: documentId, requests: [request],
+            requiredRevisionId: requiredRevisionId)
     }
 
     /// Replaces every match of `find` with `replace`, returning the number of
@@ -113,7 +129,8 @@ public struct DocsClient: Sendable {
         documentId: String,
         find: String,
         replace: String,
-        matchCase: Bool = false
+        matchCase: Bool = false,
+        requiredRevisionId: String? = nil
     ) async throws -> Int {
         guard !find.isEmpty else {
             throw GrahamError.invalidArgument("the text to find must not be empty")
@@ -122,7 +139,9 @@ public struct DocsClient: Sendable {
             replaceText: replace,
             containsText: DocsSubstringMatchCriteria(text: find, matchCase: matchCase)
         ))
-        let response = try await batchUpdate(documentId: documentId, requests: [request])
+        let response = try await batchUpdate(
+            documentId: documentId, requests: [request],
+            requiredRevisionId: requiredRevisionId)
         return response.replies?.first?.replaceAllText?.occurrencesChanged ?? 0
     }
 }
