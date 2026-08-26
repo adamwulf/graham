@@ -11,9 +11,12 @@ deferred until Docs is done (see the end of this file).
 ## Docs — remaining work
 
 Basis: the live Docs v1 discovery document (revision `20260819`). The
-`documents.batchUpdate` Request union holds **40 operations**; graham has 3
-(`insertText`, `deleteContentRange`, `replaceAllText`). **37 remain**, plus
-`documents.create`, `WriteControl`, and most of the read surface.
+`documents.batchUpdate` Request union holds **40 operations**; graham implements
+3 (`insertText`, `deleteContentRange`, `replaceAllText`), so **37 remain**, plus
+most of the read surface. The Phase 1 foundations are done: `documents.create`,
+`WriteControl` (optimistic concurrency), segment-aware text edits, and the
+shared write models (`DocsEndOfSegmentLocation`, `DocsTableCellLocation`,
+`DocsTableRange`, `tabId` on locations).
 
 Every write item follows the CLAUDE.md write recipe: a typed `Docs*Request` case
 in `Models/DocsBatchUpdateModels.swift`, a high-level method in
@@ -32,26 +35,7 @@ encoded body, decoded reply, error propagation), then a thin subcommand in
   `TabProperties.index`). The CLI shows and accepts **one-based** values;
   GrahamKit translates.
 
-### Phase 1 — Foundations
-
-- **`documents.create`** *(core)* — create a blank document from a title; returns
-  the `Document`. `DocsClient.create(title:)` via `GoogleAPI.sendJSON` (POST
-  `/v1/documents`, body `{"title": ...}`); CLI `docs create <title>` prints the
-  new `documentId`. No index concern.
-- **`WriteControl`** *(useful)* — optimistic concurrency for `batchUpdate` via
-  `requiredRevisionId` / `targetRevisionId`. Add an optional `writeControl` to
-  the request body, decode `writeControl` in the response, thread an optional
-  `requiredRevisionId:` through the write methods, and a `--require-revision`
-  option.
-- **Shared write models** *(core)* — `DocsEndOfSegmentLocation` (append to the
-  end of a segment without computing an index), `DocsTableCellLocation`,
-  `DocsTableRange`, and an optional `tabId` on `DocsLocation`/`DocsRange`. Model
-  types plus encoding tests. These unblock nearly every phase below.
-- **Segment-aware text ops** *(useful)* — extend `insertText` /
-  `deleteContentRange` with `segmentId:` and an end-of-segment variant
-  (`--segment`, `--end`). In segments the minimum insert index is 0, not 1.
-
-### Phase 2 — Richer reads (early on purpose: writes need real indices)
+### Phase 2 — Richer reads (next up; writes need real indices)
 
 Today the read model keeps only `title`, paragraph `textRun.content`, and table
 cell text. It drops indices, styles, bullets, links, images, breaks, headers,
