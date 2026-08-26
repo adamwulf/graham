@@ -201,7 +201,7 @@ final class SheetsChartTypesWriteTests: XCTestCase {
         XCTAssertEqual(request.method, "POST")
         XCTAssertEqual(
             Self.bodyString(request),
-            #"{"requests":[{"updateEmbeddedObjectPosition":{"fields":"newPosition","newPosition":{"overlayPosition":{"anchorCell":{"columnIndex":3,"rowIndex":1,"sheetId":9},"heightPixels":200,"widthPixels":300}},"objectId":42}}]}"#
+            #"{"requests":[{"updateEmbeddedObjectPosition":{"fields":"anchorCell,widthPixels,heightPixels","newPosition":{"overlayPosition":{"anchorCell":{"columnIndex":3,"rowIndex":1,"sheetId":9},"heightPixels":200,"widthPixels":300}},"objectId":42}}]}"#
         )
     }
 
@@ -216,7 +216,7 @@ final class SheetsChartTypesWriteTests: XCTestCase {
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
             Self.bodyString(request),
-            #"{"requests":[{"updateEmbeddedObjectPosition":{"fields":"newPosition","newPosition":{"overlayPosition":{"anchorCell":{"columnIndex":2,"rowIndex":0,"sheetId":7}}},"objectId":42}}]}"#
+            #"{"requests":[{"updateEmbeddedObjectPosition":{"fields":"anchorCell","newPosition":{"overlayPosition":{"anchorCell":{"columnIndex":2,"rowIndex":0,"sheetId":7}}},"objectId":42}}]}"#
         )
     }
 
@@ -230,7 +230,7 @@ final class SheetsChartTypesWriteTests: XCTestCase {
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
             Self.bodyString(request),
-            #"{"requests":[{"updateEmbeddedObjectPosition":{"fields":"newPosition","newPosition":{"newSheet":true},"objectId":42}}]}"#
+            #"{"requests":[{"updateEmbeddedObjectPosition":{"fields":"*","newPosition":{"newSheet":true},"objectId":42}}]}"#
         )
         // No metadata fetch is needed to move to a new sheet.
         XCTAssertTrue(transport.requests(urlContains: "/spreadsheets/sheet-1?").isEmpty)

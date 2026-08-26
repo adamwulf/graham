@@ -517,7 +517,10 @@ public struct CandlestickSeries: Codable, Sendable, Equatable {
 
 /// The `updateEmbeddedObjectPosition` operation: moves or resizes an embedded
 /// object (such as a chart) to `newPosition`. `objectId` is the numeric chart
-/// id and `fields` is a mask relative to the request (for example `newPosition`).
+/// id and `fields` is a mask of the `OverlayPosition` fields to update — the
+/// `newPosition.overlayPosition` root is implied, so it names `anchorCell`,
+/// `widthPixels`, and/or `heightPixels` (for example `anchorCell,widthPixels`).
+/// A move to a new sheet sets no overlay field and uses the wildcard `*`.
 public struct UpdateEmbeddedObjectPositionRequest: Codable, Sendable, Equatable {
     public let objectId: Int
     public let newPosition: EmbeddedObjectPosition
@@ -754,28 +757,24 @@ public struct SheetsNumberFormat: Codable, Sendable, Equatable {
     }
 }
 
-/// The writable subset of a cell's format that `sheets format` sets.
+/// The writable subset of a cell's format used by `sheets format` and by
+/// conditional-format rules.
 ///
-/// `backgroundColorStyle` is the non-deprecated background color that
-/// `sheets format` writes; the deprecated `backgroundColor` remains for
-/// conditional-format rules that still take a bare `Color`. Set at most one of
-/// the two. A field left `nil` while its path is named in the `repeatCell` mask
-/// clears that aspect back to the cell default.
+/// `backgroundColorStyle` is the non-deprecated background color (a
+/// `ColorStyle`), used by every writer. A field left `nil` while its path is
+/// named in the `repeatCell` mask clears that aspect back to the cell default.
 public struct SheetsCellFormat: Codable, Sendable, Equatable {
-    public let backgroundColor: SheetsColor?
     public let backgroundColorStyle: SheetsColorStyle?
     public let textFormat: SheetsTextFormat?
     public let numberFormat: SheetsNumberFormat?
     public let horizontalAlignment: String?
 
     public init(
-        backgroundColor: SheetsColor? = nil,
         backgroundColorStyle: SheetsColorStyle? = nil,
         textFormat: SheetsTextFormat? = nil,
         numberFormat: SheetsNumberFormat? = nil,
         horizontalAlignment: String? = nil
     ) {
-        self.backgroundColor = backgroundColor
         self.backgroundColorStyle = backgroundColorStyle
         self.textFormat = textFormat
         self.numberFormat = numberFormat

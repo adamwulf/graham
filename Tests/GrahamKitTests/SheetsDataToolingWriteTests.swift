@@ -66,7 +66,7 @@ final class SheetsDataToolingWriteTests: XCTestCase {
         XCTAssertEqual(request.method, "POST")
         XCTAssertEqual(
             Self.bodyString(request),
-            #"{"requests":[{"addConditionalFormatRule":{"index":2,"rule":{"booleanRule":{"condition":{"type":"NUMBER_GREATER","values":[{"userEnteredValue":"10"}]},"format":{"backgroundColor":{"blue":0,"green":0,"red":1}}},"ranges":[{"endColumnIndex":1,"endRowIndex":100,"sheetId":5,"startColumnIndex":0,"startRowIndex":1}]}}}]}"#
+            #"{"requests":[{"addConditionalFormatRule":{"index":2,"rule":{"booleanRule":{"condition":{"type":"NUMBER_GREATER","values":[{"userEnteredValue":"10"}]},"format":{"backgroundColorStyle":{"rgbColor":{"blue":0,"green":0,"red":1}}}},"ranges":[{"endColumnIndex":1,"endRowIndex":100,"sheetId":5,"startColumnIndex":0,"startRowIndex":1}]}}}]}"#
         )
     }
 

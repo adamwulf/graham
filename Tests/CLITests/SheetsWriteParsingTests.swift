@@ -421,4 +421,141 @@ final class SheetsWriteParsingTests: XCTestCase {
         // chart-id is required.
         XCTAssertThrowsError(try Sheets.Chart.Move.parse(["sheet-1", "--new-sheet"]))
     }
+
+    // MARK: - Structure subcommands
+
+    func testSheetsRegistersStructureSubcommands() {
+        let names = Sheets.configuration.subcommands.map { String(describing: $0) }
+        for expected in ["Merge", "Unmerge", "Sort", "Autoresize", "NamedRange"] {
+            XCTAssertTrue(names.contains(expected), "sheets should list \(expected): \(names)")
+        }
+    }
+
+    func testSheetsMergeParsesTypeAndDefaultsToMergeAll() throws {
+        let explicit = try Sheets.Merge.parse([
+            "sheet-1", "Sheet1!A1:C1", "--type", "merge_columns",
+        ])
+        XCTAssertEqual(explicit.spreadsheetID, "sheet-1")
+        XCTAssertEqual(explicit.range, "Sheet1!A1:C1")
+        XCTAssertEqual(explicit.type, .mergeColumns)
+
+        let defaulted = try Sheets.Merge.parse(["sheet-1", "Sheet1!A1:C1"])
+        XCTAssertEqual(defaulted.type, .mergeAll)
+    }
+
+    func testSheetsMergeRejectsUnknownTypeAndUnmergeParses() throws {
+        XCTAssertThrowsError(try Sheets.Merge.parse([
+            "sheet-1", "A1:C1", "--type", "sideways",
+        ]))
+        let unmerge = try Sheets.Unmerge.parse(["sheet-1", "Sheet1!A1:C1"])
+        XCTAssertEqual(unmerge.range, "Sheet1!A1:C1")
+    }
+
+    func testSheetsSortParsesRepeatableBy() throws {
+        let command = try Sheets.Sort.parse([
+            "sheet-1", "Sheet1!A2:D20", "--by", "2:desc", "--by", "1",
+        ])
+        XCTAssertEqual(command.range, "Sheet1!A2:D20")
+        XCTAssertEqual(command.by, ["2:desc", "1"])
+    }
+
+    func testSheetsAutoresizeParsesDimensionRangeAndSelector() throws {
+        let command = try Sheets.Autoresize.parse([
+            "sheet-1", "--dimension", "columns", "--from", "1", "--to", "3",
+            "--sheet", "Data",
+        ])
+        XCTAssertEqual(command.dimension, .columns)
+        XCTAssertEqual(command.from, 1)
+        XCTAssertEqual(command.to, 3)
+        XCTAssertEqual(command.sheet, "Data")
+    }
+
+    func testSheetsNamedRangeSubcommandsParse() throws {
+        let names = Sheets.NamedRange.configuration.subcommands.map { String(describing: $0) }
+        for expected in ["Add", "Delete", "List"] {
+            XCTAssertTrue(names.contains(expected), "named-range should list \(expected): \(names)")
+        }
+
+        let add = try Sheets.NamedRange.Add.parse(["sheet-1", "Totals", "Sheet1!A1:B10"])
+        XCTAssertEqual(add.name, "Totals")
+        XCTAssertEqual(add.range, "Sheet1!A1:B10")
+
+        let delete = try Sheets.NamedRange.Delete.parse([
+            "sheet-1", "--named-range-id", "abc123",
+        ])
+        XCTAssertEqual(delete.namedRangeId, "abc123")
+
+        let list = try Sheets.NamedRange.List.parse(["sheet-1", "--format", "json"])
+        XCTAssertEqual(list.format, .json)
+    }
+
+    // MARK: - Data-tooling subcommands
+
+    func testSheetsRegistersDataToolingSubcommands() {
+        let names = Sheets.configuration.subcommands.map { String(describing: $0) }
+        for expected in ["ConditionalFormat", "Validation", "Filter", "FilterView", "Protect"] {
+            XCTAssertTrue(names.contains(expected), "sheets should list \(expected): \(names)")
+        }
+    }
+
+    func testSheetsConditionalFormatAddParsesConditionAndBackground() throws {
+        let command = try Sheets.ConditionalFormat.Add.parse([
+            "sheet-1", "Sheet1!A2:A100",
+            "--type", "NUMBER_GREATER", "--value", "10",
+            "--background", "#FFCC00", "--index", "2",
+        ])
+        XCTAssertEqual(command.range, "Sheet1!A2:A100")
+        XCTAssertEqual(command.type.rawValue, "NUMBER_GREATER")
+        XCTAssertEqual(command.value, ["10"])
+        XCTAssertEqual(command.background, "#FFCC00")
+        XCTAssertEqual(command.index, 2)
+    }
+
+    func testSheetsConditionalFormatAddRequiresTypeAndBackground() {
+        // --type and --background are required options.
+        XCTAssertThrowsError(try Sheets.ConditionalFormat.Add.parse([
+            "sheet-1", "A2:A100", "--value", "10",
+        ]))
+    }
+
+    func testSheetsValidationSetParsesTypeValuesAndFlags() throws {
+        let command = try Sheets.Validation.Set.parse([
+            "sheet-1", "Sheet1!B2:B100",
+            "--type", "ONE_OF_LIST", "--value", "yes", "--value", "no",
+            "--strict", "--dropdown", "--message", "Pick one",
+        ])
+        XCTAssertEqual(command.type.rawValue, "ONE_OF_LIST")
+        XCTAssertEqual(command.value, ["yes", "no"])
+        XCTAssertTrue(command.strict)
+        XCTAssertTrue(command.dropdown)
+        XCTAssertEqual(command.message, "Pick one")
+
+        let clear = try Sheets.Validation.Clear.parse(["sheet-1", "Sheet1!B2:B100"])
+        XCTAssertEqual(clear.range, "Sheet1!B2:B100")
+    }
+
+    func testSheetsFilterAndFilterViewParse() throws {
+        let set = try Sheets.Filter.Set.parse(["sheet-1", "Sheet1!A1:D100"])
+        XCTAssertEqual(set.range, "Sheet1!A1:D100")
+
+        let view = try Sheets.FilterView.Add.parse([
+            "sheet-1", "Sheet1!A1:D100", "--title", "High priority",
+        ])
+        XCTAssertEqual(view.range, "Sheet1!A1:D100")
+        XCTAssertEqual(view.title, "High priority")
+    }
+
+    func testSheetsProtectAddParsesDescriptionAndWarningOnly() throws {
+        let command = try Sheets.Protect.Add.parse([
+            "sheet-1", "Sheet1!A1:D10", "--description", "Locked", "--warning-only",
+        ])
+        XCTAssertEqual(command.range, "Sheet1!A1:D10")
+        XCTAssertEqual(command.description, "Locked")
+        XCTAssertTrue(command.warningOnly)
+
+        let delete = try Sheets.Protect.Delete.parse([
+            "sheet-1", "--protected-range-id", "7",
+        ])
+        XCTAssertEqual(delete.protectedRangeId, 7)
+    }
 }

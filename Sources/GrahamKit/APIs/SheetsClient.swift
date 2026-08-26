@@ -276,6 +276,7 @@ public struct SheetsClient: Sendable {
         }
 
         let newPosition: EmbeddedObjectPosition
+        let fields: String
         if let anchor {
             let parsedAnchor = try A1Range.parse(anchor)
             let anchorSheetId: Int
@@ -291,14 +292,23 @@ public struct SheetsClient: Sendable {
                     columnIndex: parsedAnchor.startColumnIndex),
                 widthPixels: width,
                 heightPixels: height))
+            // The mask is relative to newPosition.overlayPosition (the root is
+            // implied), so it names only the OverlayPosition fields being set.
+            var maskParts = ["anchorCell"]
+            if width != nil { maskParts.append("widthPixels") }
+            if height != nil { maskParts.append("heightPixels") }
+            fields = maskParts.joined(separator: ",")
         } else {
             newPosition = EmbeddedObjectPosition(newSheet: true)
+            // A move to a new sheet sets no overlay field; "*" updates the whole
+            // position.
+            fields = "*"
         }
 
         _ = try await batchUpdate(
             spreadsheetId: spreadsheetId,
             requests: [.updateEmbeddedObjectPosition(UpdateEmbeddedObjectPositionRequest(
-                objectId: chartId, newPosition: newPosition, fields: "newPosition"))])
+                objectId: chartId, newPosition: newPosition, fields: fields))])
     }
 
     // MARK: Chart building
@@ -816,7 +826,8 @@ public struct SheetsClient: Sendable {
             ranges: [gridRange],
             booleanRule: BooleanRule(
                 condition: condition,
-                format: SheetsCellFormat(backgroundColor: backgroundColor)))
+                format: SheetsCellFormat(
+                    backgroundColorStyle: SheetsColorStyle(rgbColor: backgroundColor))))
         _ = try await batchUpdate(
             spreadsheetId: spreadsheetId,
             requests: [.addConditionalFormatRule(
