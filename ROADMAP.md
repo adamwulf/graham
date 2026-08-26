@@ -12,11 +12,13 @@ deferred until Docs is done (see the end of this file).
 
 Basis: the live Docs v1 discovery document (revision `20260819`). The
 `documents.batchUpdate` Request union holds **40 operations**; graham implements
-3 (`insertText`, `deleteContentRange`, `replaceAllText`), so **37 remain**, plus
-most of the read surface. The Phase 1 foundations are done: `documents.create`,
-`WriteControl` (optimistic concurrency), segment-aware text edits, and the
-shared write models (`DocsEndOfSegmentLocation`, `DocsTableCellLocation`,
-`DocsTableRange`, `tabId` on locations).
+3 (`insertText`, `deleteContentRange`, `replaceAllText`), so **37 remain**.
+Phase 1 (foundations) and Phase 2 (richer reads) are done: `documents.create`,
+`WriteControl`, segment-aware text edits, the shared write models, the full
+read model, the `Document.blockRows` facade (`docs structure`), `docs cat
+--markdown`, and `docs images`. What remains is the write surface — text and
+paragraph styling, lists, tables, structure and images, headers/footers/
+footnotes, and named ranges and document style.
 
 Every write item follows the CLAUDE.md write recipe: a typed `Docs*Request` case
 in `Models/DocsBatchUpdateModels.swift`, a high-level method in
@@ -35,29 +37,7 @@ encoded body, decoded reply, error propagation), then a thin subcommand in
   `TabProperties.index`). The CLI shows and accepts **one-based** values;
   GrahamKit translates.
 
-### Phase 2 — Richer reads (in progress)
-
-The read core is done: `DocsModels` now models the full Docs v1 read surface,
-`Document.blockRows` flattens the body into typed rows, and `docs structure`
-renders them. Two consumers of that model remain:
-
-- **`docs cat --markdown`** *(core)* — a Markdown renderer over the extended
-  model: `namedStyleType` `TITLE`/`HEADING_1..6` -> `#`..`######`; bold / italic
-  / strike from `textStyle`; `textStyle.link.url` -> `[text](url)`; `bullet` +
-  the `lists` map (ordered when `NestingLevel.glyphType` is numeric) -> `-` /
-  `1.` with nesting indents; tables -> pipe tables; `horizontalRule` -> `---`;
-  `pageBreak` -> a marker; `footnoteReference` -> `[^n]` plus a footnotes
-  section; `inlineObjectElement` -> `![alt](sourceUri)`; person / richLink /
-  dateElement -> display text. Strip the U+E907 placeholder that replaces
-  non-text elements in `TextRun.content`. Pure function in GrahamKit;
-  unit-tested offline.
-- **`docs images [--download]`** *(useful)* — list inline and positioned images
-  (object id, size, `sourceUri`, `contentUri`) and optionally download bytes.
-  `ImageProperties.contentUri` is short-lived and pre-authorized, so downloads
-  must use the second, no-OAuth transport exactly like the Slides `contentUrl`
-  seam. Tests stub both the API and the image bytes.
-
-### Phase 3 — Text and paragraph styling
+### Phase 3 — Text and paragraph styling (next up)
 
 Both operations take a `fields` mask; reuse the Slides mask discipline: one
 deterministic path per provided parameter, fixed documented order, tests assert
