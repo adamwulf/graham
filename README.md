@@ -18,9 +18,11 @@ Named after Graham's number — a contrast to the googol that named Google.
   create a blank document; and through the shared `documents.batchUpdate` write
   path insert, delete, and replace text, style text and paragraphs, manage
   bulleted and numbered lists, edit table structure (insert and delete rows
-  and columns, merge and unmerge cells, and pin header rows), and style tables
+  and columns, merge and unmerge cells, and pin header rows), style tables
   (cell background, borders, padding, and alignment; row height, header, and
-  overflow; and column width).
+  overflow; and column width), and edit structure and images (insert page and
+  section breaks, insert an inline image from a URI, replace an image, and
+  delete a positioned object).
 - **Slides** — read presentation text; list every page element with its type,
   geometry, text, links, and alt text; list or download every image, including
   images nested in groups; add, move, and delete slides through the shared
@@ -189,6 +191,22 @@ graham docs insert <document-id> --text "Hello" --at 1 --require-revision <revis
 # content URIs), or download them under safe deterministic names.
 graham docs images <document-id>
 graham docs images <document-id> --download ./images
+# Insert a page break (body only) at a zero-based index, or at the end of the body.
+graham docs page-break <document-id> --at 5
+graham docs page-break <document-id> --end
+# Insert an inline image from a public URI (PNG/JPEG/GIF, < 50MB, <= 25 megapixels;
+# Google fetches it once at insertion time). --width/--height are optional points.
+# The new image's object id is printed. --segment targets a header or footer.
+graham docs image insert <document-id> --uri https://example.com/pic.png --at 5 --width 120 --height 80
+graham docs image insert <document-id> --uri https://example.com/pic.png --end
+# Replace an existing image in place (object id from `docs images`); the only
+# method is center-crop (scale and center to fill the original bounds).
+graham docs image replace <document-id> <image-object-id> --uri https://example.com/new.png
+# Delete a positioned object by id (positioned objects can only be deleted via the API).
+graham docs object delete <document-id> <object-id>
+# Insert a continuous or next-page section break (body only) at an index or the end.
+graham docs section-break <document-id> --type continuous --at 3
+graham docs section-break <document-id> --type next-page --end
 
 graham slides cat <presentation-id>
 # List every element; JSON includes raw geometry, links, alt text, and image URLs.
