@@ -127,6 +127,131 @@ final class SheetsWriteTests: XCTestCase {
         XCTAssertTrue(transport.requests.isEmpty)
     }
 
+    // MARK: - Values read options and batchGet
+
+    func testValuesSendsNoRenderOptionByDefault() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: "/values/", json: #"{"values":[["1"]]}"#)
+
+        _ = try await client.values(spreadsheetId: "sheet-1", range: "A1:B2")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: "/values/").first)
+        XCTAssertEqual(request.method, "GET")
+        XCTAssertNil(Self.queryValue(request.url, "valueRenderOption"))
+    }
+
+    func testValuesSendsRenderOptionWhenRequested() async throws {
+        for option in [SheetsValueRenderOption.unformatted, .formula] {
+            let transport = StubTransport()
+            let client = makeClient(transport: transport)
+            transport.stub(urlContains: "/values/", json: #"{"values":[["1"]]}"#)
+
+            _ = try await client.values(
+                spreadsheetId: "sheet-1", range: "A1:B2", renderOption: option)
+
+            let request = try XCTUnwrap(transport.requests(urlContains: "/values/").first)
+            XCTAssertEqual(Self.queryValue(request.url, "valueRenderOption"), option.rawValue)
+        }
+    }
+
+    func testBatchGetValuesRequestsEveryRangeAndDecodesValueRanges() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: "/values:batchGet",
+            json: #"{"spreadsheetId":"sheet-1","valueRanges":[{"range":"A1:B2","values":[["x"]]},{"range":"C1:D2","values":[["y"]]}]}"#
+        )
+
+        let response = try await client.batchGetValues(
+            spreadsheetId: "sheet-1", ranges: ["A1:B2", "C1:D2"], renderOption: .unformatted)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: "/values:batchGet").first)
+        XCTAssertEqual(request.method, "GET")
+        XCTAssertEqual(Self.path(request.url), "/v4/spreadsheets/sheet-1/values:batchGet")
+        XCTAssertEqual(Self.queryValues(request.url, "ranges"), ["A1:B2", "C1:D2"])
+        XCTAssertEqual(Self.queryValue(request.url, "valueRenderOption"), "UNFORMATTED_VALUE")
+        XCTAssertEqual(response.valueRanges?.count, 2)
+        XCTAssertEqual(response.valueRanges?.first?.range, "A1:B2")
+    }
+
+    func testBatchGetValuesRejectsEmptyRangesWithoutSendingARequest() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            _ = try await client.batchGetValues(spreadsheetId: "sheet-1", ranges: [])
+        }
+        XCTAssertTrue(transport.requests.isEmpty)
+    }
+
+    // MARK: - Append and clear
+
+    func testAppendValuesPostsToTheAppendVerbWithInsertRows() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":append",
+            json: #"{"spreadsheetId":"sheet-1","tableRange":"Sheet1!A1:C4","updates":{"updatedRange":"Sheet1!A5:C6","updatedRows":2,"updatedColumns":3,"updatedCells":6}}"#
+        )
+
+        let response = try await client.appendValues(
+            spreadsheetId: "sheet-1",
+            range: "Sheet1!A1:C4",
+            values: [["A", "B", "C"], ["D", "E", "F"]]
+        )
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":append").first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(
+            request.url.absoluteString,
+            "https://sheets.googleapis.com/v4/spreadsheets/sheet-1/values/Sheet1!A1:C4:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS"
+        )
+        XCTAssertEqual(request.headers["Content-Type"], "application/json")
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"values":[["A","B","C"],["D","E","F"]]}"#
+        )
+        XCTAssertEqual(response.updates?.updatedCells, 6)
+        XCTAssertEqual(response.tableRange, "Sheet1!A1:C4")
+    }
+
+    func testAppendValuesRejectsEmptyValuesWithoutSendingARequest() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            _ = try await client.appendValues(spreadsheetId: "sheet-1", range: "A1", values: [])
+        }
+        await assertInvalidArgument {
+            _ = try await client.appendValues(
+                spreadsheetId: "sheet-1", range: "A1", values: [["ok"], []])
+        }
+        XCTAssertTrue(transport.requests.isEmpty)
+    }
+
+    func testClearValuesPostsAnEmptyBodyToTheClearVerb() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":clear",
+            json: #"{"spreadsheetId":"sheet-1","clearedRange":"Sheet1!A1:B10"}"#
+        )
+
+        let response = try await client.clearValues(
+            spreadsheetId: "sheet-1", range: "Sheet1!A1:B10")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":clear").first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(
+            request.url.absoluteString,
+            "https://sheets.googleapis.com/v4/spreadsheets/sheet-1/values/Sheet1!A1:B10:clear"
+        )
+        XCTAssertEqual(request.headers["Content-Type"], "application/json")
+        XCTAssertEqual(Self.bodyString(request), "{}")
+        XCTAssertEqual(response.clearedRange, "Sheet1!A1:B10")
+    }
+
     // MARK: - Add chart
 
     func testAddChartBuildsOneSeriesAndReturnsChartId() async throws {
@@ -342,5 +467,16 @@ final class SheetsWriteTests: XCTestCase {
 
     private static func path(_ url: URL) -> String? {
         URLComponents(url: url, resolvingAgainstBaseURL: false)?.path
+    }
+
+    private static func queryValue(_ url: URL, _ name: String) -> String? {
+        URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?.first(where: { $0.name == name })?.value
+    }
+
+    private static func queryValues(_ url: URL, _ name: String) -> [String] {
+        (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? [])
+            .filter { $0.name == name }
+            .compactMap(\.value)
     }
 }

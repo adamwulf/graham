@@ -33,7 +33,8 @@ final class ModelTests: XCTestCase {
             "spreadsheetUrl": "https://docs.google.com/spreadsheets/d/sheet-1",
             "sheets": [
                 {"properties": {"sheetId": 0, "title": "Tab A", "index": 0,
-                    "gridProperties": {"rowCount": 100, "columnCount": 26}}}
+                    "gridProperties": {"rowCount": 100, "columnCount": 26,
+                        "frozenRowCount": 1, "frozenColumnCount": 2}}}
             ]
         }
         """#
@@ -42,7 +43,13 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(spreadsheet.properties?.title, "Budget")
         XCTAssertEqual(spreadsheet.sheets?.count, 1)
         XCTAssertEqual(spreadsheet.sheets?.first?.properties?.title, "Tab A")
-        XCTAssertEqual(spreadsheet.sheets?.first?.properties?.gridProperties?.rowCount, 100)
+        let grid = spreadsheet.sheets?.first?.properties?.gridProperties
+        XCTAssertEqual(grid?.rowCount, 100)
+        XCTAssertEqual(grid?.frozenRowCount, 1)
+        XCTAssertEqual(grid?.frozenColumnCount, 2)
+        // The row renders the frozen counts, defaulting an absent count to 0.
+        XCTAssertEqual(
+            spreadsheet.sheets?.first?.tableValues, ["0", "100", "26", "1", "2", "Tab A"])
     }
 
     // MARK: - Docs

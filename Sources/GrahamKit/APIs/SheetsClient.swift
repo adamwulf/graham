@@ -21,12 +21,42 @@ public struct SheetsClient: Sendable {
 
     /// Reads cell values from a range in A1 notation, for example
     /// `Sheet1!A1:C10` or `Sheet1`.
-    public func values(spreadsheetId: String, range: String) async throws -> ValueRange {
+    ///
+    /// `renderOption` chooses how each cell is rendered; the default (`nil`)
+    /// leaves the server default `FORMATTED_VALUE`, so the URL is unchanged for
+    /// callers that do not ask for raw values or formulas.
+    public func values(
+        spreadsheetId: String,
+        range: String,
+        renderOption: SheetsValueRenderOption? = nil
+    ) async throws -> ValueRange {
         let url = try GoogleURL.build(
             "\(Self.baseURL)/spreadsheets/\(GoogleURL.escapePathComponent(spreadsheetId))"
-                + "/values/\(GoogleURL.escapePathComponent(range))"
+                + "/values/\(GoogleURL.escapePathComponent(range))",
+            query: [("valueRenderOption", renderOption?.rawValue)]
         )
         return try await api.getJSON(ValueRange.self, from: url)
+    }
+
+    /// Reads several ranges in one call. Each `ValueRange` in the reply matches
+    /// one requested range, in request order.
+    public func batchGetValues(
+        spreadsheetId: String,
+        ranges: [String],
+        renderOption: SheetsValueRenderOption? = nil
+    ) async throws -> BatchGetValuesResponse {
+        guard !ranges.isEmpty else {
+            throw GrahamError.invalidArgument("provide at least one range to read")
+        }
+        let query: [(String, String?)] =
+            ranges.map { ("ranges", Optional($0)) }
+            + [("valueRenderOption", renderOption?.rawValue)]
+        let url = try GoogleURL.build(
+            "\(Self.baseURL)/spreadsheets/\(GoogleURL.escapePathComponent(spreadsheetId))"
+                + "/values:batchGet",
+            query: query
+        )
+        return try await api.getJSON(BatchGetValuesResponse.self, from: url)
     }
 
     // MARK: - Writes
@@ -57,6 +87,55 @@ public struct SheetsClient: Sendable {
             method: "PUT",
             url: url,
             body: UpdateValuesRequestBody(values: values)
+        )
+    }
+
+    /// Appends rows after the logical table found within `range`, without first
+    /// finding the next free row. Values use `USER_ENTERED`, and Sheets inserts
+    /// new rows (`INSERT_ROWS`) rather than overwriting cells below the table.
+    public func appendValues(
+        spreadsheetId: String,
+        range: String,
+        values: [[String]]
+    ) async throws -> AppendValuesResponse {
+        guard !values.isEmpty else {
+            throw GrahamError.invalidArgument("values must contain at least one row")
+        }
+        guard !values.contains(where: \.isEmpty) else {
+            throw GrahamError.invalidArgument("each values row must contain at least one cell")
+        }
+
+        let url = try GoogleURL.build(
+            "\(Self.baseURL)/spreadsheets/\(GoogleURL.escapePathComponent(spreadsheetId))"
+                + "/values/\(GoogleURL.escapePathComponent(range)):append",
+            query: [
+                ("valueInputOption", "USER_ENTERED"),
+                ("insertDataOption", "INSERT_ROWS"),
+            ]
+        )
+        return try await api.sendJSON(
+            AppendValuesResponse.self,
+            method: "POST",
+            url: url,
+            body: UpdateValuesRequestBody(values: values)
+        )
+    }
+
+    /// Clears the cell values in `range`, leaving formatting intact. The request
+    /// body is empty; the reply reports the range that was cleared.
+    public func clearValues(
+        spreadsheetId: String,
+        range: String
+    ) async throws -> ClearValuesResponse {
+        let url = try GoogleURL.build(
+            "\(Self.baseURL)/spreadsheets/\(GoogleURL.escapePathComponent(spreadsheetId))"
+                + "/values/\(GoogleURL.escapePathComponent(range)):clear"
+        )
+        return try await api.sendJSON(
+            ClearValuesResponse.self,
+            method: "POST",
+            url: url,
+            body: EmptyJSONBody()
         )
     }
 
@@ -154,3 +233,7 @@ public struct SheetsClient: Sendable {
         return chartId
     }
 }
+
+/// An empty JSON request body (`{}`), for POST endpoints such as
+/// `values.clear` that require a body with no fields.
+private struct EmptyJSONBody: Encodable {}

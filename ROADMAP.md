@@ -88,33 +88,78 @@ ids are not writable and are intentionally omitted.
 
 ---
 
-## Sheets — deferred until Docs is complete
+## Sheets — the active build-out
 
-Ranked; each item is one unit of work in the repo pattern (typed batch-update
-case + high-level client method + offline StubTransport tests + thin CLI
-command). See the built Sheets surface in `SheetsClient.swift`.
+This is the next major area. Docs is at practical 100%, so work now moves here.
 
-1. **`values.append` -> `sheets append`** *(quick win)* — add rows without first
-   finding the next free row. One endpoint (POST
-   `.../values/{range}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`),
-   reuses `UpdateValuesRequestBody`, no batch-update case, no index math.
-2. **Tab management** — `addSheet` + `deleteSheet` + rename
-   (`updateSheetProperties`), as a `sheets tab` group. `SheetProperties.index`
-   is zero-based; the CLI accepts one-based and translates. `deleteSheet` takes a
-   numeric `sheetId`; resolve a title to its id via `spreadsheet(id:)`.
-3. **`values.clear` -> `sheets clear`** — POST `:clear` with an empty body; very
-   small, can ride with item 1.
-4. **Freeze and resize** — `updateSheetProperties.gridProperties` +
-   `updateDimensionProperties`, reusing the Slides fields-mask convention.
-   Dimension ranges are zero-based, half-open; the CLI takes one-based inclusive.
-5. **First formatting slice** — `repeatCell` with a small `CellFormat`:
-   `sheets format <range> --bold --background <color> --number-format <pattern>
-   --align <h>`. `A1Range.parse` already yields the `GridRange`.
-6. **Chart upgrades** (one unit each) — overlay position with anchor cell and
-   pixel size; `pieChart` spec + `COMBO` type; `deleteEmbeddedObject` +
-   `updateChartSpec`, plus `sheets.charts` in `sheets get` so charts are
-   listable.
-7. **Read options + `batchGet`** — `--raw` and `--formulas` on `sheets values`,
-   multi-range reads, and `frozenRowCount`/`frozenColumnCount` in `sheets get`.
-8. **`sheets set` input escaping** — accept TSV on stdin or a `--json` rows
-   argument so cells can contain commas and a `values | set` round trip works.
+### What is built today
+
+`SheetsClient.swift` holds: `spreadsheet` (get metadata, including frozen row /
+column counts), `values` (read a range, with a `valueRenderOption`),
+`batchGetValues` (multi-range read), `setValues` (write a range, `USER_ENTERED`),
+`appendValues` (append rows after a table), `clearValues` (clear a range),
+`batchUpdate` (the shared batch-write path), and `addChart` (a basic chart on its
+own new sheet). The CLI exposes these as `sheets get`, `sheets values`
+(`--raw` / `--formulas`, one or more ranges), `sheets set` (`--row` / `--json-rows`
+/ `--tsv`), `sheets append`, `sheets clear`, and `sheets chart add`.
+
+`graham sheets test` runs the live end-to-end Sheets smoke test over that surface
+(`SheetsLiveTest.swift`), with real value write / append / clear
+read-back round-trips. It is the Sheets analog of `graham docs test` and
+`graham slides test`; the Slides test keeps only a minimal chart-source
+spreadsheet, so each test exercises its own service.
+
+### How each item ships
+
+Every item is one unit of work in the repo pattern:
+
+1. Typed request/response models under `Models/` (a new `SheetsBatchUpdateRequest`
+   case where the operation is a batch write).
+2. A high-level `SheetsClient` method that owns the endpoint, escaped path, HTTP
+   method, and body.
+3. Offline `StubTransport` tests (exact method, URL, encoded body, decoded
+   reply, empty reply, and Google-error propagation).
+4. A thin CLI subcommand.
+5. **Grow `sheets test`** to cover the new operation, with a read-back where
+   practical — the live surface test must keep pace with the client surface.
+
+Index conventions (apply throughout): A1 ranges parse through `A1Range.parse`
+(never hand-build a `GridRange`). `SheetProperties.index`, dimension ranges, and
+grid indices are zero-based (dimension ranges are also half-open); the CLI shows
+and accepts one-based (inclusive for dimensions) and `GrahamKit` translates.
+Building a fields mask reuses the Slides `update*Properties` mask convention.
+
+### Phase 2 — Tab (sheet) management
+
+- **`sheets tab` group** — `addSheet` + `deleteSheet` + rename
+  (`updateSheetProperties`). `SheetProperties.index` is zero-based; the CLI is
+  one-based. `deleteSheet` takes a numeric `sheetId`; resolve a title to its id
+  through `spreadsheet(id:)`.
+- Grow `sheets test`: add a tab, rename it, delete it, verifying each through
+  `get`.
+
+### Phase 3 — Grid shape
+
+- **Freeze** — `updateSheetProperties.gridProperties`
+  (`frozenRowCount` / `frozenColumnCount`). The read side (surfacing the counts
+  in `sheets get`) is already built; only the write remains.
+- **Resize** — `updateDimensionProperties` for row height / column width.
+  Dimension ranges are zero-based half-open; the CLI is one-based inclusive.
+- Grow `sheets test`: freeze the header row and read it back through `get`;
+  resize a column.
+
+### Phase 4 — Cell formatting
+
+- **First formatting slice** — `repeatCell` with a small `CellFormat`:
+  `sheets format <range> --bold --background <color> --number-format <pattern>
+  --align <h>`. `A1Range.parse` already yields the `GridRange`.
+- Grow `sheets test`: format the header row.
+
+### Phase 5 — Chart upgrades
+
+- One unit each: overlay position with an anchor cell and pixel size; a
+  `pieChart` spec plus the `COMBO` type; `deleteEmbeddedObject` +
+  `updateChartSpec`; and listing `sheets.charts` in `sheets get` so charts are
+  listable.
+- Grow `sheets test`: add an overlay chart, list it through `get`, then update
+  and delete it.

@@ -211,3 +211,24 @@ public struct UpdateValuesResponse: Codable, Sendable {
     public let updatedColumns: Int?
     public let updatedCells: Int?
 }
+
+/// The response of a `spreadsheets.values.append` call. The write counts live in
+/// the nested `updates` object; `tableRange` reports the table the append found.
+public struct AppendValuesResponse: Codable, Sendable {
+    public let spreadsheetId: String?
+    public let tableRange: String?
+    public let updates: UpdateValuesResponse?
+}
+
+/// The response of a `spreadsheets.values.clear` call.
+public struct ClearValuesResponse: Codable, Sendable {
+    public let spreadsheetId: String?
+    public let clearedRange: String?
+}
+
+/// The response of a `spreadsheets.values.batchGet` call: one `ValueRange` per
+/// requested range, in request order.
+public struct BatchGetValuesResponse: Codable, Sendable {
+    public let spreadsheetId: String?
+    public let valueRanges: [ValueRange]?
+}
