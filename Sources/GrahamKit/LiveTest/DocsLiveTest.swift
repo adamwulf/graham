@@ -153,6 +153,25 @@ public struct DocsLiveTest: Sendable {
             _ = try await docs.document(id: documentID).imageRows
         }
 
+        // documents.create: a second, throwaway document created directly through
+        // DocsClient (not Drive), verified by its id and — through a read-back —
+        // its title, then trashed in cleanup. The main disposable document above
+        // stays folder-parented; this one lands in My Drive.
+        let createdDocID = await valueStep(
+            "docs-create", recorder: recorder, createdIDs: { [$0] }
+        ) {
+            let title = "graham docs-create \(label)"
+            let created = try await docs.create(title: title)
+            guard let id = created.documentId, !id.isEmpty else {
+                throw GrahamError.invalidResponse("docs.create returned no document id")
+            }
+            let read = try await docs.document(id: id)
+            guard read.documentId == id, read.title == title else {
+                throw GrahamError.invalidResponse("the created document did not round-trip")
+            }
+            return id
+        }
+
         // Text. One explicit-index insert seeds the body with several marker
         // paragraphs; the rest read those paragraphs back to target the edit.
         let insertedText = await actionStep("text-insert", recorder: recorder) {
@@ -543,8 +562,15 @@ public struct DocsLiveTest: Sendable {
             "range-fill", recorder: recorder,
             skipReason: dependencyReason("range-create", value: namedRangeID)
         ) {
+            // The named range covers the "graham styled" run; filling it replaces
+            // that run's content, which a read-back observes.
             _ = try await docs.replaceNamedRangeContent(
                 documentId: documentID, text: "graham filled", namedRangeId: namedRangeID!)
+            let after = try await docs.document(id: documentID)
+            guard self.blockRange(after, preview: "graham filled") != nil,
+                  self.blockRange(after, preview: Self.styledText) == nil else {
+                throw GrahamError.invalidResponse("the named range fill did not round-trip")
+            }
         }
         _ = await actionStep(
             "range-delete", recorder: recorder,
@@ -557,24 +583,29 @@ public struct DocsLiveTest: Sendable {
             }
         }
 
-        // Document-wide style. This masks every writable DocumentStyle field in
-        // one call: page size, margins, the header/footer flags, background, the
-        // document mode (the mode-mask path is exercised whichever value is set;
-        // `.pages` is kept because it is unambiguously valid alongside an
-        // explicit page size), the starting page number, custom header/footer
-        // margins, and the orientation flip.
+        // Document-wide style. This masks the page-oriented DocumentStyle fields
+        // in one call: page size, margins, the header/footer flags, background,
+        // the starting page number, custom header/footer margins, and the
+        // orientation flip. The document mode is set on its own below, because
+        // pageless is incompatible with an explicit page size.
         _ = await actionStep("page-setup", recorder: recorder) {
             _ = try await docs.updateDocumentStyle(
                 documentId: documentID,
                 pageWidth: 612, pageHeight: 792,
                 marginTop: 72, marginBottom: 72, marginLeft: 72, marginRight: 72,
                 useFirstPageHeaderFooter: true, useEvenPageHeaderFooter: true,
-                background: white, documentMode: .pages, pageNumberStart: 1,
+                background: white, pageNumberStart: 1,
                 marginHeader: 36, marginFooter: 36, flipPageOrientation: true)
             let after = try await docs.document(id: documentID)
             guard after.documentStyle?.useFirstPageHeaderFooter == true else {
                 throw GrahamError.invalidResponse("the document style did not round-trip")
             }
+        }
+        // Pageless mode, set alone: it is incompatible with the explicit page
+        // size set above, so it must ride in its own updateDocumentStyle call.
+        _ = await actionStep("page-mode-pageless", recorder: recorder) {
+            _ = try await docs.updateDocumentStyle(
+                documentId: documentID, documentMode: .pageless)
         }
 
         // WriteControl: one write that requires the document's current revision.
@@ -592,6 +623,10 @@ public struct DocsLiveTest: Sendable {
             }
         }
 
+        await cleanupStep(
+            "trash-created-doc", fileID: createdDocID,
+            recorder: recorder, prerequisite: createdDocID != nil,
+            dependency: "docs-create")
         await cleanupStep(
             "trash-doc", fileID: documentID, recorder: recorder, prerequisite: true)
 
@@ -626,7 +661,9 @@ public struct DocsLiveTest: Sendable {
                let objectId = positioned.objectId {
                 _ = try await docs.deletePositionedObject(
                     documentId: documentID, objectId: objectId)
-                recorder.record(name: "positioned-delete", outcome: .pass, createdIDs: [objectId])
+                // The object was deleted, not created, so nothing is recorded as
+                // a created id.
+                recorder.record(name: "positioned-delete", outcome: .pass)
             } else {
                 recorder.record(
                     name: "positioned-delete",

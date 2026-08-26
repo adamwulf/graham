@@ -67,6 +67,8 @@ final class DocsLiveTestTests: XCTestCase {
         XCTAssertEqual(
             summary.steps.first(where: { $0.name == "create-doc" })?.createdIDs, ["doc-1"])
         XCTAssertEqual(
+            summary.steps.first(where: { $0.name == "docs-create" })?.createdIDs, ["created-doc-1"])
+        XCTAssertEqual(
             summary.steps.first(where: { $0.name == "image-insert" })?.createdIDs, ["img-1"])
         XCTAssertEqual(
             summary.steps.first(where: { $0.name == "header-create" })?.createdIDs, ["header-1"])
@@ -89,9 +91,13 @@ final class DocsLiveTestTests: XCTestCase {
             let body = fixture.bodyString($0)
             return body.contains(#""writeControl""#) && body.contains(#""requiredRevisionId""#)
         })
-        // Exactly one document is created and one document is trashed.
-        XCTAssertEqual(fixture.trashRequests.count, 1)
-        XCTAssertTrue(fixture.trashRequests.allSatisfy { $0.url.path.hasSuffix("/doc-1") })
+        // The throwaway documents.create document is created directly, and both
+        // it and the folder-parented document are trashed in cleanup.
+        XCTAssertEqual(fixture.documentsCreateRequests.count, 1)
+        XCTAssertEqual(fixture.trashRequests.count, 2)
+        let trashed = Set(fixture.trashRequests.map { $0.url.path })
+        XCTAssertTrue(trashed.contains { $0.hasSuffix("/doc-1") })
+        XCTAssertTrue(trashed.contains { $0.hasSuffix("/created-doc-1") })
     }
 
     func testSeedInsertFailureSkipsTextDependentsButContinuesAndCleansUp() async {
@@ -125,7 +131,8 @@ final class DocsLiveTestTests: XCTestCase {
         // The table chain, headers/footers, and cleanup are unaffected.
         XCTAssertEqual(summary.steps.first(where: { $0.name == "table-insert" })?.outcome, .pass)
         XCTAssertEqual(summary.steps.first(where: { $0.name == "write-control" })?.outcome, .pass)
-        XCTAssertEqual(fixture.trashRequests.count, 1)
+        // Both the folder-parented and the throwaway documents are still trashed.
+        XCTAssertEqual(fixture.trashRequests.count, 2)
     }
 
     func testTableInsertFailureSkipsTableDependentsButContinuesUnrelatedSteps() async {
@@ -160,7 +167,7 @@ final class DocsLiveTestTests: XCTestCase {
         XCTAssertEqual(summary.steps.first(where: { $0.name == "heading" })?.outcome, .pass)
         XCTAssertEqual(summary.steps.first(where: { $0.name == "image-insert" })?.outcome, .pass)
         XCTAssertEqual(summary.steps.first(where: { $0.name == "page-setup" })?.outcome, .pass)
-        XCTAssertEqual(fixture.trashRequests.count, 1)
+        XCTAssertEqual(fixture.trashRequests.count, 2)
     }
 
     func testKeepSkipsCleanupWithoutSendingTrashRequests() async {
@@ -168,16 +175,59 @@ final class DocsLiveTestTests: XCTestCase {
         let summary = await fixture.makeRunner(keep: true).run()
 
         XCTAssertEqual(summary.failed, 0)
-        // positioned-delete (always) plus the kept cleanup step.
-        XCTAssertEqual(summary.skipped, 2)
+        // positioned-delete (always) plus both kept cleanup steps.
+        XCTAssertEqual(summary.skipped, 3)
         XCTAssertEqual(summary.steps.last?.name, "trash-doc")
         XCTAssertEqual(summary.steps.last?.outcome, .skip(reason: "kept"))
+        XCTAssertEqual(
+            summary.steps.first(where: { $0.name == "trash-created-doc" })?.outcome,
+            .skip(reason: "kept"))
         XCTAssertTrue(fixture.trashRequests.isEmpty)
+    }
+
+    // The next two tests prove the simulator's strictness is not a rubber stamp:
+    // a stale revision and a wrong table target are rejected. That is what gives
+    // the happy path teeth — it passes only because the runner reads fresh
+    // revisions and current indices.
+
+    func testSimulatorRejectsAStaleWriteControlRevision() async throws {
+        let fixture = DocsLiveFixture()
+        let docs = DocsClient(api: TestSupport.makeAPI(transport: fixture.transport))
+        // One write advances the document to rev-1; a write that still requires
+        // the stale rev-0 must be rejected.
+        _ = try await docs.insertText(documentId: "doc-1", text: "seed\n", index: 1)
+        do {
+            _ = try await docs.insertText(
+                documentId: "doc-1", text: "late\n", index: 1, requiredRevisionId: "rev-0")
+            XCTFail("a stale required revision should be rejected")
+        } catch {
+            // Expected: the simulator rejects the mismatched revision.
+        }
+        // The fresh revision is accepted.
+        let current = try await docs.document(id: "doc-1")
+        let revision = try XCTUnwrap(current.revisionId)
+        _ = try await docs.insertText(
+            documentId: "doc-1", text: "ok\n", index: 1, requiredRevisionId: revision)
+    }
+
+    func testSimulatorRejectsAWrongTableStartIndex() async throws {
+        let fixture = DocsLiveFixture()
+        let docs = DocsClient(api: TestSupport.makeAPI(transport: fixture.transport))
+        // No table exists at index 999, so a table op there must be rejected
+        // rather than silently mutating some other table.
+        do {
+            _ = try await docs.insertTableRow(
+                documentId: "doc-1", tableStartIndex: 999, row: 1, column: 1, below: true)
+            XCTFail("a table op with no matching table should be rejected")
+        } catch {
+            // Expected: the simulator finds no table at that start index.
+        }
     }
 
     private static let expectedStepNames = [
         "folder", "create-doc",
         "doc-fetch", "structure-read", "plaintext-read", "markdown-read", "images-read",
+        "docs-create",
         "text-insert", "text-append-end", "text-replace", "text-delete",
         "text-style", "text-link", "paragraph-style", "heading",
         "bullets-create", "bullets-delete",
@@ -188,8 +238,8 @@ final class DocsLiveTestTests: XCTestCase {
         "header-create", "header-insert", "footer-create", "footer-insert", "footnote-create",
         "header-delete", "footer-delete",
         "range-create", "range-list", "range-fill", "range-delete",
-        "page-setup", "write-control",
-        "trash-doc",
+        "page-setup", "page-mode-pageless", "write-control",
+        "trash-created-doc", "trash-doc",
     ]
 }
 
@@ -264,11 +314,27 @@ private final class SimImage {
     }
 }
 
-private struct SimNamedRange {
+/// A named range over a body span. A reference type so replaceNamedRangeContent
+/// can update the span end after it rewrites the content.
+private final class SimNamedRange {
     let id: String
     let name: String
     let start: Int
-    let end: Int
+    var end: Int
+
+    init(id: String, name: String, start: Int, end: Int) {
+        self.id = id
+        self.name = name
+        self.start = start
+        self.end = end
+    }
+}
+
+/// A rejection raised by the simulator when a write targets a stale index, a
+/// wrong table/cell, a missing named range, or a mismatched revision. It becomes
+/// a Google 400 the runner surfaces as a failed step.
+private struct SimReject: Error {
+    let message: String
 }
 
 /// One structural block: a paragraph, a section break, or a table.
@@ -302,6 +368,9 @@ private final class DocsLiveFixture: @unchecked Sendable {
     private var namedRanges: [SimNamedRange] = []
     private var useFirstPageHeaderFooter: Bool?
     private var useEvenPageHeaderFooter: Bool?
+    private var documentMode: String?
+    // The title of the throwaway document created through DocsClient.create.
+    private var createdDocTitle: String?
 
     private var headerCounter = 0
     private var footerCounter = 0
@@ -348,6 +417,12 @@ private final class DocsLiveFixture: @unchecked Sendable {
 
     var batchRequests: [HTTPRequest] {
         transport.requests.filter { $0.url.path.hasSuffix(":batchUpdate") }
+    }
+
+    var documentsCreateRequests: [HTTPRequest] {
+        transport.requests.filter {
+            $0.method == "POST" && $0.url.path == "/v1/documents"
+        }
     }
 
     func makeRunner(
@@ -409,6 +484,24 @@ private final class DocsLiveFixture: @unchecked Sendable {
             let id = path.split(separator: "/").last.map(String.init) ?? "file"
             return driveFile(id: id, name: id, mime: nil)
         }
+        // documents.create — the DocsClient.create path (FIX 2): a second,
+        // throwaway document created directly, not through Drive.
+        if path == "/v1/documents", request.method == "POST" {
+            let title = request.body
+                .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+                .flatMap { $0["title"] as? String } ?? ""
+            createdDocTitle = title
+            return json([
+                "documentId": "created-doc-1", "title": title,
+                "revisionId": "rev-created", "body": ["content": []],
+            ])
+        }
+        if path == "/v1/documents/created-doc-1", request.method == "GET" {
+            return json([
+                "documentId": "created-doc-1", "title": createdDocTitle ?? "",
+                "revisionId": "rev-created", "body": ["content": []],
+            ])
+        }
         if path == "/v1/documents/doc-1", request.method == "GET" {
             return json(documentJSON())
         }
@@ -431,53 +524,119 @@ private final class DocsLiveFixture: @unchecked Sendable {
             return googleError(message: "malformed batch request")
         }
 
-        let reply: [String: Any]
+        do {
+            // WriteControl: a batch that requires a revision applies only if the
+            // document is still at that revision; a stale one is rejected, exactly
+            // as the API rejects a mismatched requiredRevisionId.
+            if let writeControl = object["writeControl"] as? [String: Any],
+               let required = writeControl["requiredRevisionId"] as? String,
+               required != "rev-\(revision)" {
+                throw SimReject(
+                    message: "required revision \(required) is stale (current rev-\(revision))")
+            }
+            let reply = try applyBatch(key: key, op: op)
+            // Only a write that actually applied advances the revision.
+            revision += 1
+            return json(["documentId": "doc-1", "replies": [reply]])
+        } catch let reject as SimReject {
+            return googleError(message: reject.message)
+        } catch {
+            return googleError(message: "\(error)")
+        }
+    }
+
+    /// Applies one batch operation, mutating state, and returns its reply — or
+    /// throws ``SimReject`` when the write targets a stale index, a wrong
+    /// table/cell, a missing named range, or an out-of-range span, so the runner
+    /// surfaces a failed step instead of a rubber-stamped write.
+    private func applyBatch(key: String, op: [String: Any]) throws -> [String: Any] {
         switch key {
         case "insertText":
-            let text = op["text"] as? String ?? ""
-            if failSeedInsert, text.contains("graham heading") {
-                return googleError(message: "seed insert rejected")
+            if failSeedInsert, (op["text"] as? String)?.contains("graham heading") == true {
+                throw SimReject(message: "seed insert rejected")
             }
-            applyInsertText(op)
-            reply = [:]
+            try applyInsertText(op)
+            return [:]
         case "deleteContentRange":
-            applyDeleteContentRange(op)
-            reply = [:]
+            try applyDeleteContentRange(op)
+            return [:]
         case "replaceAllText":
-            reply = ["replaceAllText": ["occurrencesChanged": applyReplaceAllText(op)]]
+            return ["replaceAllText": ["occurrencesChanged": applyReplaceAllText(op)]]
+        case "updateTextStyle":
+            try requireRangeOp(op)
+            return [:]
         case "updateParagraphStyle":
+            try requireRangeOp(op)
             applyParagraphStyle(op)
-            reply = [:]
+            return [:]
         case "createParagraphBullets":
+            try requireRangeOp(op)
             applyBullets(op, listId: "list-1")
-            reply = [:]
+            return [:]
         case "deleteParagraphBullets":
+            try requireRangeOp(op)
             applyBullets(op, listId: nil)
-            reply = [:]
+            return [:]
         case "insertTable":
-            if failTableInsert { return googleError(message: "table rejected") }
+            if failTableInsert { throw SimReject(message: "table rejected") }
             let rows = op["rows"] as? Int ?? 1
             let columns = op["columns"] as? Int ?? 1
             appendToBody(.table(SimTable(rows: rows, columns: columns)))
-            reply = [:]
+            return [:]
         case "insertTableRow":
-            if let table = firstTable() { table.rows += 1 }
-            reply = [:]
+            let (table, _, _) = try locateCell(op["tableCellLocation"])
+            table.rows += 1
+            return [:]
         case "insertTableColumn":
-            if let table = firstTable() { table.columns += 1 }
-            reply = [:]
+            let (table, _, _) = try locateCell(op["tableCellLocation"])
+            table.columns += 1
+            return [:]
         case "deleteTableRow":
-            if let table = firstTable() { table.rows -= 1 }
-            reply = [:]
+            let (table, _, _) = try locateCell(op["tableCellLocation"])
+            guard table.rows > 1 else { throw SimReject(message: "cannot delete the last row") }
+            table.rows -= 1
+            return [:]
         case "deleteTableColumn":
-            if let table = firstTable() { table.columns -= 1 }
-            reply = [:]
+            let (table, _, _) = try locateCell(op["tableCellLocation"])
+            guard table.columns > 1 else {
+                throw SimReject(message: "cannot delete the last column")
+            }
+            table.columns -= 1
+            return [:]
+        case "mergeTableCells":
+            try requireTableRange(op["tableRange"])
+            return [:]
+        case "unmergeTableCells":
+            try requireTableRange(op["tableRange"])
+            return [:]
+        case "pinTableHeaderRows":
+            let table = try locateTableStart(op["tableStartLocation"])
+            let count = op["pinnedHeaderRowsCount"] as? Int ?? 0
+            guard count >= 0, count <= table.rows else {
+                throw SimReject(message: "pinned header rows \(count) exceeds the table")
+            }
+            return [:]
+        case "updateTableCellStyle":
+            if let range = op["tableRange"] {
+                try requireTableRange(range)
+            } else {
+                _ = try locateTableStart(op["tableStartLocation"])
+            }
+            return [:]
+        case "updateTableRowStyle":
+            let table = try locateTableStart(op["tableStartLocation"])
+            try requireIndices(op["rowIndices"], within: table.rows, label: "row")
+            return [:]
+        case "updateTableColumnProperties":
+            let table = try locateTableStart(op["tableStartLocation"])
+            try requireIndices(op["columnIndices"], within: table.columns, label: "column")
+            return [:]
         case "insertPageBreak":
             appendToBody(.paragraph(SimParagraph(text: "")))
-            reply = [:]
+            return [:]
         case "insertSectionBreak":
             appendToBody(.sectionBreak)
-            reply = [:]
+            return [:]
         case "insertInlineImage":
             imageCounter += 1
             let id = "img-\(imageCounter)"
@@ -485,53 +644,71 @@ private final class DocsLiveFixture: @unchecked Sendable {
                 sourceUri: op["uri"] as? String ?? "",
                 contentUri: "https://usercontent.example/doc-image-\(imageCounter)")
             appendToBody(.paragraph(SimParagraph(text: "", inlineObjectId: id)))
-            reply = ["insertInlineImage": ["objectId": id]]
+            return ["insertInlineImage": ["objectId": id]]
         case "replaceImage":
-            if let id = op["imageObjectId"] as? String, let image = inlineObjects[id] {
-                image.sourceUri = op["uri"] as? String ?? image.sourceUri
+            guard let id = op["imageObjectId"] as? String, let image = inlineObjects[id] else {
+                throw SimReject(message: "unknown image object id to replace")
             }
-            reply = [:]
+            image.sourceUri = op["uri"] as? String ?? image.sourceUri
+            return [:]
         case "deletePositionedObject":
-            reply = [:]
+            return [:]
         case "createHeader":
             headerCounter += 1
             let id = "header-\(headerCounter)"
             headers[id] = [.paragraph(SimParagraph(text: ""))]
-            reply = ["createHeader": ["headerId": id]]
+            return ["createHeader": ["headerId": id]]
         case "createFooter":
             footerCounter += 1
             let id = "footer-\(footerCounter)"
             footers[id] = [.paragraph(SimParagraph(text: ""))]
-            reply = ["createFooter": ["footerId": id]]
+            return ["createFooter": ["footerId": id]]
         case "deleteHeader":
-            if let id = op["headerId"] as? String { headers[id] = nil }
-            reply = [:]
+            guard let id = op["headerId"] as? String, headers[id] != nil else {
+                throw SimReject(message: "unknown header id to delete")
+            }
+            headers[id] = nil
+            return [:]
         case "deleteFooter":
-            if let id = op["footerId"] as? String { footers[id] = nil }
-            reply = [:]
+            guard let id = op["footerId"] as? String, footers[id] != nil else {
+                throw SimReject(message: "unknown footer id to delete")
+            }
+            footers[id] = nil
+            return [:]
         case "createFootnote":
             footnoteCounter += 1
             let id = "footnote-\(footnoteCounter)"
             // A new footnote segment starts with an auto-inserted space + newline.
             footnotes[id] = [.paragraph(SimParagraph(text: " "))]
-            reply = ["createFootnote": ["footnoteId": id]]
+            return ["createFootnote": ["footnoteId": id]]
         case "createNamedRange":
+            let range = op["range"] as? [String: Any] ?? [:]
+            let start = range["startIndex"] as? Int ?? 0
+            let end = range["endIndex"] as? Int ?? 0
+            try requireRange(start: start, end: end, segmentId: range["segmentId"] as? String)
             namedRangeCounter += 1
             let id = "range-\(namedRangeCounter)"
-            let range = op["range"] as? [String: Any] ?? [:]
             namedRanges.append(SimNamedRange(
-                id: id,
-                name: op["name"] as? String ?? "",
-                start: range["startIndex"] as? Int ?? 0,
-                end: range["endIndex"] as? Int ?? 0))
-            reply = ["createNamedRange": ["namedRangeId": id]]
+                id: id, name: op["name"] as? String ?? "", start: start, end: end))
+            return ["createNamedRange": ["namedRangeId": id]]
         case "deleteNamedRange":
             if let id = op["namedRangeId"] as? String {
+                guard namedRanges.contains(where: { $0.id == id }) else {
+                    throw SimReject(message: "unknown named range id to delete")
+                }
                 namedRanges.removeAll { $0.id == id }
             } else if let name = op["name"] as? String {
+                guard namedRanges.contains(where: { $0.name == name }) else {
+                    throw SimReject(message: "unknown named range name to delete")
+                }
                 namedRanges.removeAll { $0.name == name }
+            } else {
+                throw SimReject(message: "deleteNamedRange without a selector")
             }
-            reply = [:]
+            return [:]
+        case "replaceNamedRangeContent":
+            try applyReplaceNamedRangeContent(op)
+            return [:]
         case "updateDocumentStyle":
             let style = op["documentStyle"] as? [String: Any] ?? [:]
             if let value = style["useFirstPageHeaderFooter"] as? Bool {
@@ -540,22 +717,117 @@ private final class DocsLiveFixture: @unchecked Sendable {
             if let value = style["useEvenPageHeaderFooter"] as? Bool {
                 useEvenPageHeaderFooter = value
             }
-            reply = [:]
+            if let mode = (style["documentFormat"] as? [String: Any])?["documentMode"] as? String {
+                documentMode = mode
+            }
+            return [:]
         default:
-            // updateTextStyle, updateTableCellStyle, updateTableRowStyle,
-            // updateTableColumnProperties, mergeTableCells, unmergeTableCells,
-            // pinTableHeaderRows, replaceNamedRangeContent — no state change; the
-            // runner verifies these by success or by an unrelated read.
-            reply = [:]
+            return [:]
         }
-        // Each successful write advances the revision, exactly as the API does.
-        revision += 1
-        return json(["documentId": "doc-1", "replies": [reply]])
+    }
+
+    // MARK: Validation
+
+    /// The total UTF-16 length of a block list (the end cursor after serializing).
+    private func totalLength(_ blocks: [SimBlock]) -> Int {
+        var cursor = 0
+        for block in blocks { cursor += blockLength(block, start: cursor) }
+        return cursor
+    }
+
+    /// Rejects a body/segment span that falls outside its segment. The body's
+    /// first editable index is 1 (index 0 is the initial section break); a named
+    /// segment starts at 0.
+    private func requireRange(start: Int, end: Int, segmentId: String?) throws {
+        let ref = segmentRef(segmentId)
+        let minStart: Int
+        if case .body = ref { minStart = 1 } else { minStart = 0 }
+        guard start >= minStart, end > start, end <= totalLength(list(for: ref)) else {
+            throw SimReject(message: "range [\(start), \(end)) is outside the document")
+        }
+    }
+
+    /// Rejects a range-based op (text style, paragraph style, bullets) whose
+    /// range is stale or outside its segment.
+    private func requireRangeOp(_ op: [String: Any]) throws {
+        let range = op["range"] as? [String: Any] ?? [:]
+        try requireRange(
+            start: range["startIndex"] as? Int ?? 0,
+            end: range["endIndex"] as? Int ?? 0,
+            segmentId: range["segmentId"] as? String)
+    }
+
+    /// Locates the table whose serialized start index equals `startIndex`.
+    private func table(atStart startIndex: Int) -> SimTable? {
+        var cursor = 0
+        for block in body {
+            let length = blockLength(block, start: cursor)
+            if case .table(let table) = block, cursor == startIndex { return table }
+            cursor += length
+        }
+        return nil
+    }
+
+    /// Resolves a `tableCellLocation`: rejects a wrong table start or a cell
+    /// outside the located table.
+    private func locateCell(_ any: Any?) throws -> (table: SimTable, row: Int, column: Int) {
+        guard let cell = any as? [String: Any],
+              let start = (cell["tableStartLocation"] as? [String: Any])?["index"] as? Int else {
+            throw SimReject(message: "missing table cell location")
+        }
+        guard let table = table(atStart: start) else {
+            throw SimReject(message: "no table starts at index \(start)")
+        }
+        let row = cell["rowIndex"] as? Int ?? 0
+        let column = cell["columnIndex"] as? Int ?? 0
+        guard row >= 0, row < table.rows else {
+            throw SimReject(message: "row index \(row) is out of range")
+        }
+        guard column >= 0, column < table.columns else {
+            throw SimReject(message: "column index \(column) is out of range")
+        }
+        return (table, row, column)
+    }
+
+    /// Resolves a `tableStartLocation`: rejects a wrong table start.
+    private func locateTableStart(_ any: Any?) throws -> SimTable {
+        guard let location = any as? [String: Any], let start = location["index"] as? Int else {
+            throw SimReject(message: "missing table start location")
+        }
+        guard let table = table(atStart: start) else {
+            throw SimReject(message: "no table starts at index \(start)")
+        }
+        return table
+    }
+
+    /// Resolves a `tableRange`: rejects a wrong cell or a span past the table.
+    private func requireTableRange(_ any: Any?) throws {
+        guard let range = any as? [String: Any] else {
+            throw SimReject(message: "missing table range")
+        }
+        let (table, row, column) = try locateCell(range["tableCellLocation"])
+        let rowSpan = range["rowSpan"] as? Int ?? 1
+        let columnSpan = range["columnSpan"] as? Int ?? 1
+        guard rowSpan >= 1, row + rowSpan <= table.rows else {
+            throw SimReject(message: "row span \(rowSpan) at \(row) exceeds the table")
+        }
+        guard columnSpan >= 1, column + columnSpan <= table.columns else {
+            throw SimReject(message: "column span \(columnSpan) at \(column) exceeds the table")
+        }
+    }
+
+    /// Rejects any row/column index outside a count. An omitted list means every
+    /// row or column, which is always valid.
+    private func requireIndices(_ any: Any?, within count: Int, label: String) throws {
+        guard let indices = any as? [Int] else { return }
+        for index in indices where index < 0 || index >= count {
+            throw SimReject(message: "\(label) index \(index) is out of range")
+        }
     }
 
     // MARK: Mutations
 
-    private func applyInsertText(_ op: [String: Any]) {
+    private func applyInsertText(_ op: [String: Any]) throws {
         let text = op["text"] as? String ?? ""
         var segmentId: String?
         var index: Int?
@@ -567,19 +839,50 @@ private final class DocsLiveFixture: @unchecked Sendable {
             endOfSegment = true
             segmentId = end["segmentId"] as? String
         }
-        mutateList(for: segmentRef(segmentId)) { blocks in
+        let ref = segmentRef(segmentId)
+        if !endOfSegment {
+            guard let index else { throw SimReject(message: "insertText without a location") }
+            guard paragraphOffset(in: list(for: ref), at: index) != nil else {
+                throw SimReject(message: "insert index \(index) is outside the document")
+            }
+        }
+        mutateList(for: ref) { blocks in
             insert(text: text, index: index, endOfSegment: endOfSegment, into: &blocks)
         }
     }
 
-    private func applyDeleteContentRange(_ op: [String: Any]) {
+    private func applyDeleteContentRange(_ op: [String: Any]) throws {
         let range = op["range"] as? [String: Any] ?? [:]
         let start = range["startIndex"] as? Int ?? 0
         let end = range["endIndex"] as? Int ?? 0
         let segmentId = range["segmentId"] as? String
+        try requireRange(start: start, end: end, segmentId: segmentId)
         mutateList(for: segmentRef(segmentId)) { blocks in
             delete(start: start, end: end, from: &blocks)
         }
+    }
+
+    /// Replaces a named range's content: rejects an unknown selector, rewrites
+    /// the span's text in the body (delete then insert at the span start), and
+    /// keeps the stored span consistent with the new length so a read observes it.
+    private func applyReplaceNamedRangeContent(_ op: [String: Any]) throws {
+        let target: SimNamedRange?
+        if let id = op["namedRangeId"] as? String {
+            target = namedRanges.first { $0.id == id }
+        } else if let name = op["namedRangeName"] as? String {
+            target = namedRanges.first { $0.name == name }
+        } else {
+            target = nil
+        }
+        guard let range = target else {
+            throw SimReject(message: "unknown named range to fill")
+        }
+        let text = op["text"] as? String ?? ""
+        mutateList(for: .body) { blocks in
+            delete(start: range.start, end: range.end, from: &blocks)
+            insert(text: text, index: range.start, endOfSegment: false, into: &blocks)
+        }
+        range.end = range.start + text.utf16.count
     }
 
     private func applyReplaceAllText(_ op: [String: Any]) -> Int {
@@ -710,13 +1013,6 @@ private final class DocsLiveFixture: @unchecked Sendable {
             body.append(block)
             body.append(.paragraph(SimParagraph(text: "")))
         }
-    }
-
-    private func firstTable() -> SimTable? {
-        for block in body {
-            if case .table(let table) = block { return table }
-        }
-        return nil
     }
 
     private func segmentRef(_ segmentId: String?) -> SegmentRef {
