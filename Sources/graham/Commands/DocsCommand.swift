@@ -8,7 +8,8 @@ struct Docs: AsyncParsableCommand {
         subcommands: [
             Create.self, Cat.self, Structure.self, Insert.self, Delete.self,
             Replace.self, Style.self, Paragraph.self, Heading.self, Bullets.self,
-            Unbullet.self, Table.self, Images.self,
+            Unbullet.self, Table.self, Images.self, PageBreak.self, Image.self,
+            Object.self, SectionBreak.self,
         ]
     )
 
@@ -1380,6 +1381,283 @@ struct Docs: AsyncParsableCommand {
             return failed
         }
     }
+
+    struct PageBreak: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "page-break",
+            abstract: "Insert a page break plus a newline in the document body.",
+            discussion: """
+                Inserts a page break at a zero-based UTF-16 body index (--at) or \
+                at the end of the body (--end). Index 1 is the start of the body \
+                text. Page breaks are body-only, so there is no segment option. \
+                Get index ranges from `docs structure`.
+                """
+        )
+
+        @Argument(help: "The document ID.")
+        var documentID: String
+
+        @Option(help: "The zero-based UTF-16 body index to insert at (minimum 1). Not needed with --end.")
+        var at: Int?
+
+        @Flag(help: "Append the page break to the end of the body; --at is ignored.")
+        var end = false
+
+        @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+        var requireRevision: String?
+
+        func validate() throws {
+            if end && at != nil {
+                throw ValidationError(
+                    "Pass either --at <index> or --end, not both: --end appends to the "
+                    + "end of the body and takes no index.")
+            }
+            guard end || at != nil else {
+                throw ValidationError(
+                    "Provide --at <index>, or pass --end to append to the end of the body.")
+            }
+        }
+
+        func run() async throws {
+            let client = DocsClient(api: try CLI.makeAPI())
+            _ = try await client.insertPageBreak(
+                documentId: documentID, index: at, endOfSegment: end,
+                requiredRevisionId: requireRevision)
+            if end {
+                print("Inserted a page break at the end of the body.")
+            } else {
+                print("Inserted a page break at index \(at ?? 0).")
+            }
+        }
+    }
+
+    struct Image: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "image",
+            abstract: "Insert an inline image, or replace an existing image.",
+            discussion: """
+                Insert an image from a public URI, or replace an existing image \
+                in place. In both cases Google fetches the URI once at insertion \
+                time and stores a copy, so the URI must be publicly fetchable by \
+                Google, under 50MB, at most 25 megapixels, and in PNG, JPEG, or \
+                GIF format.
+                """,
+            subcommands: [Insert.self, Replace.self]
+        )
+
+        struct Insert: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "insert",
+                abstract: "Insert an inline image from a URI and print its object id.",
+                discussion: """
+                    Inserts the image at a zero-based UTF-16 index (--at) or at \
+                    the end of the body or a segment (--end). Index 1 is the \
+                    start of the body text; in a named segment (--segment) the \
+                    content starts at index 0. The image goes in the body, a \
+                    header, or a footer (an inline image cannot go in a \
+                    footnote). --width and --height are optional display sizes in \
+                    points; give one and the other is computed to preserve the \
+                    aspect ratio. The --uri must be publicly fetchable by Google \
+                    at insertion time (under 50MB, at most 25 megapixels, \
+                    PNG/JPEG/GIF). The new image's object id is printed. Get \
+                    index ranges from `docs structure`.
+                    """
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "The public image URI (PNG, JPEG, or GIF; under 50MB and 25 megapixels).")
+            var uri: String
+
+            @Option(help: "The zero-based UTF-16 index to insert at (body minimum 1; segment minimum 0). Not needed with --end.")
+            var at: Int?
+
+            @Flag(help: "Append the image to the end of the body or segment; --at is ignored.")
+            var end = false
+
+            @Option(parsing: .unconditional, help: "The display width in points (greater than zero).")
+            var width: Double?
+
+            @Option(parsing: .unconditional, help: "The display height in points (greater than zero).")
+            var height: Double?
+
+            @Option(help: "A header or footer segment id to insert into. Omit for the body. A footnote cannot hold an image.")
+            var segment: String?
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func validate() throws {
+                if end && at != nil {
+                    throw ValidationError(
+                        "Pass either --at <index> or --end, not both: --end appends to the "
+                        + "end of the segment and takes no index.")
+                }
+                guard end || at != nil else {
+                    throw ValidationError(
+                        "Provide --at <index>, or pass --end to append to the end of the segment.")
+                }
+                if uri.isEmpty { throw ValidationError("--uri must not be empty.") }
+                if let width, width <= 0 {
+                    throw ValidationError("--width must be greater than zero.")
+                }
+                if let height, height <= 0 {
+                    throw ValidationError("--height must be greater than zero.")
+                }
+            }
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                let result = try await client.insertInlineImage(
+                    documentId: documentID, uri: uri, index: at, endOfSegment: end,
+                    segmentId: segment, width: width, height: height,
+                    requiredRevisionId: requireRevision)
+                print(result.objectId ?? "")
+            }
+        }
+
+        struct Replace: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "replace",
+                abstract: "Replace an existing image in place with a new image from a URI.",
+                discussion: """
+                    Replaces the image with object id <image-object-id> using the \
+                    new --uri. The only replace method is center-crop: the new \
+                    image is scaled and centered to fill the original image's \
+                    bounds, cropping as needed. The --uri must be publicly \
+                    fetchable by Google at insertion time (under 50MB, at most 25 \
+                    megapixels, PNG/JPEG/GIF). Get image object ids from `docs \
+                    images`.
+                    """
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Argument(help: "The object id of the existing image to replace (from `docs images`).")
+            var imageObjectID: String
+
+            @Option(help: "The public replacement image URI (PNG, JPEG, or GIF; under 50MB and 25 megapixels).")
+            var uri: String
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func validate() throws {
+                if imageObjectID.isEmpty {
+                    throw ValidationError("The image object id must not be empty.")
+                }
+                if uri.isEmpty { throw ValidationError("--uri must not be empty.") }
+            }
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                _ = try await client.replaceImage(
+                    documentId: documentID, imageObjectId: imageObjectID, uri: uri,
+                    requiredRevisionId: requireRevision)
+                print("Replaced image \(imageObjectID).")
+            }
+        }
+    }
+
+    struct Object: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "object",
+            abstract: "Delete a positioned object from a document.",
+            discussion: """
+                Positioned objects (such as floating images) cannot be created \
+                through the API, only deleted. Get object ids from `docs images`.
+                """,
+            subcommands: [Delete.self]
+        )
+
+        struct Delete: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "delete",
+                abstract: "Delete a positioned object by its object id.",
+                discussion: """
+                    Deletes the positioned object with id <object-id>. Positioned \
+                    objects cannot be created through the API, only deleted. Get \
+                    object ids from `docs images`.
+                    """
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Argument(help: "The positioned object's id (from `docs images`).")
+            var objectID: String
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func validate() throws {
+                if objectID.isEmpty {
+                    throw ValidationError("The object id must not be empty.")
+                }
+            }
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                _ = try await client.deletePositionedObject(
+                    documentId: documentID, objectId: objectID,
+                    requiredRevisionId: requireRevision)
+                print("Deleted positioned object \(objectID).")
+            }
+        }
+    }
+
+    struct SectionBreak: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "section-break",
+            abstract: "Insert a continuous or next-page section break in the body.",
+            discussion: """
+                Inserts a section break (preceded by a newline) at a zero-based \
+                UTF-16 body index (--at) or at the end of the body (--end). \
+                --type is continuous (start right after the previous section) or \
+                next-page (start on the next page). Index 1 is the start of the \
+                body text. Section breaks are body-only, so there is no segment \
+                option. Get index ranges from `docs structure`.
+                """
+        )
+
+        @Argument(help: "The document ID.")
+        var documentID: String
+
+        @Option(help: "The section type: continuous or next-page.")
+        var type: DocsSectionTypeArgument
+
+        @Option(help: "The zero-based UTF-16 body index to insert at (minimum 1). Not needed with --end.")
+        var at: Int?
+
+        @Flag(help: "Append the section break to the end of the body; --at is ignored.")
+        var end = false
+
+        @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+        var requireRevision: String?
+
+        func validate() throws {
+            if end && at != nil {
+                throw ValidationError(
+                    "Pass either --at <index> or --end, not both: --end appends to the "
+                    + "end of the body and takes no index.")
+            }
+            guard end || at != nil else {
+                throw ValidationError(
+                    "Provide --at <index>, or pass --end to append to the end of the body.")
+            }
+        }
+
+        func run() async throws {
+            let client = DocsClient(api: try CLI.makeAPI())
+            _ = try await client.insertSectionBreak(
+                documentId: documentID, sectionType: type.sectionType,
+                index: at, endOfSegment: end, requiredRevisionId: requireRevision)
+            let destination = end ? "the end of the body" : "index \(at ?? 0)"
+            print("Inserted a \(type.rawValue) section break at \(destination).")
+        }
+    }
 }
 
 // MARK: - Docs styling argument enums
@@ -1579,4 +1857,21 @@ enum DocsBulletPresetArgument: String, ExpressibleByArgument, CaseIterable {
 
     /// The Docs API `bulletPreset` wire value this argument maps to.
     var bulletPreset: String { preset.rawValue }
+}
+
+/// CLI-facing section-type names, lower-kebab, mapping to the Docs v1
+/// `SectionType` wire values. The client validates the returned string, so this
+/// stays a thin spelling map — `next-page` becomes the wire spelling `NEXT_PAGE`
+/// (a bare uppercasing of the kebab value would wrongly yield `NEXT-PAGE`).
+enum DocsSectionTypeArgument: String, ExpressibleByArgument {
+    case continuous
+    case nextPage = "next-page"
+
+    /// The Docs API `sectionType` this argument maps to.
+    var sectionType: String {
+        switch self {
+        case .continuous: return "CONTINUOUS"
+        case .nextPage: return "NEXT_PAGE"
+        }
+    }
 }
