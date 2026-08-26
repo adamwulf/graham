@@ -350,8 +350,75 @@ final class SheetsWriteParsingTests: XCTestCase {
         XCTAssertThrowsError(try Sheets.Chart.Update.parse(["sheet-1", "--range", "A1:B4"]))
     }
 
-    func testSheetsChartRegistersAddUpdateDelete() {
+    func testSheetsChartRegistersAddUpdateMoveDelete() {
         let names = Sheets.Chart.configuration.subcommands.map { String(describing: $0) }
-        XCTAssertEqual(Set(names), ["Add", "Update", "Delete"])
+        XCTAssertEqual(Set(names), ["Add", "Update", "Move", "Delete"])
+    }
+
+    func testSheetsChartAddParsesKindAndTuningOptions() throws {
+        let histogram = try Sheets.Chart.Add.parse([
+            "sheet-1", "--range", "A1:C5", "--kind", "histogram",
+            "--bucket-size", "5", "--outlier-percentile", "0.5",
+        ])
+        XCTAssertEqual(histogram.kind, .histogram)
+        XCTAssertEqual(histogram.bucketSize, 5)
+        XCTAssertEqual(histogram.outlierPercentile, 0.5)
+
+        let scorecard = try Sheets.Chart.Add.parse([
+            "sheet-1", "--range", "A1:B5", "--kind", "scorecard", "--aggregate", "sum",
+        ])
+        XCTAssertEqual(scorecard.kind, .scorecard)
+        XCTAssertEqual(scorecard.aggregate, .sum)
+
+        let candlestick = try Sheets.Chart.Add.parse([
+            "sheet-1", "--range", "A1:E5", "--kind", "candlestick",
+        ])
+        XCTAssertEqual(candlestick.kind, .candlestick)
+    }
+
+    func testSheetsChartAddRejectsUnknownKind() {
+        XCTAssertThrowsError(try Sheets.Chart.Add.parse([
+            "sheet-1", "--range", "A1:B2", "--kind", "bogus",
+        ]))
+    }
+
+    func testSheetsChartUpdateParsesKind() throws {
+        let update = try Sheets.Chart.Update.parse([
+            "sheet-1", "--chart-id", "42", "--range", "A1:E5", "--kind", "candlestick",
+        ])
+        XCTAssertEqual(update.kind, .candlestick)
+    }
+
+    func testSheetsChartMoveParsesAnchorAndNewSheet() throws {
+        let overlay = try Sheets.Chart.Move.parse([
+            "sheet-1", "--chart-id", "42", "--anchor", "Sheet2!D2",
+            "--width", "300", "--height", "200",
+        ])
+        XCTAssertEqual(overlay.chartId, 42)
+        XCTAssertEqual(overlay.anchor, "Sheet2!D2")
+        XCTAssertEqual(overlay.width, 300)
+        XCTAssertEqual(overlay.height, 200)
+        XCTAssertFalse(overlay.newSheet)
+
+        let newSheet = try Sheets.Chart.Move.parse([
+            "sheet-1", "--chart-id", "42", "--new-sheet",
+        ])
+        XCTAssertTrue(newSheet.newSheet)
+        XCTAssertNil(newSheet.anchor)
+    }
+
+    func testSheetsChartMoveRejectsWrongPlacementModes() {
+        // Neither placement.
+        XCTAssertThrowsError(try Sheets.Chart.Move.parse(["sheet-1", "--chart-id", "42"]))
+        // Both placements.
+        XCTAssertThrowsError(try Sheets.Chart.Move.parse([
+            "sheet-1", "--chart-id", "42", "--anchor", "C1", "--new-sheet",
+        ]))
+        // Size without an anchor.
+        XCTAssertThrowsError(try Sheets.Chart.Move.parse([
+            "sheet-1", "--chart-id", "42", "--new-sheet", "--width", "100",
+        ]))
+        // chart-id is required.
+        XCTAssertThrowsError(try Sheets.Chart.Move.parse(["sheet-1", "--new-sheet"]))
     }
 }
