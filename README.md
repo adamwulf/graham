@@ -156,8 +156,13 @@ graham docs style <document-id> --from 1 --to 6 --bold --small-caps --color "#11
 # --direction is ltr/rtl, --line-spacing is a percent (100 = single), and spacing
 # and indents are in points. --keep-lines-together/--keep-with-next/--avoid-widows/
 # --page-break-before are pagination toggles, --shading is a hex background color,
-# and --spacing-mode is never-collapse/collapse-lists. At least one flag is required.
+# and --spacing-mode is never-collapse/collapse-lists. --border sets the four outer
+# borders and --border-between the between-paragraph border (both hex colors);
+# --border-width (points; 0 hides), --border-dash (solid/dot/dash), and
+# --border-padding (points) are shared and need a border color. At least one flag
+# is required.
 graham docs paragraph <document-id> --from 1 --to 20 --style heading-1 --align center
+graham docs paragraph <document-id> --from 1 --to 20 --border "#000000" --border-width 1 --border-dash solid
 # Shortcut for just the named style: a level 1-6, or title, subtitle, or normal.
 graham docs heading <document-id> 2 --from 1 --to 20
 # Turn the paragraphs a range touches into a bulleted or numbered list. --preset
