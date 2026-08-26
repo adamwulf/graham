@@ -51,26 +51,14 @@ keep the styling change reviewable:
   `docs paragraph` border flags. Same fields-mask discipline and exact-string
   tests.
 
-### Phase 5 — Tables (next up)
+### Phase 5 — Table styling (next up)
 
-All table operations locate the table by its zero-based start index (from
-`docs structure`) and address cells through `DocsTableCellLocation`. CLI rows
-and columns are one-based; GrahamKit subtracts one. Replies are empty objects.
-Add tests in a new `DocsTableWriteTests.swift`, mirroring
-`SlidesTableWriteTests.swift`.
+Table structure is done: `docs table create/add-row/add-column/delete-row/
+delete-column/merge/unmerge/pin-headers`. Three styling operations remain, each
+with a `fields` mask (same discipline as the text/paragraph styling). All
+address cells by the table's zero-based start index (from `docs structure`);
+CLI rows and columns stay one-based and GrahamKit subtracts one.
 
-- **`insertTable`** *(core)* — insert an empty rows x columns table at an index
-  or at the end of a segment. The API inserts a newline first, so the table
-  start index is location index + 1 — print the real start index after the
-  write. CLI `docs table create`.
-- **`insertTableRow`** *(core)* — insert an empty row above or below a reference
-  cell. CLI `docs table add-row`.
-- **`insertTableColumn`** *(core)* — insert an empty column left or right of a
-  reference cell. CLI `docs table add-column`.
-- **`deleteTableRow`** *(core)* — delete the row of a reference cell (a merged
-  cell deletes every row it spans). CLI `docs table delete-row`.
-- **`deleteTableColumn`** *(core)* — delete the column of a reference cell. CLI
-  `docs table delete-column`.
 - **`updateTableCellStyle`** *(useful)* — style a `DocsTableRange` or a whole
   table (background, borders, padding, alignment); `fields` mask. CLI
   `docs table style`.
@@ -78,12 +66,6 @@ Add tests in a new `DocsTableWriteTests.swift`, mirroring
   listed `rowIndices`. CLI `docs table row-style`.
 - **`updateTableColumnProperties`** *(useful)* — column width (`FIXED_WIDTH`
   >= 5pt) for listed `columnIndices`. CLI `docs table column-width`.
-- **`mergeTableCells`** *(useful)* — merge a `DocsTableRange`; text concatenates
-  into the head cell. CLI `docs table merge`.
-- **`unmergeTableCells`** *(useful)* — unmerge all merged cells in a range. CLI
-  `docs table unmerge`.
-- **`pinTableHeaderRows`** *(useful)* — pin the first N rows as headers; 0
-  unpins. CLI `docs table pin-headers`.
 
 ### Phase 6 — Structure and images
 
