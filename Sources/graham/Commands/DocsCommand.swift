@@ -8,7 +8,7 @@ struct Docs: AsyncParsableCommand {
         subcommands: [
             Create.self, Cat.self, Structure.self, Insert.self, Delete.self,
             Replace.self, Style.self, Paragraph.self, Heading.self, Bullets.self,
-            Unbullet.self, Images.self,
+            Unbullet.self, Table.self, Images.self,
         ]
     )
 
@@ -573,6 +573,455 @@ struct Docs: AsyncParsableCommand {
                 requiredRevisionId: requireRevision
             )
             print("Removed bullets in [\(from), \(to)).")
+        }
+    }
+
+    struct Table: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "table",
+            abstract: "Insert, delete, merge, and pin the rows and columns of a table.",
+            discussion: """
+                Every command locates the table by its zero-based UTF-16 start \
+                index (--table for the edits, or --at for `create`), which you \
+                read from `docs structure`. Cell --row and --column are \
+                one-based. In a named segment (--segment) the table's indices \
+                are measured within that segment.
+                """,
+            subcommands: [
+                Create.self, AddRow.self, AddColumn.self, DeleteRow.self,
+                DeleteColumn.self, Merge.self, Unmerge.self, PinHeaders.self,
+            ]
+        )
+
+        struct Create: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "create",
+                abstract: "Insert an empty table and print its start index.",
+                discussion: """
+                    Inserts an empty --rows by --columns table at a zero-based \
+                    UTF-16 index (--at) or at the end of the body or a segment \
+                    (--end). Index 1 is the start of the body text; in a named \
+                    segment (--segment) the content starts at index 0. The API \
+                    inserts a newline before the table, so with --at the table \
+                    starts at index + 1; that start index is printed so you can \
+                    address the table with the other `docs table` commands. Get \
+                    index ranges from `docs structure`.
+                    """
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "The number of rows (1 or greater).")
+            var rows: Int
+
+            @Option(help: "The number of columns (1 or greater).")
+            var columns: Int
+
+            @Option(help: "The zero-based UTF-16 index to insert at (body minimum 1; segment minimum 0). Not needed with --end.")
+            var at: Int?
+
+            @Flag(help: "Append the table to the end of the body or segment; --at is ignored.")
+            var end = false
+
+            @Option(help: "A header, footer, or footnote segment id to insert into. Omit for the body.")
+            var segment: String?
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func validate() throws {
+                if end && at != nil {
+                    throw ValidationError(
+                        "Pass either --at <index> or --end, not both: --end appends to the "
+                        + "end of the segment and takes no index.")
+                }
+                guard end || at != nil else {
+                    throw ValidationError(
+                        "Provide --at <index>, or pass --end to append to the end of the segment.")
+                }
+                guard rows >= 1 else { throw ValidationError("--rows must be 1 or greater.") }
+                guard columns >= 1 else { throw ValidationError("--columns must be 1 or greater.") }
+            }
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                let result = try await client.insertTable(
+                    documentId: documentID, rows: rows, columns: columns,
+                    index: at, endOfSegment: end, segmentId: segment,
+                    requiredRevisionId: requireRevision)
+                if let start = result.tableStartIndex {
+                    print("Created a \(rows)x\(columns) table; it starts at index \(start).")
+                } else {
+                    let destination = segment.map { "the end of segment \($0)" }
+                        ?? "the end of the body"
+                    print("Created a \(rows)x\(columns) table at \(destination).")
+                }
+            }
+        }
+
+        struct AddRow: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "add-row",
+                abstract: "Insert an empty row above or below a reference cell.",
+                discussion: """
+                    Give exactly one of --below or --above. --table is the \
+                    table's zero-based start index from `docs structure`; --row \
+                    and --column are one-based.
+                    """
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "The table's zero-based UTF-16 start index (from `docs structure`).")
+            var table: Int
+
+            @Option(help: "The one-based reference row.")
+            var row: Int
+
+            @Option(help: "The one-based reference column.")
+            var column: Int
+
+            @Flag(help: "Insert below the reference row.")
+            var below = false
+
+            @Flag(help: "Insert above the reference row.")
+            var above = false
+
+            @Option(help: "A header, footer, or footnote segment id. Omit for the body.")
+            var segment: String?
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func validate() throws {
+                guard below != above else {
+                    throw ValidationError("Provide exactly one of --below or --above.")
+                }
+                guard row >= 1 else { throw ValidationError("--row must be one-based (1 or greater).") }
+                guard column >= 1 else {
+                    throw ValidationError("--column must be one-based (1 or greater).")
+                }
+            }
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                _ = try await client.insertTableRow(
+                    documentId: documentID, tableStartIndex: table, row: row, column: column,
+                    below: below, segmentId: segment, requiredRevisionId: requireRevision)
+                print("Inserted a row \(below ? "below" : "above") cell (\(row), \(column)).")
+            }
+        }
+
+        struct AddColumn: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "add-column",
+                abstract: "Insert an empty column left or right of a reference cell.",
+                discussion: """
+                    Give exactly one of --right or --left. --table is the \
+                    table's zero-based start index from `docs structure`; --row \
+                    and --column are one-based.
+                    """
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "The table's zero-based UTF-16 start index (from `docs structure`).")
+            var table: Int
+
+            @Option(help: "The one-based reference row.")
+            var row: Int
+
+            @Option(help: "The one-based reference column.")
+            var column: Int
+
+            @Flag(help: "Insert to the right of the reference column.")
+            var right = false
+
+            @Flag(help: "Insert to the left of the reference column.")
+            var left = false
+
+            @Option(help: "A header, footer, or footnote segment id. Omit for the body.")
+            var segment: String?
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func validate() throws {
+                guard right != left else {
+                    throw ValidationError("Provide exactly one of --right or --left.")
+                }
+                guard row >= 1 else { throw ValidationError("--row must be one-based (1 or greater).") }
+                guard column >= 1 else {
+                    throw ValidationError("--column must be one-based (1 or greater).")
+                }
+            }
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                _ = try await client.insertTableColumn(
+                    documentId: documentID, tableStartIndex: table, row: row, column: column,
+                    right: right, segmentId: segment, requiredRevisionId: requireRevision)
+                print("Inserted a column to the \(right ? "right" : "left") of cell (\(row), \(column)).")
+            }
+        }
+
+        struct DeleteRow: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "delete-row",
+                abstract: "Delete the row of a reference cell.",
+                discussion: """
+                    A merged reference cell deletes every row it spans. --table \
+                    is the table's zero-based start index from `docs structure`; \
+                    --row and --column are one-based.
+                    """
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "The table's zero-based UTF-16 start index (from `docs structure`).")
+            var table: Int
+
+            @Option(help: "The one-based reference row.")
+            var row: Int
+
+            @Option(help: "The one-based reference column.")
+            var column: Int
+
+            @Option(help: "A header, footer, or footnote segment id. Omit for the body.")
+            var segment: String?
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func validate() throws {
+                guard row >= 1 else { throw ValidationError("--row must be one-based (1 or greater).") }
+                guard column >= 1 else {
+                    throw ValidationError("--column must be one-based (1 or greater).")
+                }
+            }
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                _ = try await client.deleteTableRow(
+                    documentId: documentID, tableStartIndex: table, row: row, column: column,
+                    segmentId: segment, requiredRevisionId: requireRevision)
+                print("Deleted the row of cell (\(row), \(column)).")
+            }
+        }
+
+        struct DeleteColumn: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "delete-column",
+                abstract: "Delete the column of a reference cell.",
+                discussion: """
+                    A merged reference cell deletes every column it spans. \
+                    --table is the table's zero-based start index from `docs \
+                    structure`; --row and --column are one-based.
+                    """
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "The table's zero-based UTF-16 start index (from `docs structure`).")
+            var table: Int
+
+            @Option(help: "The one-based reference row.")
+            var row: Int
+
+            @Option(help: "The one-based reference column.")
+            var column: Int
+
+            @Option(help: "A header, footer, or footnote segment id. Omit for the body.")
+            var segment: String?
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func validate() throws {
+                guard row >= 1 else { throw ValidationError("--row must be one-based (1 or greater).") }
+                guard column >= 1 else {
+                    throw ValidationError("--column must be one-based (1 or greater).")
+                }
+            }
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                _ = try await client.deleteTableColumn(
+                    documentId: documentID, tableStartIndex: table, row: row, column: column,
+                    segmentId: segment, requiredRevisionId: requireRevision)
+                print("Deleted the column of cell (\(row), \(column)).")
+            }
+        }
+
+        struct Merge: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "merge",
+                abstract: "Merge a rectangular range of table cells.",
+                discussion: """
+                    Text from every merged cell is concatenated into the \
+                    range's head cell. --table is the table's zero-based start \
+                    index from `docs structure`; --row and --column are the \
+                    one-based head cell, and --row-span and --column-span are \
+                    cell counts (1 or greater).
+                    """
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "The table's zero-based UTF-16 start index (from `docs structure`).")
+            var table: Int
+
+            @Option(help: "The one-based head row of the range.")
+            var row: Int
+
+            @Option(help: "The one-based head column of the range.")
+            var column: Int
+
+            @Option(help: "The number of rows to span (1 or greater).")
+            var rowSpan: Int
+
+            @Option(help: "The number of columns to span (1 or greater).")
+            var columnSpan: Int
+
+            @Option(help: "A header, footer, or footnote segment id. Omit for the body.")
+            var segment: String?
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func validate() throws {
+                guard row >= 1 else { throw ValidationError("--row must be one-based (1 or greater).") }
+                guard column >= 1 else {
+                    throw ValidationError("--column must be one-based (1 or greater).")
+                }
+                guard rowSpan >= 1 else {
+                    throw ValidationError("--row-span must be 1 or greater.")
+                }
+                guard columnSpan >= 1 else {
+                    throw ValidationError("--column-span must be 1 or greater.")
+                }
+            }
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                _ = try await client.mergeTableCells(
+                    documentId: documentID, tableStartIndex: table, row: row, column: column,
+                    rowSpan: rowSpan, columnSpan: columnSpan,
+                    segmentId: segment, requiredRevisionId: requireRevision)
+                print("Merged a \(rowSpan)x\(columnSpan) range at cell (\(row), \(column)).")
+            }
+        }
+
+        struct Unmerge: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "unmerge",
+                abstract: "Unmerge every merged cell in a rectangular range.",
+                discussion: """
+                    --table is the table's zero-based start index from `docs \
+                    structure`; --row and --column are the one-based head cell, \
+                    and --row-span and --column-span are cell counts (1 or \
+                    greater).
+                    """
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "The table's zero-based UTF-16 start index (from `docs structure`).")
+            var table: Int
+
+            @Option(help: "The one-based head row of the range.")
+            var row: Int
+
+            @Option(help: "The one-based head column of the range.")
+            var column: Int
+
+            @Option(help: "The number of rows to span (1 or greater).")
+            var rowSpan: Int
+
+            @Option(help: "The number of columns to span (1 or greater).")
+            var columnSpan: Int
+
+            @Option(help: "A header, footer, or footnote segment id. Omit for the body.")
+            var segment: String?
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func validate() throws {
+                guard row >= 1 else { throw ValidationError("--row must be one-based (1 or greater).") }
+                guard column >= 1 else {
+                    throw ValidationError("--column must be one-based (1 or greater).")
+                }
+                guard rowSpan >= 1 else {
+                    throw ValidationError("--row-span must be 1 or greater.")
+                }
+                guard columnSpan >= 1 else {
+                    throw ValidationError("--column-span must be 1 or greater.")
+                }
+            }
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                _ = try await client.unmergeTableCells(
+                    documentId: documentID, tableStartIndex: table, row: row, column: column,
+                    rowSpan: rowSpan, columnSpan: columnSpan,
+                    segmentId: segment, requiredRevisionId: requireRevision)
+                print("Unmerged a \(rowSpan)x\(columnSpan) range at cell (\(row), \(column)).")
+            }
+        }
+
+        struct PinHeaders: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "pin-headers",
+                abstract: "Pin the first N rows of a table as headers (0 unpins).",
+                discussion: """
+                    --table is the table's zero-based start index from `docs \
+                    structure`; --count is the number of leading rows to pin, \
+                    and 0 unpins.
+                    """
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "The table's zero-based UTF-16 start index (from `docs structure`).")
+            var table: Int
+
+            @Option(
+                parsing: .unconditional,
+                help: "The number of leading rows to pin as headers; 0 unpins."
+            )
+            var count: Int
+
+            @Option(help: "A header, footer, or footnote segment id. Omit for the body.")
+            var segment: String?
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func validate() throws {
+                guard count >= 0 else { throw ValidationError("--count must be 0 or greater.") }
+            }
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                _ = try await client.pinTableHeaderRows(
+                    documentId: documentID, tableStartIndex: table,
+                    pinnedHeaderRowsCount: count,
+                    segmentId: segment, requiredRevisionId: requireRevision)
+                if count == 0 {
+                    print("Unpinned the header rows.")
+                } else {
+                    print("Pinned \(count) header row(s).")
+                }
+            }
         }
     }
 
