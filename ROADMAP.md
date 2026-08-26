@@ -35,20 +35,6 @@ encoded body, decoded reply, error propagation), then a thin subcommand in
   `TabProperties.index`). The CLI shows and accepts **one-based** values;
   GrahamKit translates.
 
-### Phase 3 — Paragraph borders (deferred sub-item)
-
-`updateTextStyle` and `updateParagraphStyle` are done (`docs style`,
-`docs paragraph`, `docs heading`), covering fonts, colors, links, alignment,
-spacing, indents, and named styles. Only paragraph **borders** remain from the
-`updateParagraphStyle` surface — a larger sub-model deliberately split out to
-keep the styling change reviewable:
-
-- **Paragraph borders** *(useful)* — `borderTop`, `borderBottom`, `borderLeft`,
-  `borderRight`, `borderBetween`, each a `ParagraphBorder` (color, width,
-  dashStyle, padding). Extend `DocsParagraphStyle` and its mask; add
-  `docs paragraph` border flags. Same fields-mask discipline and exact-string
-  tests.
-
 ### Section and named styles (advanced)
 
 - **`updateSectionStyle`** *(advanced)* — margins, columns, page numbering, and
@@ -81,13 +67,15 @@ keep the styling change reviewable:
 
 ### Practical "100%" reached
 
-All `core` + `useful` operations are built: document creation, full text and
-paragraph styling, lists, complete table structure and styling, structure and
-images, page breaks, section breaks, headers/footers/footnotes, named ranges
-(template filling), page setup (including pageless), and structured/Markdown
-reads. What is left above — paragraph borders, `updateSectionStyle`,
-`updateNamedStyle`, a `docs range list` convenience, and the tabs / smart-chips /
-suggestions group — is optional polish, rarely needed from a CLI.
+Every `core` and `useful` operation is built, including paragraph borders and
+the `docs range list` convenience: document creation, full text and paragraph
+styling, lists, complete table structure and styling, structure and images,
+page breaks, section breaks, headers/footers/footnotes, named ranges (template
+filling and listing), page setup (including pageless), and structured/Markdown
+reads. What is left above — `updateSectionStyle`, `updateNamedStyle`, and the
+tabs / smart-chips / suggestions group — is advanced polish, rarely needed from
+a CLI. The read-only `ParagraphStyle.tabStops` and `TextStyle`/`DocumentStyle`
+ids are not writable and are intentionally omitted.
 
 ### Notes for implementation
 
