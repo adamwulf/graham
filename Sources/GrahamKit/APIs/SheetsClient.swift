@@ -162,22 +162,34 @@ public struct SheetsClient: Sendable {
 
     /// Adds a chart and returns its numeric chart id.
     ///
-    /// The first input column is the chart domain and every remaining column
-    /// becomes a series (a pie chart uses only the first two columns). The first
-    /// row supplies the headers. By default the chart lands on its own new sheet;
-    /// pass `overlay` to float it over an existing sheet instead.
+    /// The `kind` selects the chart shape; when nil it derives from `type`/`pie`
+    /// (so existing callers behave unchanged). For basic and pie charts the
+    /// first input column is the domain and every remaining column is a series
+    /// (a pie chart uses only the first two columns), with the first row as the
+    /// headers. Histograms turn every column into a series; scorecards read a
+    /// key value (and an optional baseline) from the first one or two columns;
+    /// candlesticks read exactly five columns as domain, open, high, low, close.
+    /// By default the chart lands on its own new sheet; pass `overlay` to float
+    /// it over an existing sheet instead.
     public func addChart(
         spreadsheetId: String,
         title: String? = nil,
         type: BasicChartType = .column,
         range: String,
         pie: Bool = false,
+        kind: SheetsChartKind? = nil,
+        bucketSize: Double? = nil,
+        outlierPercentile: Double? = nil,
+        aggregate: SheetsChartAggregateType? = nil,
         overlay: ChartOverlay? = nil
     ) async throws -> Int {
-        let parsed = try validatedChartRange(range)
+        let resolvedKind = resolveChartKind(kind: kind, type: type, pie: pie)
+        let parsed = try validatedChartRange(range, kind: resolvedKind)
         let metadata = try await spreadsheet(id: spreadsheetId)
         let dataSheetId = try sheetId(from: metadata, name: parsed.sheetName)
-        let spec = chartSpec(parsed: parsed, sheetId: dataSheetId, type: type, title: title, pie: pie)
+        let spec = chartSpec(
+            parsed: parsed, sheetId: dataSheetId, kind: resolvedKind, type: type, title: title,
+            bucketSize: bucketSize, outlierPercentile: outlierPercentile, aggregate: aggregate)
 
         let position: EmbeddedObjectPosition
         if let overlay {
@@ -205,19 +217,28 @@ public struct SheetsClient: Sendable {
         return chartId
     }
 
-    /// Replaces an existing chart's spec, rebuilt from `range` and `type`.
+    /// Replaces an existing chart's spec, rebuilt from `range` and the chosen
+    /// chart shape. As with ``addChart(spreadsheetId:title:type:range:pie:kind:bucketSize:outlierPercentile:aggregate:overlay:)``,
+    /// `kind` selects the shape and falls back to `type`/`pie` when nil.
     public func updateChart(
         spreadsheetId: String,
         chartId: Int,
         title: String? = nil,
         type: BasicChartType = .column,
         range: String,
-        pie: Bool = false
+        pie: Bool = false,
+        kind: SheetsChartKind? = nil,
+        bucketSize: Double? = nil,
+        outlierPercentile: Double? = nil,
+        aggregate: SheetsChartAggregateType? = nil
     ) async throws {
-        let parsed = try validatedChartRange(range)
+        let resolvedKind = resolveChartKind(kind: kind, type: type, pie: pie)
+        let parsed = try validatedChartRange(range, kind: resolvedKind)
         let metadata = try await spreadsheet(id: spreadsheetId)
         let dataSheetId = try sheetId(from: metadata, name: parsed.sheetName)
-        let spec = chartSpec(parsed: parsed, sheetId: dataSheetId, type: type, title: title, pie: pie)
+        let spec = chartSpec(
+            parsed: parsed, sheetId: dataSheetId, kind: resolvedKind, type: type, title: title,
+            bucketSize: bucketSize, outlierPercentile: outlierPercentile, aggregate: aggregate)
         _ = try await batchUpdate(
             spreadsheetId: spreadsheetId,
             requests: [.updateChartSpec(UpdateChartSpecRequest(chartId: chartId, spec: spec))])
@@ -230,19 +251,106 @@ public struct SheetsClient: Sendable {
             requests: [.deleteEmbeddedObject(DeleteEmbeddedObjectRequest(objectId: chartId))])
     }
 
+    /// Moves or resizes an embedded chart via `updateEmbeddedObjectPosition`.
+    ///
+    /// Exactly one placement is chosen: pass `anchor` (an A1 cell, optionally
+    /// sheet-qualified) to overlay the chart on an existing sheet, optionally
+    /// sized with `width`/`height`; or `newSheet: true` to move it to its own
+    /// new sheet. `width` and `height` require an `anchor`. The sheet id comes
+    /// from the anchor's tab name, or the first sheet when it names none.
+    public func moveChart(
+        spreadsheetId: String,
+        chartId: Int,
+        anchor: String? = nil,
+        width: Int? = nil,
+        height: Int? = nil,
+        newSheet: Bool = false
+    ) async throws {
+        let placements = [anchor != nil, newSheet].filter { $0 }.count
+        guard placements == 1 else {
+            throw GrahamError.invalidArgument(
+                "choose exactly one placement: an --anchor cell or --new-sheet")
+        }
+        if newSheet, width != nil || height != nil {
+            throw GrahamError.invalidArgument("--width and --height require --anchor")
+        }
+
+        let newPosition: EmbeddedObjectPosition
+        if let anchor {
+            let parsedAnchor = try A1Range.parse(anchor)
+            let anchorSheetId: Int
+            if let name = parsedAnchor.sheetName {
+                anchorSheetId = try await sheetId(spreadsheetId: spreadsheetId, title: name)
+            } else {
+                anchorSheetId = try await firstSheetId(spreadsheetId: spreadsheetId)
+            }
+            newPosition = EmbeddedObjectPosition(overlayPosition: OverlayPosition(
+                anchorCell: GridCoordinate(
+                    sheetId: anchorSheetId,
+                    rowIndex: parsedAnchor.startRowIndex,
+                    columnIndex: parsedAnchor.startColumnIndex),
+                widthPixels: width,
+                heightPixels: height))
+        } else {
+            newPosition = EmbeddedObjectPosition(newSheet: true)
+        }
+
+        _ = try await batchUpdate(
+            spreadsheetId: spreadsheetId,
+            requests: [.updateEmbeddedObjectPosition(UpdateEmbeddedObjectPositionRequest(
+                objectId: chartId, newPosition: newPosition, fields: "newPosition"))])
+    }
+
     // MARK: Chart building
 
-    /// Parses and range-checks a chart source range (at least 2 columns wide and
-    /// 2 rows tall — a header row plus a domain column plus a series column).
-    private func validatedChartRange(_ range: String) throws -> A1Range {
+    /// Resolves the chart kind for a chart write: an explicit `kind` wins;
+    /// otherwise `pie` maps to the pie kind and a bare `type` maps to its
+    /// matching basic kind. This keeps the pre-`kind` callers behaving unchanged.
+    private func resolveChartKind(
+        kind: SheetsChartKind?,
+        type: BasicChartType,
+        pie: Bool
+    ) -> SheetsChartKind {
+        if let kind { return kind }
+        if pie { return .pie }
+        return SheetsChartKind(rawValue: type.rawValue) ?? .column
+    }
+
+    /// Parses and range-checks a chart source range for the given `kind`. Basic
+    /// and pie charts need at least 2 columns and 2 rows (a header row plus a
+    /// domain column plus a series column); a scorecard needs one or two columns
+    /// (key value plus optional baseline); a candlestick needs exactly five
+    /// columns (domain, open, high, low, close). Every check runs before any
+    /// request is issued.
+    private func validatedChartRange(_ range: String, kind: SheetsChartKind) throws -> A1Range {
         let parsed = try A1Range.parse(range)
-        guard parsed.endColumnIndex - parsed.startColumnIndex >= 2 else {
-            throw GrahamError.invalidArgument(
-                "chart range \"\(range)\" must be at least 2 columns wide")
-        }
-        guard parsed.endRowIndex - parsed.startRowIndex >= 2 else {
-            throw GrahamError.invalidArgument(
-                "chart range \"\(range)\" must be at least 2 rows tall")
+        let columns = parsed.endColumnIndex - parsed.startColumnIndex
+        let rows = parsed.endRowIndex - parsed.startRowIndex
+        switch kind {
+        case .column, .bar, .line, .area, .scatter, .combo, .pie:
+            guard columns >= 2 else {
+                throw GrahamError.invalidArgument(
+                    "chart range \"\(range)\" must be at least 2 columns wide")
+            }
+            guard rows >= 2 else {
+                throw GrahamError.invalidArgument(
+                    "chart range \"\(range)\" must be at least 2 rows tall")
+            }
+        case .histogram:
+            // Any bounded range works; every column becomes a series.
+            break
+        case .scorecard:
+            guard columns >= 1, columns <= 2 else {
+                throw GrahamError.invalidArgument(
+                    "scorecard range \"\(range)\" must be 1 or 2 columns wide "
+                        + "(key value, optional baseline)")
+            }
+        case .candlestick:
+            guard columns == 5 else {
+                throw GrahamError.invalidArgument(
+                    "candlestick range \"\(range)\" must be exactly 5 columns wide "
+                        + "(domain, open, high, low, close)")
+            }
         }
         return parsed
     }
@@ -270,33 +378,62 @@ public struct SheetsClient: Sendable {
         return id
     }
 
-    /// Builds a basic or pie chart spec from a parsed source range.
+    /// Builds a chart data source for a single column of a parsed source range.
+    private func chartData(sheetId: Int, parsed: A1Range, column: Int) -> ChartData {
+        ChartData(sourceRange: ChartSourceRange(sources: [GridRange(
+            sheetId: sheetId,
+            startRowIndex: parsed.startRowIndex,
+            endRowIndex: parsed.endRowIndex,
+            startColumnIndex: column,
+            endColumnIndex: column + 1
+        )]))
+    }
+
+    /// Builds the chart spec for the requested `kind` from a parsed source range.
+    /// Each shape has its own private builder, mirroring the original
+    /// basic/pie helper.
     private func chartSpec(
         parsed: A1Range,
         sheetId: Int,
+        kind: SheetsChartKind,
         type: BasicChartType,
         title: String?,
-        pie: Bool
+        bucketSize: Double?,
+        outlierPercentile: Double?,
+        aggregate: SheetsChartAggregateType?
     ) -> ChartSpec {
-        func data(forColumn column: Int) -> ChartData {
-            ChartData(sourceRange: ChartSourceRange(sources: [GridRange(
-                sheetId: sheetId,
-                startRowIndex: parsed.startRowIndex,
-                endRowIndex: parsed.endRowIndex,
-                startColumnIndex: column,
-                endColumnIndex: column + 1
-            )]))
+        switch kind {
+        case .column, .bar, .line, .area, .scatter, .combo:
+            return basicChartSpec(
+                parsed: parsed, sheetId: sheetId, type: kind.basicChartType ?? type, title: title)
+        case .pie:
+            return pieChartSpec(parsed: parsed, sheetId: sheetId, title: title)
+        case .histogram:
+            return histogramChartSpec(
+                parsed: parsed, sheetId: sheetId, title: title,
+                bucketSize: bucketSize, outlierPercentile: outlierPercentile)
+        case .scorecard:
+            return scorecardChartSpec(
+                parsed: parsed, sheetId: sheetId, title: title, aggregate: aggregate)
+        case .candlestick:
+            return candlestickChartSpec(parsed: parsed, sheetId: sheetId, title: title)
         }
-        let domainData = data(forColumn: parsed.startColumnIndex)
-        if pie {
-            return ChartSpec(title: title, pieChart: PieChartSpec(
-                legendPosition: "RIGHT_LEGEND",
-                domain: domainData,
-                series: data(forColumn: parsed.startColumnIndex + 1)))
-        }
-        let domain = BasicChartDomain(domain: domainData)
+    }
+
+    /// Builds a basic chart spec: the first column is the domain and every
+    /// remaining column is a series.
+    private func basicChartSpec(
+        parsed: A1Range,
+        sheetId: Int,
+        type: BasicChartType,
+        title: String?
+    ) -> ChartSpec {
+        let domain = BasicChartDomain(
+            domain: chartData(sheetId: sheetId, parsed: parsed, column: parsed.startColumnIndex))
         let series = ((parsed.startColumnIndex + 1)..<parsed.endColumnIndex).map { column in
-            BasicChartSeries(series: data(forColumn: column), targetAxis: "LEFT_AXIS")
+            BasicChartSeries(
+                series: chartData(sheetId: sheetId, parsed: parsed, column: column),
+                targetAxis: "LEFT_AXIS")
         }
         return ChartSpec(title: title, basicChart: BasicChartSpec(
             chartType: type,
@@ -304,6 +441,73 @@ public struct SheetsClient: Sendable {
             headerCount: 1,
             domains: [domain],
             series: series))
+    }
+
+    /// Builds a pie chart spec from the first two columns of the range.
+    private func pieChartSpec(parsed: A1Range, sheetId: Int, title: String?) -> ChartSpec {
+        ChartSpec(title: title, pieChart: PieChartSpec(
+            legendPosition: "RIGHT_LEGEND",
+            domain: chartData(sheetId: sheetId, parsed: parsed, column: parsed.startColumnIndex),
+            series: chartData(
+                sheetId: sheetId, parsed: parsed, column: parsed.startColumnIndex + 1)))
+    }
+
+    /// Builds a histogram chart spec: every column of the range becomes a series.
+    private func histogramChartSpec(
+        parsed: A1Range,
+        sheetId: Int,
+        title: String?,
+        bucketSize: Double?,
+        outlierPercentile: Double?
+    ) -> ChartSpec {
+        let series = (parsed.startColumnIndex..<parsed.endColumnIndex).map { column in
+            HistogramSeries(data: chartData(sheetId: sheetId, parsed: parsed, column: column))
+        }
+        return ChartSpec(title: title, histogramChart: HistogramChartSpec(
+            series: series,
+            bucketSize: bucketSize,
+            outlierPercentile: outlierPercentile))
+    }
+
+    /// Builds a scorecard chart spec: the first column is the key value and an
+    /// optional second column is the baseline.
+    private func scorecardChartSpec(
+        parsed: A1Range,
+        sheetId: Int,
+        title: String?,
+        aggregate: SheetsChartAggregateType?
+    ) -> ChartSpec {
+        let columns = parsed.endColumnIndex - parsed.startColumnIndex
+        let keyValue = chartData(
+            sheetId: sheetId, parsed: parsed, column: parsed.startColumnIndex)
+        let baseline = columns >= 2
+            ? chartData(sheetId: sheetId, parsed: parsed, column: parsed.startColumnIndex + 1)
+            : nil
+        return ChartSpec(title: title, scorecardChart: ScorecardChartSpec(
+            keyValueData: keyValue,
+            baselineValueData: baseline,
+            aggregateType: aggregate?.rawValue))
+    }
+
+    /// Builds a candlestick chart spec from exactly five columns, mapped in
+    /// order: domain, open, high, low, close.
+    private func candlestickChartSpec(
+        parsed: A1Range,
+        sheetId: Int,
+        title: String?
+    ) -> ChartSpec {
+        let base = parsed.startColumnIndex
+        func column(_ offset: Int) -> ChartData {
+            chartData(sheetId: sheetId, parsed: parsed, column: base + offset)
+        }
+        let group = CandlestickData(
+            lowSeries: CandlestickSeries(data: column(3)),
+            openSeries: CandlestickSeries(data: column(1)),
+            closeSeries: CandlestickSeries(data: column(4)),
+            highSeries: CandlestickSeries(data: column(2)))
+        return ChartSpec(title: title, candlestickChart: CandlestickChartSpec(
+            domain: CandlestickDomain(data: column(0)),
+            data: [group]))
     }
 
     // MARK: - Sheets (tabs)
