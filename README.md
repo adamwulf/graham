@@ -106,10 +106,13 @@ graham drive list --query "name contains 'report'" --limit 20
 
 graham drive get <file-id> --format json
 graham drive export <file-id> --mime application/pdf -o report.pdf
-# Create an empty Google Workspace file and print its new id.
-graham drive create "Quarterly Report" --type docs
+# Create an empty Google Workspace file and print its new id. The type is a
+# subcommand: doc, sheet, slides, or folder. --parent places the new file in a
+# folder; without it the file lands in My Drive.
+graham drive create doc "Quarterly Report"
+graham drive create sheet "Budget" --parent <folder-id>
 # Create a folder.
-graham drive create "Project Files" --type folder
+graham drive create folder "Project Files"
 # Copy a file, optionally renaming the copy, and print its new id.
 graham drive copy <file-id> --name "Quarterly Report Copy"
 # Move a file to trash (reversible in Drive), or permanently delete it.
@@ -123,8 +126,8 @@ graham sheets set <spreadsheet-id> "Sheet1!A1:B3" --row "Label,Value" --row "A,1
 # Add a chart and print the chart id; pass it to `slides create chart --chart-id`.
 graham sheets chart add <spreadsheet-id> --range "Sheet1!A1:B3" --title "Sales" --type column
 
-# Create a new, blank document from a title and print its id.
-graham docs create "My New Document"
+# Create a new, blank document with `graham drive create doc` (above); every
+# create path lives under `drive`. Then work with the document by its id.
 graham docs cat <document-id>
 # Render the document as GitHub-flavored Markdown: headings, bold/italic/strike,
 # links, ordered and unordered nested lists, pipe tables, horizontal rules,

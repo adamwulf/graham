@@ -6,7 +6,7 @@ struct Docs: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Work with Google Docs documents.",
         subcommands: [
-            Create.self, Cat.self, Structure.self, Insert.self, Delete.self,
+            Cat.self, Structure.self, Insert.self, Delete.self,
             Replace.self, Style.self, Paragraph.self, Heading.self, Bullets.self,
             Unbullet.self, Table.self, Images.self, PageBreak.self, Image.self,
             Object.self, SectionBreak.self, Header.self, Footer.self, Footnote.self,
@@ -70,21 +70,6 @@ struct Docs: AsyncParsableCommand {
             if summary.failed > 0 {
                 throw ExitCode.failure
             }
-        }
-    }
-
-    struct Create: AsyncParsableCommand {
-        static let configuration = CommandConfiguration(
-            abstract: "Create a new, blank document from a title and print its id."
-        )
-
-        @Argument(help: "The title of the new document.")
-        var title: String
-
-        func run() async throws {
-            let client = DocsClient(api: try CLI.makeAPI())
-            let document = try await client.create(title: title)
-            print(document.documentId ?? "")
         }
     }
 

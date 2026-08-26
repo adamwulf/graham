@@ -240,10 +240,17 @@ write. Tests remain offline and exercise the real encoding path.
   weekly). If a write feature only needs files graham creates or opens, adding
   a `drive.file` scope (not restricted) to `GoogleScope` avoids both problems.
 
-- `drive create` uses `DriveCreateType`, not the broader listing-only
-  `DriveFileType`. It sends the name and Google Workspace MIME type in a JSON
-  body through `DriveClient.create`; it does not put names in URLs. Without a
-  parent, new files land in My Drive.
+- `drive create` is the one home for file creation. Each Google Workspace type
+  is a subcommand — `drive create doc|sheet|slides|folder <name> [--parent]` —
+  and every subcommand maps to a `DriveCreateType` case (not the broader
+  listing-only `DriveFileType`) and routes through the shared `Drive.Create.create`
+  helper into `DriveClient.create`. The name and Google Workspace MIME type go in
+  a JSON body, not the URL. `--parent` places the file in a folder; without it,
+  new files land in My Drive. There is deliberately no `docs create` command: the
+  Docs `documents.create` endpoint (title-only, always My Drive) still lives in
+  the library as `DocsClient.create` and is covered by the Docs live test's
+  `docs-create` step, but the CLI exposes creation only under `drive` so the
+  caller has one clear path.
 - Slides batch updates use zero-based insertion indices based on the slide order
   before a move, while graham displays and accepts final slide positions as
   one-based. Resolve the source index and translate at the high-level client

@@ -58,22 +58,65 @@ struct Drive: AsyncParsableCommand {
 
     struct Create: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Create a new, empty Doc, Sheet, Slides file, or folder."
+            abstract: "Create a new, empty Doc, Sheet, Slides file, or folder.",
+            subcommands: [Doc.self, Sheet.self, Slides.self, Folder.self]
         )
 
-        @Argument(help: "The name of the new file.")
-        var name: String
+        /// The name, parent, and format shared by every `drive create` subcommand.
+        /// Each subcommand supplies only the `DriveCreateType` these options build.
+        struct Options: ParsableArguments {
+            @Argument(help: "The name of the new file.")
+            var name: String
 
-        @Option(help: "The file type to create: docs, sheets, slides, or folder.")
-        var type: DriveCreateType
+            @Option(help: "The ID of the folder to create the file in. Without it, the file lands in My Drive.")
+            var parent: String?
 
-        @Option(help: "The output format: table, json, jsonl, or id.")
-        var format: OutputFormat = .id
+            @Option(help: "The output format: table, json, jsonl, or id.")
+            var format: OutputFormat = .id
+        }
 
-        func run() async throws {
+        /// The one create path all four subcommands route through, so the
+        /// endpoint, parenting, and rendering live in a single place.
+        static func create(type: DriveCreateType, options: Options) async throws {
             let client = DriveClient(api: try CLI.makeAPI())
-            let file = try await client.create(name: name, type: type)
-            print(try OutputFormatter.render([file], format: format))
+            let file = try await client.create(name: options.name, type: type, parent: options.parent)
+            print(try OutputFormatter.render([file], format: options.format))
+        }
+
+        struct Doc: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "doc", abstract: "Create a new, empty Google Doc.")
+
+            @OptionGroup var options: Options
+
+            func run() async throws { try await Create.create(type: .docs, options: options) }
+        }
+
+        struct Sheet: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "sheet", abstract: "Create a new, empty Google Sheet.")
+
+            @OptionGroup var options: Options
+
+            func run() async throws { try await Create.create(type: .sheets, options: options) }
+        }
+
+        struct Slides: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "slides", abstract: "Create a new, empty Google Slides presentation.")
+
+            @OptionGroup var options: Options
+
+            func run() async throws { try await Create.create(type: .slides, options: options) }
+        }
+
+        struct Folder: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "folder", abstract: "Create a new folder.")
+
+            @OptionGroup var options: Options
+
+            func run() async throws { try await Create.create(type: .folder, options: options) }
         }
     }
 
