@@ -1,12 +1,42 @@
 import Foundation
 
-/// A Google Docs document. Only the fields needed for text extraction are
-/// modeled; the decoder ignores all other fields. Every field is optional,
-/// so a partial or new response shape does not sink the whole decode.
+/// A Google Docs document, mirroring the Docs v1 `Document` resource. Only the
+/// fields graham reads are modeled; the decoder ignores all other fields. Every
+/// field is optional except none — a partial or new response shape does not
+/// sink the whole decode.
+///
+/// The maps below are keyed exactly as the API keys them: an id string to the
+/// object it names. `headers`, `footers`, and `footnotes` are the named
+/// segments a segment-aware write can target; `inlineObjects` and
+/// `positionedObjects` carry the images a later `docs images` command reads;
+/// `lists` backs bullet rendering; `namedRanges` and `namedStyles` and
+/// `documentStyle` round out the read surface.
 public struct Document: Codable, Sendable {
     public let documentId: String?
     public let title: String?
     public let body: DocumentBody?
+    /// The revision the document is currently at; feeds `WriteControl` for
+    /// optimistic concurrency on a follow-up write.
+    public let revisionId: String?
+    /// Lists in the document, keyed by list id; a paragraph's ``DocBullet``
+    /// names its list here.
+    public let lists: [String: DocList]?
+    /// Inline images and other embedded objects, keyed by object id.
+    public let inlineObjects: [String: DocInlineObject]?
+    /// Positioned (floating) images and embedded objects, keyed by object id.
+    public let positionedObjects: [String: DocPositionedObject]?
+    /// The document headers, keyed by header id.
+    public let headers: [String: DocHeader]?
+    /// The document footers, keyed by footer id.
+    public let footers: [String: DocFooter]?
+    /// The document footnotes, keyed by footnote id.
+    public let footnotes: [String: DocFootnote]?
+    /// Named ranges, keyed by name; each entry can hold several ranges.
+    public let namedRanges: [String: DocNamedRanges]?
+    /// The document's named styles (how `HEADING_1`, `TITLE`, ... render).
+    public let namedStyles: DocNamedStyles?
+    /// The document-wide style: page size, margins, header/footer flags.
+    public let documentStyle: DocDocumentStyle?
 
     /// The document text, in reading order. Tables render one row per line
     /// with tab-separated cells.
@@ -33,15 +63,24 @@ public struct DocsCreateRequest: Codable, Sendable, Equatable {
     }
 }
 
-/// One block in a document body: a paragraph, a table, or another element
-/// that this model does not read yet.
+/// One block in a document body (or in a header, footer, footnote, or table
+/// cell): a paragraph, a table, a section break, or a table of contents.
+///
+/// `startIndex` and `endIndex` are the block's zero-based, half-open range in
+/// UTF-16 code units, exactly as the API reports them. The API omits
+/// `startIndex` when it is 0, so an absent start means index 0 (only the very
+/// first body element).
 public struct StructuralElement: Codable, Sendable {
+    public let startIndex: Int?
+    public let endIndex: Int?
     public let paragraph: DocParagraph?
     public let table: DocTable?
+    public let sectionBreak: DocSectionBreak?
+    public let tableOfContents: DocTableOfContents?
 
     var plainText: String {
         if let paragraph {
-            return (paragraph.elements ?? []).compactMap { $0.textRun?.content }.joined()
+            return paragraph.text
         }
         if let table {
             return table.plainText
@@ -52,17 +91,97 @@ public struct StructuralElement: Codable, Sendable {
 
 public struct DocParagraph: Codable, Sendable {
     public let elements: [DocParagraphElement]?
+    /// The paragraph's style: its named style (`HEADING_1`, `TITLE`, ...),
+    /// heading id, alignment, and text direction.
+    public let paragraphStyle: DocParagraphStyle?
+    /// Present when the paragraph is a list item; names its list and level.
+    public let bullet: DocBullet?
+    /// The ids of positioned objects anchored to this paragraph.
+    public let positionedObjectIds: [String]?
+
+    /// The paragraph's plain text: the content of its text runs, joined. Other
+    /// element kinds (inline objects, breaks, footnote references) contribute no
+    /// text, matching the previous behaviour of ``StructuralElement/plainText``.
+    public var text: String {
+        (elements ?? []).compactMap { $0.textRun?.content }.joined()
+    }
+
+    /// Every object id this paragraph references: its anchored positioned
+    /// objects first, then the inline objects its elements embed, in reading
+    /// order. Lets ``DocBlockRow`` and a later `docs images` command correlate a
+    /// paragraph with the images in ``Document/inlineObjects`` and
+    /// ``Document/positionedObjects``.
+    public var referencedObjectIds: [String] {
+        var ids = positionedObjectIds ?? []
+        ids += (elements ?? []).compactMap { $0.inlineObjectElement?.inlineObjectId }
+        return ids
+    }
 }
 
+/// One inline part of a paragraph. Exactly one variant field is set; ``kind``
+/// reports which. A text run carries the visible text; the other variants are
+/// inline objects, breaks, rules, references, and smart chips.
 public struct DocParagraphElement: Codable, Sendable {
+    public let startIndex: Int?
+    public let endIndex: Int?
     public let textRun: DocTextRun?
+    public let inlineObjectElement: DocInlineObjectElement?
+    public let pageBreak: DocPageBreak?
+    public let columnBreak: DocColumnBreak?
+    public let horizontalRule: DocHorizontalRule?
+    public let footnoteReference: DocFootnoteReference?
+    public let equation: DocEquation?
+    public let autoText: DocAutoText?
+    public let person: DocPerson?
+    public let richLink: DocRichLink?
+    public let dateElement: DocDateElement?
+
+    /// The kind of this element, or ``DocParagraphElementKind/unknown`` when a
+    /// new or unmodeled variant is set.
+    public var kind: DocParagraphElementKind {
+        if textRun != nil { return .textRun }
+        if inlineObjectElement != nil { return .inlineObjectElement }
+        if pageBreak != nil { return .pageBreak }
+        if columnBreak != nil { return .columnBreak }
+        if horizontalRule != nil { return .horizontalRule }
+        if footnoteReference != nil { return .footnoteReference }
+        if equation != nil { return .equation }
+        if autoText != nil { return .autoText }
+        if person != nil { return .person }
+        if richLink != nil { return .richLink }
+        if dateElement != nil { return .dateElement }
+        return .unknown
+    }
+}
+
+/// The kind of a ``DocParagraphElement``.
+public enum DocParagraphElementKind: String, Codable, Sendable, Equatable {
+    case textRun
+    case inlineObjectElement
+    case pageBreak
+    case columnBreak
+    case horizontalRule
+    case footnoteReference
+    case equation
+    case autoText
+    case person
+    case richLink
+    case dateElement
+    case unknown
 }
 
 public struct DocTextRun: Codable, Sendable {
     public let content: String?
+    /// The run's style: bold, italic, underline, strikethrough, baseline
+    /// offset, hyperlink, font size, and font family.
+    public let textStyle: DocTextStyle?
 }
 
 public struct DocTable: Codable, Sendable {
+    /// The number of rows in the table.
+    public let rows: Int?
+    /// The number of columns in the table.
+    public let columns: Int?
     public let tableRows: [DocTableRow]?
 
     var plainText: String {
@@ -81,9 +200,549 @@ public struct DocTable: Codable, Sendable {
 }
 
 public struct DocTableRow: Codable, Sendable {
+    /// The row's zero-based start index in UTF-16 code units.
+    public let startIndex: Int?
+    /// The row's zero-based end index (exclusive) in UTF-16 code units.
+    public let endIndex: Int?
     public let tableCells: [DocTableCell]?
 }
 
 public struct DocTableCell: Codable, Sendable {
+    /// The cell's zero-based start index in UTF-16 code units.
+    public let startIndex: Int?
+    /// The cell's zero-based end index (exclusive) in UTF-16 code units.
+    public let endIndex: Int?
     public let content: [StructuralElement]?
+}
+
+// MARK: - Paragraph and text styles
+
+/// A paragraph's style. graham reads the subset the structured facade and a
+/// later Markdown renderer need; every field is optional and decoded
+/// defensively.
+public struct DocParagraphStyle: Codable, Sendable {
+    /// The named style, for example `HEADING_1`, `TITLE`, or `NORMAL_TEXT`.
+    public let namedStyleType: String?
+    /// The id of the heading this paragraph is, if any.
+    public let headingId: String?
+    /// The paragraph alignment, for example `START`, `CENTER`, or `JUSTIFIED`.
+    public let alignment: String?
+    /// The text direction, for example `LEFT_TO_RIGHT`.
+    public let direction: String?
+}
+
+/// The bullet on a list paragraph: which list it belongs to, how deeply it
+/// nests, and the style of its glyph.
+public struct DocBullet: Codable, Sendable {
+    /// The id of the list in ``Document/lists`` this bullet belongs to.
+    public let listId: String?
+    /// The zero-based nesting level of the bullet.
+    public let nestingLevel: Int?
+    public let textStyle: DocTextStyle?
+}
+
+/// The style of a text run. graham reads the subset needed to render text and,
+/// later, Markdown: the toggles, the baseline offset, the hyperlink, the font
+/// size, and the font family.
+public struct DocTextStyle: Codable, Sendable {
+    public let bold: Bool?
+    public let italic: Bool?
+    public let underline: Bool?
+    public let strikethrough: Bool?
+    /// The baseline offset, for example `SUPERSCRIPT`, `SUBSCRIPT`, or `NONE`.
+    public let baselineOffset: String?
+    /// The hyperlink on the run, if any.
+    public let link: DocLink?
+    public let fontSize: DocDimension?
+    public let weightedFontFamily: DocWeightedFontFamily?
+}
+
+/// A hyperlink. A web link sets ``url``; the other fields target a heading,
+/// bookmark, or tab within the document.
+public struct DocLink: Codable, Sendable {
+    /// The URL of an external link.
+    public let url: String?
+    /// The id of a heading this link targets.
+    public let headingId: String?
+    /// The id of a bookmark this link targets.
+    public let bookmarkId: String?
+    /// The id of a tab this link targets.
+    public let tabId: String?
+}
+
+/// A font family plus a numeric weight.
+public struct DocWeightedFontFamily: Codable, Sendable {
+    public let fontFamily: String?
+    /// The weight, a multiple of 100 from 100 to 900.
+    public let weight: Int?
+}
+
+/// A length: a magnitude and its unit (`PT` or `UNIT_UNSPECIFIED`).
+public struct DocDimension: Codable, Sendable {
+    public let magnitude: Double?
+    public let unit: String?
+}
+
+/// The width and height of an object.
+public struct DocSize: Codable, Sendable {
+    public let width: DocDimension?
+    public let height: DocDimension?
+}
+
+// MARK: - Paragraph element variants
+
+/// An inline object (usually an image) placed in the text. ``inlineObjectId``
+/// keys into ``Document/inlineObjects`` for the object's image data and size.
+public struct DocInlineObjectElement: Codable, Sendable {
+    public let inlineObjectId: String?
+    public let textStyle: DocTextStyle?
+}
+
+/// A page break. It renders no text.
+public struct DocPageBreak: Codable, Sendable {
+    public let textStyle: DocTextStyle?
+}
+
+/// A column break. It renders no text.
+public struct DocColumnBreak: Codable, Sendable {
+    public let textStyle: DocTextStyle?
+}
+
+/// A horizontal rule. It renders no text.
+public struct DocHorizontalRule: Codable, Sendable {
+    public let textStyle: DocTextStyle?
+}
+
+/// An equation. graham does not read its content.
+public struct DocEquation: Codable, Sendable {}
+
+/// A reference to a footnote. ``footnoteId`` keys into ``Document/footnotes``;
+/// ``footnoteNumber`` is the number the reader shows.
+public struct DocFootnoteReference: Codable, Sendable {
+    public let footnoteId: String?
+    public let footnoteNumber: String?
+    public let textStyle: DocTextStyle?
+}
+
+/// Auto-generated text, for example a page number. ``type`` names the kind.
+public struct DocAutoText: Codable, Sendable {
+    public let type: String?
+    public let textStyle: DocTextStyle?
+}
+
+/// A person smart chip. ``personProperties`` carries the display name and email.
+public struct DocPerson: Codable, Sendable {
+    public let personId: String?
+    public let personProperties: DocPersonProperties?
+    public let textStyle: DocTextStyle?
+}
+
+/// The display name and email of a ``DocPerson``.
+public struct DocPersonProperties: Codable, Sendable {
+    public let name: String?
+    public let email: String?
+}
+
+/// A rich-link smart chip (a Drive file, a URL, and so on).
+/// ``richLinkProperties`` carries the title and URI a reader shows.
+public struct DocRichLink: Codable, Sendable {
+    public let richLinkId: String?
+    public let richLinkProperties: DocRichLinkProperties?
+    public let textStyle: DocTextStyle?
+}
+
+/// The title, URI, and MIME type of a ``DocRichLink``.
+public struct DocRichLinkProperties: Codable, Sendable {
+    public let title: String?
+    public let uri: String?
+    public let mimeType: String?
+}
+
+/// A date smart chip. ``dateElementProperties`` carries the display text and
+/// the formatting.
+public struct DocDateElement: Codable, Sendable {
+    public let dateId: String?
+    public let dateElementProperties: DocDateElementProperties?
+    public let textStyle: DocTextStyle?
+}
+
+/// The display text and formatting of a ``DocDateElement``.
+public struct DocDateElementProperties: Codable, Sendable {
+    public let displayText: String?
+    public let timestamp: String?
+    public let locale: String?
+    public let timeZoneId: String?
+    public let dateFormat: String?
+    public let timeFormat: String?
+}
+
+// MARK: - Structural element variants
+
+/// A section break. graham reports its presence; a later phase reads its style.
+public struct DocSectionBreak: Codable, Sendable {}
+
+/// A table of contents. Its ``content`` holds the generated entries as more
+/// structural elements.
+public struct DocTableOfContents: Codable, Sendable {
+    public let content: [StructuralElement]?
+}
+
+// MARK: - Objects and segments
+
+/// An inline object, keyed in ``Document/inlineObjects``. Its embedded object
+/// (image) is reached through ``embeddedObject``.
+public struct DocInlineObject: Codable, Sendable {
+    public let objectId: String?
+    public let inlineObjectProperties: DocInlineObjectProperties?
+
+    /// The embedded object (image) this inline object holds.
+    public var embeddedObject: DocEmbeddedObject? {
+        inlineObjectProperties?.embeddedObject
+    }
+}
+
+public struct DocInlineObjectProperties: Codable, Sendable {
+    public let embeddedObject: DocEmbeddedObject?
+}
+
+/// A positioned (floating) object, keyed in ``Document/positionedObjects``.
+/// Its embedded object (image) is reached through ``embeddedObject``.
+public struct DocPositionedObject: Codable, Sendable {
+    public let objectId: String?
+    public let positionedObjectProperties: DocPositionedObjectProperties?
+
+    /// The embedded object (image) this positioned object holds.
+    public var embeddedObject: DocEmbeddedObject? {
+        positionedObjectProperties?.embeddedObject
+    }
+}
+
+public struct DocPositionedObjectProperties: Codable, Sendable {
+    public let embeddedObject: DocEmbeddedObject?
+}
+
+/// An embedded object: an image with its size, alt text, and — for an image —
+/// its source and content URIs. A later `docs images` command reads
+/// ``imageProperties`` and ``size``.
+public struct DocEmbeddedObject: Codable, Sendable {
+    public let title: String?
+    public let description: String?
+    public let imageProperties: DocImageProperties?
+    public let size: DocSize?
+}
+
+/// The image data of an embedded object. ``sourceUri`` is the URI the image was
+/// created from; ``contentUri`` is a short-lived, pre-authorized download URL
+/// (fetched without an OAuth header, like the Slides content URL).
+public struct DocImageProperties: Codable, Sendable {
+    public let sourceUri: String?
+    public let contentUri: String?
+}
+
+/// A list, keyed in ``Document/lists``. Its ``listProperties`` describe each
+/// nesting level's glyph, which a Markdown renderer uses to pick ordered
+/// versus unordered markers.
+public struct DocList: Codable, Sendable {
+    public let listProperties: DocListProperties?
+}
+
+public struct DocListProperties: Codable, Sendable {
+    public let nestingLevels: [DocNestingLevel]?
+}
+
+/// One nesting level of a list. ``glyphType`` (for example `DECIMAL`, `ALPHA`,
+/// `ROMAN`, or an unset value for a bullet) tells a renderer whether the level
+/// is ordered.
+public struct DocNestingLevel: Codable, Sendable {
+    public let glyphType: String?
+    public let glyphFormat: String?
+    public let glyphSymbol: String?
+    public let startNumber: Int?
+    public let textStyle: DocTextStyle?
+}
+
+/// A document header segment.
+public struct DocHeader: Codable, Sendable {
+    public let headerId: String?
+    public let content: [StructuralElement]?
+
+    /// The header text, in reading order.
+    public var plainText: String {
+        (content ?? []).map(\.plainText).joined()
+    }
+}
+
+/// A document footer segment.
+public struct DocFooter: Codable, Sendable {
+    public let footerId: String?
+    public let content: [StructuralElement]?
+
+    /// The footer text, in reading order.
+    public var plainText: String {
+        (content ?? []).map(\.plainText).joined()
+    }
+}
+
+/// A document footnote segment.
+public struct DocFootnote: Codable, Sendable {
+    public let footnoteId: String?
+    public let content: [StructuralElement]?
+
+    /// The footnote text, in reading order.
+    public var plainText: String {
+        (content ?? []).map(\.plainText).joined()
+    }
+}
+
+/// The named ranges that share one name, keyed by that name in
+/// ``Document/namedRanges``.
+public struct DocNamedRanges: Codable, Sendable {
+    public let name: String?
+    public let namedRanges: [DocNamedRange]?
+}
+
+/// One named range: an id, a name, and the ranges it covers.
+public struct DocNamedRange: Codable, Sendable {
+    public let namedRangeId: String?
+    public let name: String?
+    public let ranges: [DocRange]?
+}
+
+/// A range of content in a segment, half-open in UTF-16 code units.
+public struct DocRange: Codable, Sendable {
+    public let startIndex: Int?
+    public let endIndex: Int?
+    /// The segment the range lives in; empty or nil is the document body.
+    public let segmentId: String?
+}
+
+/// The document's named styles.
+public struct DocNamedStyles: Codable, Sendable {
+    public let styles: [DocNamedStyle]?
+}
+
+/// One named style: how a `namedStyleType` such as `HEADING_1` renders.
+public struct DocNamedStyle: Codable, Sendable {
+    public let namedStyleType: String?
+    public let paragraphStyle: DocParagraphStyle?
+    public let textStyle: DocTextStyle?
+}
+
+/// The document-wide style. graham reads the subset a later page-setup command
+/// and reader need; every field is optional and decoded defensively.
+public struct DocDocumentStyle: Codable, Sendable {
+    public let pageSize: DocSize?
+    public let marginTop: DocDimension?
+    public let marginBottom: DocDimension?
+    public let marginLeft: DocDimension?
+    public let marginRight: DocDimension?
+    /// Whether the first page uses its own header and footer.
+    public let useFirstPageHeaderFooter: Bool?
+    /// Whether even pages use their own header and footer.
+    public let useEvenPageHeaderFooter: Bool?
+}
+
+// MARK: - Structured read facade (the flattened block view)
+//
+// The models above mirror the Docs v1 wire schema. The types below are the
+// reader's view: one flat row per structural element that a command renders in
+// any ``OutputFormat``. Like ``Presentation/elementRows`` flattens a slide's
+// element tree (a group before its children), ``Document/blockRows`` flattens
+// the body's block tree (a table before the blocks inside its cells). All the
+// flattening and extraction lives here in GrahamKit, so the CLI stays thin.
+
+/// The kind of a document block.
+public enum DocBlockKind: String, Codable, Sendable, Equatable {
+    /// A plain paragraph.
+    case paragraph
+    /// A paragraph whose named style is `TITLE` or `HEADING_1`..`HEADING_6`.
+    case heading
+    /// A paragraph carrying a bullet (a list item).
+    case listItem
+    /// A table (its cell contents follow as nested rows).
+    case table
+    /// A section break.
+    case sectionBreak
+    /// A table of contents.
+    case tableOfContents
+    /// A block whose kind graham does not model.
+    case unknown
+}
+
+/// One document block, flattened out of the body tree.
+///
+/// A table appears as its own row (``kind`` is ``DocBlockKind/table``) and each
+/// structural element inside its cells appears as its own row too, with
+/// ``depth`` increased — the Docs analog of a Slides group and its children. A
+/// table row carries no text of its own; the cell blocks carry it, so nothing
+/// is double-counted.
+///
+/// The indices are the API's zero-based UTF-16 offsets, reported as-is because
+/// they are exactly the values the range-based write commands consume.
+public struct DocBlockRow: Codable, Sendable, Equatable {
+    /// The block's zero-based start index in UTF-16 code units. Absent only for
+    /// the first body element, whose start the API omits (it is 0).
+    public let startIndex: Int?
+    /// The block's zero-based end index (exclusive) in UTF-16 code units.
+    public let endIndex: Int?
+    /// The block kind.
+    public let kind: DocBlockKind
+    /// The nesting depth: `0` for a body block, `1` for a block inside a table
+    /// cell, and so on for a table nested in a cell.
+    public let depth: Int
+    /// The paragraph's named style, for example `HEADING_2` or `NORMAL_TEXT`;
+    /// `nil` for a non-paragraph block or a paragraph with no named style.
+    public let namedStyleType: String?
+    /// The heading level 1...6 for `HEADING_1`..`HEADING_6`; `nil` otherwise
+    /// (including `TITLE`, whose ``kind`` is still ``DocBlockKind/heading``).
+    public let headingLevel: Int?
+    /// The id of the list a list-item block belongs to; `nil` otherwise.
+    public let listId: String?
+    /// The zero-based nesting level of a list-item block; `nil` otherwise.
+    public let nestingLevel: Int?
+    /// Every object id the block references (anchored positioned objects, then
+    /// embedded inline objects), to correlate with ``Document/inlineObjects``
+    /// and ``Document/positionedObjects``.
+    public let objectIds: [String]
+    /// A short, single-line text preview of the block. Empty for a table (its
+    /// text is on the cell rows), a section break, and a table of contents.
+    public let preview: String
+
+    init(element: StructuralElement, depth: Int) {
+        startIndex = element.startIndex
+        endIndex = element.endIndex
+        self.depth = depth
+
+        var kind: DocBlockKind = .unknown
+        var namedStyleType: String?
+        var headingLevel: Int?
+        var listId: String?
+        var nestingLevel: Int?
+        var objectIds: [String] = []
+        var preview = ""
+
+        if let paragraph = element.paragraph {
+            namedStyleType = paragraph.paragraphStyle?.namedStyleType
+            listId = paragraph.bullet?.listId
+            nestingLevel = paragraph.bullet?.nestingLevel
+            headingLevel = Self.headingLevel(forNamedStyleType: namedStyleType)
+            objectIds = paragraph.referencedObjectIds
+            preview = Self.oneLine(
+                paragraph.text.trimmingCharacters(in: .whitespacesAndNewlines))
+            // A bullet makes the block a list item even when it also carries a
+            // heading style; the style is still reported in `namedStyleType`.
+            if paragraph.bullet != nil {
+                kind = .listItem
+            } else if Self.isHeading(namedStyleType) {
+                kind = .heading
+            } else {
+                kind = .paragraph
+            }
+        } else if element.table != nil {
+            kind = .table
+        } else if element.sectionBreak != nil {
+            kind = .sectionBreak
+        } else if element.tableOfContents != nil {
+            kind = .tableOfContents
+        }
+
+        self.kind = kind
+        self.namedStyleType = namedStyleType
+        self.headingLevel = headingLevel
+        self.listId = listId
+        self.nestingLevel = nestingLevel
+        self.objectIds = objectIds
+        self.preview = preview
+    }
+
+    /// The heading level 1...6 for a `HEADING_n` named style, or `nil` for any
+    /// other style (including `TITLE`).
+    static func headingLevel(forNamedStyleType named: String?) -> Int? {
+        guard let named, named.hasPrefix("HEADING_") else { return nil }
+        return Int(named.dropFirst("HEADING_".count))
+    }
+
+    /// Whether a named style is a heading: `TITLE` or `HEADING_1`..`HEADING_6`.
+    /// These are the styles the Markdown renderer maps to `#`..`######`.
+    static func isHeading(_ named: String?) -> Bool {
+        guard let named else { return false }
+        return named == "TITLE" || headingLevel(forNamedStyleType: named) != nil
+    }
+
+    /// Collapses text to a single trimmed line for a table cell, so a tab or a
+    /// newline never breaks the row layout. Mirrors the Slides reader's helper.
+    static func oneLine(_ text: String, limit: Int = 60) -> String {
+        let flat = text
+            .replacingOccurrences(of: "\n", with: " / ")
+            .replacingOccurrences(of: "\t", with: " ")
+        if flat.count <= limit { return flat }
+        return String(flat.prefix(limit - 1)) + "\u{2026}"
+    }
+}
+
+extension Document {
+    /// Every block in the document body, flattened depth-first.
+    ///
+    /// The order is body order; a table is followed immediately by the blocks
+    /// inside its cells (row by row, cell by cell), and those recurse for a
+    /// table nested in a cell. This order is deterministic, so the output is
+    /// stable. Headers, footers, and footnotes are separate segments and are
+    /// not included; ``plainText`` and the write commands are body-scoped too.
+    public var blockRows: [DocBlockRow] {
+        var rows: [DocBlockRow] = []
+        for element in body?.content ?? [] {
+            Self.flatten(element, depth: 0, into: &rows)
+        }
+        return rows
+    }
+
+    private static func flatten(
+        _ element: StructuralElement,
+        depth: Int,
+        into rows: inout [DocBlockRow]
+    ) {
+        rows.append(DocBlockRow(element: element, depth: depth))
+        // Recurse into a table's cells, the way `elementRows` recurses into a
+        // group's children: each cell's content blocks are listed at depth + 1.
+        for row in element.table?.tableRows ?? [] {
+            for cell in row.tableCells ?? [] {
+                for child in cell.content ?? [] {
+                    flatten(child, depth: depth + 1, into: &rows)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Block row rendering
+
+extension DocBlockRow: GrahamRow {
+    public static var tableColumns: [String] {
+        ["RANGE", "KIND", "STYLE", "LIST", "NEST", "OBJECTS", "TEXT"]
+    }
+
+    public var tableValues: [String] {
+        [
+            rangeText,
+            // Indent by nesting depth so a table cell's blocks read as nested.
+            String(repeating: "  ", count: depth) + kind.rawValue,
+            namedStyleType ?? "",
+            listId ?? "",
+            nestingLevel.map(String.init) ?? "",
+            objectIds.joined(separator: ","),
+            preview,
+        ]
+    }
+
+    /// `--format id` prints the block's start index, one per line — the
+    /// zero-based UTF-16 offset a range-based write consumes.
+    public var idValue: String { String(startIndex ?? 0) }
+
+    /// The index range as `start-end`. An absent start reads as 0 (only the
+    /// first body block, whose start the API omits).
+    var rangeText: String {
+        let start = startIndex ?? 0
+        let end = endIndex.map(String.init) ?? ""
+        return "\(start)-\(end)"
+    }
 }
