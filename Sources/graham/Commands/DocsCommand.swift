@@ -5,7 +5,7 @@ import GrahamKit
 struct Docs: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Work with Google Docs documents.",
-        subcommands: [Create.self, Cat.self, Structure.self, Insert.self, Delete.self, Replace.self]
+        subcommands: [Create.self, Cat.self, Structure.self, Insert.self, Delete.self, Replace.self, Images.self]
     )
 
     struct Create: AsyncParsableCommand {
@@ -200,6 +200,80 @@ struct Docs: AsyncParsableCommand {
                 requiredRevisionId: requireRevision
             )
             print(count)
+        }
+    }
+
+    struct Images: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "List every image in a document, or download them.",
+            discussion: """
+                Lists each inline and positioned image with its origin, object \
+                id, size, source URI, and content URI. With --download DIR, \
+                every image's content URI is fetched into DIR under a safe, \
+                deterministic name; the directory is created if needed and a \
+                report of what was written is printed. A content URI is \
+                short-lived and pre-authorized, so it is fetched with a plain \
+                GET and no OAuth header.
+                """
+        )
+
+        @Argument(help: "The document ID.")
+        var documentID: String
+
+        @Option(
+            name: [.customShort("d"), .long],
+            help: "Download every image into this directory instead of listing."
+        )
+        var download: String?
+
+        @Option(help: "The output format for listing: table, json, jsonl, or id.")
+        var format: OutputFormat = .table
+
+        func run() async throws {
+            let client = DocsClient(api: try CLI.makeAPI())
+            let document = try await client.document(id: documentID)
+            let images = document.imageRows
+
+            guard let download else {
+                print(try OutputFormatter.render(images, format: format))
+                return
+            }
+
+            let directory = URL(fileURLWithPath: download, isDirectory: true)
+            let results = try await client.downloadImages(images, to: directory)
+            let failures = report(results, directory: directory)
+            // A partial run exits non-zero so a script can notice it.
+            if failures > 0 {
+                throw ExitCode.failure
+            }
+        }
+
+        /// Prints one line per image and a summary, and returns how many
+        /// downloads failed.
+        private func report(_ results: [DocImageDownloadResult], directory: URL) -> Int {
+            var downloaded = 0
+            var failed = 0
+            var totalBytes = 0
+            for result in results {
+                let object = result.objectId ?? "(no id)"
+                let origin = result.origin.rawValue
+                switch result.outcome {
+                case let .downloaded(filename, byteCount):
+                    downloaded += 1
+                    totalBytes += byteCount
+                    print("\(origin)  \(object)  downloaded  \(filename)  \(byteCount) bytes")
+                case let .failed(reason):
+                    failed += 1
+                    print("\(origin)  \(object)  failed  \(reason)")
+                case let .skipped(reason):
+                    print("\(origin)  \(object)  skipped  \(reason)")
+                }
+            }
+            print(
+                "Downloaded \(downloaded) of \(results.count) image(s), "
+                + "\(totalBytes) bytes, into \(directory.path)"
+            )
+            return failed
         }
     }
 }
