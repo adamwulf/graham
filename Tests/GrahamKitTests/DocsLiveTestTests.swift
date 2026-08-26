@@ -67,8 +67,6 @@ final class DocsLiveTestTests: XCTestCase {
         XCTAssertEqual(
             summary.steps.first(where: { $0.name == "create-doc" })?.createdIDs, ["doc-1"])
         XCTAssertEqual(
-            summary.steps.first(where: { $0.name == "docs-create" })?.createdIDs, ["created-doc-1"])
-        XCTAssertEqual(
             summary.steps.first(where: { $0.name == "image-insert" })?.createdIDs, ["img-1"])
         XCTAssertEqual(
             summary.steps.first(where: { $0.name == "header-create" })?.createdIDs, ["header-1"])
@@ -91,13 +89,10 @@ final class DocsLiveTestTests: XCTestCase {
             let body = fixture.bodyString($0)
             return body.contains(#""writeControl""#) && body.contains(#""requiredRevisionId""#)
         })
-        // The throwaway documents.create document is created directly, and both
-        // it and the folder-parented document are trashed in cleanup.
-        XCTAssertEqual(fixture.documentsCreateRequests.count, 1)
-        XCTAssertEqual(fixture.trashRequests.count, 2)
+        // The folder-parented document is trashed in cleanup.
+        XCTAssertEqual(fixture.trashRequests.count, 1)
         let trashed = Set(fixture.trashRequests.map { $0.url.path })
         XCTAssertTrue(trashed.contains { $0.hasSuffix("/doc-1") })
-        XCTAssertTrue(trashed.contains { $0.hasSuffix("/created-doc-1") })
     }
 
     func testSeedInsertFailureSkipsTextDependentsButContinuesAndCleansUp() async {
@@ -131,8 +126,8 @@ final class DocsLiveTestTests: XCTestCase {
         // The table chain, headers/footers, and cleanup are unaffected.
         XCTAssertEqual(summary.steps.first(where: { $0.name == "table-insert" })?.outcome, .pass)
         XCTAssertEqual(summary.steps.first(where: { $0.name == "write-control" })?.outcome, .pass)
-        // Both the folder-parented and the throwaway documents are still trashed.
-        XCTAssertEqual(fixture.trashRequests.count, 2)
+        // The folder-parented document is still trashed.
+        XCTAssertEqual(fixture.trashRequests.count, 1)
     }
 
     func testTableInsertFailureSkipsTableDependentsButContinuesUnrelatedSteps() async {
@@ -167,7 +162,7 @@ final class DocsLiveTestTests: XCTestCase {
         XCTAssertEqual(summary.steps.first(where: { $0.name == "heading" })?.outcome, .pass)
         XCTAssertEqual(summary.steps.first(where: { $0.name == "image-insert" })?.outcome, .pass)
         XCTAssertEqual(summary.steps.first(where: { $0.name == "page-setup" })?.outcome, .pass)
-        XCTAssertEqual(fixture.trashRequests.count, 2)
+        XCTAssertEqual(fixture.trashRequests.count, 1)
     }
 
     func testKeepSkipsCleanupWithoutSendingTrashRequests() async {
@@ -175,13 +170,10 @@ final class DocsLiveTestTests: XCTestCase {
         let summary = await fixture.makeRunner(keep: true).run()
 
         XCTAssertEqual(summary.failed, 0)
-        // positioned-delete (always) plus both kept cleanup steps.
-        XCTAssertEqual(summary.skipped, 3)
+        // positioned-delete (always) plus the one kept cleanup step.
+        XCTAssertEqual(summary.skipped, 2)
         XCTAssertEqual(summary.steps.last?.name, "trash-doc")
         XCTAssertEqual(summary.steps.last?.outcome, .skip(reason: "kept"))
-        XCTAssertEqual(
-            summary.steps.first(where: { $0.name == "trash-created-doc" })?.outcome,
-            .skip(reason: "kept"))
         XCTAssertTrue(fixture.trashRequests.isEmpty)
     }
 
@@ -227,7 +219,6 @@ final class DocsLiveTestTests: XCTestCase {
     private static let expectedStepNames = [
         "folder", "create-doc",
         "doc-fetch", "structure-read", "plaintext-read", "markdown-read", "images-read",
-        "docs-create",
         "text-insert", "text-append-end", "text-replace", "text-delete",
         "text-style", "text-link", "paragraph-style", "heading",
         "bullets-create", "bullets-delete",
@@ -239,7 +230,7 @@ final class DocsLiveTestTests: XCTestCase {
         "header-delete", "footer-delete",
         "range-create", "range-list", "range-fill", "range-delete",
         "page-setup", "page-mode-pageless", "write-control",
-        "trash-created-doc", "trash-doc",
+        "trash-doc",
     ]
 }
 
@@ -369,8 +360,6 @@ private final class DocsLiveFixture: @unchecked Sendable {
     private var useFirstPageHeaderFooter: Bool?
     private var useEvenPageHeaderFooter: Bool?
     private var documentMode: String?
-    // The title of the throwaway document created through DocsClient.create.
-    private var createdDocTitle: String?
 
     private var headerCounter = 0
     private var footerCounter = 0
@@ -417,12 +406,6 @@ private final class DocsLiveFixture: @unchecked Sendable {
 
     var batchRequests: [HTTPRequest] {
         transport.requests.filter { $0.url.path.hasSuffix(":batchUpdate") }
-    }
-
-    var documentsCreateRequests: [HTTPRequest] {
-        transport.requests.filter {
-            $0.method == "POST" && $0.url.path == "/v1/documents"
-        }
     }
 
     func makeRunner(
@@ -483,24 +466,6 @@ private final class DocsLiveFixture: @unchecked Sendable {
         if path.hasPrefix("/drive/v3/files/"), request.method == "PATCH" {
             let id = path.split(separator: "/").last.map(String.init) ?? "file"
             return driveFile(id: id, name: id, mime: nil)
-        }
-        // documents.create — the DocsClient.create path (FIX 2): a second,
-        // throwaway document created directly, not through Drive.
-        if path == "/v1/documents", request.method == "POST" {
-            let title = request.body
-                .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-                .flatMap { $0["title"] as? String } ?? ""
-            createdDocTitle = title
-            return json([
-                "documentId": "created-doc-1", "title": title,
-                "revisionId": "rev-created", "body": ["content": []],
-            ])
-        }
-        if path == "/v1/documents/created-doc-1", request.method == "GET" {
-            return json([
-                "documentId": "created-doc-1", "title": createdDocTitle ?? "",
-                "revisionId": "rev-created", "body": ["content": []],
-            ])
         }
         if path == "/v1/documents/doc-1", request.method == "GET" {
             return json(documentJSON())
