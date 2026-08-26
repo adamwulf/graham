@@ -146,6 +146,12 @@ graham docs style <document-id> --from 1 --to 6 --bold --color "#1155CC" --link 
 graham docs paragraph <document-id> --from 1 --to 20 --style heading-1 --align center
 # Shortcut for just the named style: a level 1-6, or title, subtitle, or normal.
 graham docs heading <document-id> 2 --from 1 --to 20
+# Turn the paragraphs a range touches into a bulleted or numbered list. --preset
+# names the glyphs or numbering (disc-circle-square, checkbox, decimal-alpha-roman,
+# ...; run `docs bullets --help` for the full list). Nesting comes from leading tabs.
+graham docs bullets <document-id> --from 1 --to 20 --preset disc-circle-square
+# Remove the bullets from the paragraphs a range touches (nesting is kept as indents).
+graham docs unbullet <document-id> --from 1 --to 20
 # Any write can require the document be at a known revision (optimistic concurrency);
 # the write fails instead of overwriting a concurrent edit.
 graham docs insert <document-id> --text "Hello" --at 1 --require-revision <revision-id>
