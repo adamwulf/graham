@@ -557,7 +557,12 @@ public struct DocsLiveTest: Sendable {
             }
         }
 
-        // Document-wide style.
+        // Document-wide style. This masks every writable DocumentStyle field in
+        // one call: page size, margins, the header/footer flags, background, the
+        // document mode (the mode-mask path is exercised whichever value is set;
+        // `.pages` is kept because it is unambiguously valid alongside an
+        // explicit page size), the starting page number, custom header/footer
+        // margins, and the orientation flip.
         _ = await actionStep("page-setup", recorder: recorder) {
             _ = try await docs.updateDocumentStyle(
                 documentId: documentID,
