@@ -1448,28 +1448,6 @@ public struct DocsClient: Sendable {
             requiredRevisionId: requiredRevisionId)
     }
 
-    /// Deletes a positioned object by its object id.
-    ///
-    /// Positioned objects cannot be created through the Docs API, only deleted;
-    /// the id comes from a document read (`docs images` lists positioned images).
-    ///
-    /// - Parameter objectId: the id of the positioned object to delete; must not
-    ///   be empty.
-    public func deletePositionedObject(
-        documentId: String,
-        objectId: String,
-        requiredRevisionId: String? = nil
-    ) async throws -> DocsBatchUpdateResponse {
-        guard !objectId.isEmpty else {
-            throw GrahamError.invalidArgument("the object id must not be empty")
-        }
-        let request = DocsBatchUpdateRequest.deletePositionedObject(
-            DocsDeletePositionedObjectRequest(objectId: objectId))
-        return try await batchUpdate(
-            documentId: documentId, requests: [request],
-            requiredRevisionId: requiredRevisionId)
-    }
-
     /// Inserts a section break (with a preceding newline) in the document body.
     ///
     /// The destination is exactly one of an explicit body `index` (a

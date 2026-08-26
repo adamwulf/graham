@@ -2,8 +2,8 @@ import XCTest
 @testable import GrahamKit
 
 /// Offline coverage for the Docs v1 `documents.batchUpdate` structure and image
-/// operations: `insertPageBreak`, `insertInlineImage`, `replaceImage`,
-/// `deletePositionedObject`, and `insertSectionBreak`. Every fixture is static
+/// operations: `insertPageBreak`, `insertInlineImage`, `replaceImage`, and
+/// `insertSectionBreak`. Every fixture is static
 /// JSON; no test touches the network, and the request bodies are asserted
 /// exactly (the shared encoder sorts keys, so the strings are deterministic).
 /// Mirrors `DocsWriteTests` and `DocsTableWriteTests`.
@@ -416,84 +416,6 @@ final class DocsStructureWriteTests: XCTestCase {
         }
     }
 
-    // MARK: - deletePositionedObject
-
-    func testDeletePositionedObjectPostsExactBodyAndDecodesReply() async throws {
-        let transport = StubTransport()
-        let client = makeClient(transport: transport)
-        transport.stub(
-            urlContains: ":batchUpdate",
-            json: #"{"documentId":"doc-1","replies":[{}]}"#
-        )
-
-        let response = try await client.deletePositionedObject(
-            documentId: "doc-1", objectId: "obj-1")
-
-        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
-        XCTAssertEqual(request.method, "POST")
-        XCTAssertEqual(
-            request.url.absoluteString,
-            "https://docs.googleapis.com/v1/documents/doc-1:batchUpdate"
-        )
-        XCTAssertEqual(
-            Self.bodyString(request),
-            #"{"requests":[{"deletePositionedObject":{"objectId":"obj-1"}}]}"#
-        )
-        XCTAssertEqual(response.documentId, "doc-1")
-        XCTAssertEqual(response.replies?.count, 1)
-    }
-
-    func testDeletePositionedObjectDecodesEmptyReply() async throws {
-        let transport = StubTransport()
-        let client = makeClient(transport: transport)
-        transport.stub(urlContains: ":batchUpdate", json: "{}")
-
-        let response = try await client.deletePositionedObject(
-            documentId: "doc-1", objectId: "obj-1")
-
-        XCTAssertNil(response.documentId)
-        XCTAssertNil(response.replies)
-    }
-
-    func testDeletePositionedObjectWithRequiredRevisionCarriesWriteControl() async throws {
-        let transport = StubTransport()
-        let client = makeClient(transport: transport)
-        transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
-
-        _ = try await client.deletePositionedObject(
-            documentId: "doc-1", objectId: "obj-1", requiredRevisionId: "rev-4")
-
-        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
-        XCTAssertEqual(
-            Self.bodyString(request),
-            #"{"requests":[{"deletePositionedObject":{"objectId":"obj-1"}}],"writeControl":{"requiredRevisionId":"rev-4"}}"#
-        )
-    }
-
-    func testDeletePositionedObjectRejectsEmptyIdWithoutSendingARequest() async {
-        let transport = StubTransport()
-        let client = makeClient(transport: transport)
-
-        await assertInvalidArgument {
-            _ = try await client.deletePositionedObject(documentId: "doc-1", objectId: "")
-        }
-        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
-    }
-
-    func testDeletePositionedObjectPropagatesGoogleErrorEnvelope() async {
-        let transport = StubTransport()
-        let client = makeClient(transport: transport)
-        transport.stub(
-            urlContains: ":batchUpdate",
-            json: #"{"error":{"code":403,"message":"No access","status":"PERMISSION_DENIED"}}"#,
-            status: 403
-        )
-
-        await assertGoogleError(code: 403, status: "PERMISSION_DENIED", message: "No access") {
-            _ = try await client.deletePositionedObject(documentId: "doc-1", objectId: "obj-1")
-        }
-    }
-
     // MARK: - insertSectionBreak
 
     func testInsertSectionBreakContinuousPostsExactBodyAndDecodesReply() async throws {
@@ -669,7 +591,7 @@ final class DocsStructureWriteTests: XCTestCase {
     }
 
     /// The union encodes each new case under its own JSON key, so a caller can
-    /// mix these operations in one batch. This locks the five discriminators.
+    /// mix these operations in one batch. This locks the four discriminators.
     func testEveryStructureRequestTypeEncodesUnderItsOwnKey() throws {
         let cases: [(DocsBatchUpdateRequest, String)] = [
             (
@@ -685,10 +607,6 @@ final class DocsStructureWriteTests: XCTestCase {
                 .replaceImage(DocsReplaceImageRequest(
                     imageObjectId: "img-1", uri: "u", imageReplaceMethod: .centerCrop)),
                 #"{"replaceImage":{"imageObjectId":"img-1","imageReplaceMethod":"CENTER_CROP","uri":"u"}}"#
-            ),
-            (
-                .deletePositionedObject(DocsDeletePositionedObjectRequest(objectId: "obj-1")),
-                #"{"deletePositionedObject":{"objectId":"obj-1"}}"#
             ),
             (
                 .insertSectionBreak(DocsInsertSectionBreakRequest(
