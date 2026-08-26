@@ -146,14 +146,17 @@ graham docs replace <document-id> --find "old" --replace "new" --match-case
 graham docs insert <document-id> --text "Hello" --segment <segment-id> --at 0
 graham docs insert <document-id> --text "Hello" --end
 graham docs delete <document-id> --from 0 --to 6 --segment <segment-id>
-# Style a range of text: --bold/--italic/--underline/--strike are toggles (use the
-# --no- form to turn one off), colors are hex like #FF0000, --size is in points,
-# --baseline is super/sub/none, and --link sets a URL. At least one flag is required.
-graham docs style <document-id> --from 1 --to 6 --bold --color "#1155CC" --link "https://example.com"
+# Style a range of text: --bold/--italic/--underline/--strike/--small-caps are
+# toggles (use the --no- form to turn one off), colors are hex like #FF0000, --size
+# is in points, --baseline is super/sub/none, and --link sets a URL. At least one
+# flag is required.
+graham docs style <document-id> --from 1 --to 6 --bold --small-caps --color "#1155CC"
 # Style whole paragraphs a range touches: --style is a named style (normal-text,
 # title, subtitle, heading-1..heading-6), --align is start/center/end/justified,
 # --direction is ltr/rtl, --line-spacing is a percent (100 = single), and spacing
-# and indents are in points. At least one flag is required.
+# and indents are in points. --keep-lines-together/--keep-with-next/--avoid-widows/
+# --page-break-before are pagination toggles, --shading is a hex background color,
+# and --spacing-mode is never-collapse/collapse-lists. At least one flag is required.
 graham docs paragraph <document-id> --from 1 --to 20 --style heading-1 --align center
 # Shortcut for just the named style: a level 1-6, or title, subtitle, or normal.
 graham docs heading <document-id> 2 --from 1 --to 20
@@ -239,11 +242,14 @@ graham docs range fill <document-id> --id <named-range-id> --text "Hello, world"
 graham docs range fill <document-id> --name greeting --text "Hi"
 # Set document-wide page style. --page-width/--page-height are a pair (both or
 # neither, in points); margins are in points; --background is a hex color;
-# --mode is pages or pageless.
+# --mode is pages or pageless. --page-number-start sets the first page number;
+# --margin-header/--margin-footer set the header/footer margins (each turns on
+# custom header/footer margins); --flip-orientation swaps width and height.
 graham docs page-setup <document-id> --page-width 612 --page-height 792
 graham docs page-setup <document-id> --margin-top 72 --margin-bottom 72 --margin-left 90 --margin-right 90
 graham docs page-setup <document-id> --first-page-header-footer --background "#FFFFFF"
-graham docs page-setup <document-id> --mode pageless
+graham docs page-setup <document-id> --margin-header 24 --margin-footer 24 --page-number-start 1
+graham docs page-setup <document-id> --mode pageless --flip-orientation
 
 graham slides cat <presentation-id>
 # List every element; JSON includes raw geometry, links, alt text, and image URLs.
