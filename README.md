@@ -20,9 +20,11 @@ Named after Graham's number — a contrast to the googol that named Google.
   bulleted and numbered lists, edit table structure (insert and delete rows
   and columns, merge and unmerge cells, and pin header rows), style tables
   (cell background, borders, padding, and alignment; row height, header, and
-  overflow; and column width), and edit structure and images (insert page and
+  overflow; and column width), edit structure and images (insert page and
   section breaks, insert an inline image from a URI, replace an image, and
-  delete a positioned object).
+  delete a positioned object), and manage headers, footers, and footnotes
+  (create and delete headers and footers, and create a footnote with optional
+  text).
 - **Slides** — read presentation text; list every page element with its type,
   geometry, text, links, and alt text; list or download every image, including
   images nested in groups; add, move, and delete slides through the shared
@@ -207,6 +209,18 @@ graham docs object delete <document-id> <object-id>
 # Insert a continuous or next-page section break (body only) at an index or the end.
 graham docs section-break <document-id> --type continuous --at 3
 graham docs section-break <document-id> --type next-page --end
+# Create a header or footer (DEFAULT type) and print its new segment id; pass the
+# id to `docs insert --segment <id>` to fill it. --at scopes it to a section.
+graham docs header create <document-id>
+graham docs footer create <document-id> --at 3
+# Delete a header or footer by its segment id.
+graham docs header delete <document-id> <header-id>
+graham docs footer delete <document-id> <footer-id>
+# Create a footnote (its reference goes in the body) and print the new footnote
+# segment id. With --text, the text is inserted into the footnote segment (a second
+# write, since the id is only known after the reference is created).
+graham docs footnote <document-id> --at 5
+graham docs footnote <document-id> --end --text "See the appendix."
 
 graham slides cat <presentation-id>
 # List every element; JSON includes raw geometry, links, alt text, and image URLs.
