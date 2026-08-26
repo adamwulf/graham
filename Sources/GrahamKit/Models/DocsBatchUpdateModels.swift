@@ -59,14 +59,19 @@ struct DocsBatchUpdateRequestBody: Encodable, Sendable {
 /// unlike the one-based slide, table, and link positions elsewhere in graham,
 /// Docs text indices stay zero-based to match the API. `segmentId` names a
 /// header, footer, or footnote segment; when omitted, the index refers to the
-/// document body.
+/// document body. `tabId` names the tab the location lives in; when omitted,
+/// the location refers to the singular tab of a document with no explicit tabs.
+/// Both optionals encode only when set, so the common body location stays
+/// `{"index": ...}`.
 public struct DocsLocation: Codable, Sendable, Equatable {
     public let index: Int
     public let segmentId: String?
+    public let tabId: String?
 
-    public init(index: Int, segmentId: String? = nil) {
+    public init(index: Int, segmentId: String? = nil, tabId: String? = nil) {
         self.index = index
         self.segmentId = segmentId
+        self.tabId = tabId
     }
 }
 
@@ -74,16 +79,71 @@ public struct DocsLocation: Codable, Sendable, Equatable {
 /// code units.
 ///
 /// `segmentId` names a header, footer, or footnote segment; when omitted, the
-/// range refers to the document body.
+/// range refers to the document body. `tabId` names the tab the range lives in;
+/// when omitted, the range refers to the singular tab of a document with no
+/// explicit tabs. Both optionals encode only when set, so the common body range
+/// stays `{"endIndex": ..., "startIndex": ...}`.
 public struct DocsRange: Codable, Sendable, Equatable {
     public let startIndex: Int
     public let endIndex: Int
     public let segmentId: String?
+    public let tabId: String?
 
-    public init(startIndex: Int, endIndex: Int, segmentId: String? = nil) {
+    public init(startIndex: Int, endIndex: Int, segmentId: String? = nil, tabId: String? = nil) {
         self.startIndex = startIndex
         self.endIndex = endIndex
         self.segmentId = segmentId
+        self.tabId = tabId
+    }
+}
+
+/// The end of a document segment, as a target for appending content without
+/// computing an index. `segmentId` names a header, footer, or footnote segment;
+/// when omitted, the target is the end of the document body. The Docs API's
+/// `EndOfSegmentLocation`; an `insertText` uses either this or a
+/// ``DocsLocation``, never both.
+public struct DocsEndOfSegmentLocation: Codable, Sendable, Equatable {
+    public let segmentId: String?
+
+    public init(segmentId: String? = nil) {
+        self.segmentId = segmentId
+    }
+}
+
+/// The location of a single cell in a table, addressed by the table's start
+/// location and the cell's row and column.
+///
+/// `rowIndex` and `columnIndex` are **zero-based**, matching the API. The CLI
+/// shows and accepts one-based row and column numbers; ``GrahamKit`` translates
+/// at the client boundary. `tableStartLocation` is the ``DocsLocation`` of the
+/// table's start index (the value `docs structure` prints).
+public struct DocsTableCellLocation: Codable, Sendable, Equatable {
+    public let tableStartLocation: DocsLocation
+    public let rowIndex: Int
+    public let columnIndex: Int
+
+    public init(tableStartLocation: DocsLocation, rowIndex: Int, columnIndex: Int) {
+        self.tableStartLocation = tableStartLocation
+        self.rowIndex = rowIndex
+        self.columnIndex = columnIndex
+    }
+}
+
+/// A rectangular span of table cells, anchored at a ``DocsTableCellLocation``
+/// and extending over `rowSpan` rows and `columnSpan` columns.
+///
+/// Both spans are counts of cells (one-based counts, not indices); the API
+/// requires them. Table operations such as merge, unmerge, and cell styling
+/// address a `DocsTableRange`.
+public struct DocsTableRange: Codable, Sendable, Equatable {
+    public let tableCellLocation: DocsTableCellLocation
+    public let rowSpan: Int
+    public let columnSpan: Int
+
+    public init(tableCellLocation: DocsTableCellLocation, rowSpan: Int, columnSpan: Int) {
+        self.tableCellLocation = tableCellLocation
+        self.rowSpan = rowSpan
+        self.columnSpan = columnSpan
     }
 }
 
