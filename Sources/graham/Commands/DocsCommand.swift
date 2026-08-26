@@ -47,10 +47,13 @@ struct Docs: AsyncParsableCommand {
 
     struct Insert: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Insert text at a document index.",
+            abstract: "Insert text at a document index, or at the end of a segment.",
             discussion: """
                 The index is zero-based, in UTF-16 code units, exactly as the
-                Docs API defines it. Index 1 is the start of the body text.
+                Docs API defines it. Index 1 is the start of the body text. In a
+                named segment (--segment) the content starts at index 0. Pass
+                --end to append to the end of the body or segment without an
+                index; --at is not needed then.
                 """
         )
 
@@ -60,18 +63,38 @@ struct Docs: AsyncParsableCommand {
         @Option(help: "The text to insert.")
         var text: String
 
-        @Option(help: "The zero-based UTF-16 index to insert at (minimum 1; the body starts at 1).")
-        var at: Int
+        @Option(help: "The zero-based UTF-16 index to insert at (body minimum 1; segment minimum 0). Not needed with --end.")
+        var at: Int?
+
+        @Option(help: "A header, footer, or footnote segment id to insert into. Omit for the body.")
+        var segment: String?
+
+        @Flag(help: "Append to the end of the body or segment; --at is ignored.")
+        var end = false
 
         @Option(help: "Require the document be at this revision id; the write fails otherwise.")
         var requireRevision: String?
 
+        func validate() throws {
+            guard end || at != nil else {
+                throw ValidationError(
+                    "Provide --at <index>, or pass --end to append to the end of the segment.")
+            }
+        }
+
         func run() async throws {
             let client = DocsClient(api: try CLI.makeAPI())
             _ = try await client.insertText(
-                documentId: documentID, text: text, index: at,
+                documentId: documentID, text: text, index: at ?? 0,
+                segmentId: segment, endOfSegment: end,
                 requiredRevisionId: requireRevision)
-            print("Inserted \(text.utf16.count) UTF-16 code units at index \(at).")
+            let count = text.utf16.count
+            if end {
+                let destination = segment.map { "the end of segment \($0)" } ?? "the end of the body"
+                print("Inserted \(count) UTF-16 code units at \(destination).")
+            } else {
+                print("Inserted \(count) UTF-16 code units at index \(at ?? 0).")
+            }
         }
     }
 
@@ -81,18 +104,22 @@ struct Docs: AsyncParsableCommand {
             discussion: """
                 Both indices are zero-based, in UTF-16 code units. The range is
                 half-open: content from --from up to but not including --to is
-                deleted.
+                deleted. In a named segment (--segment) the content starts at
+                index 0; the body starts at 1.
                 """
         )
 
         @Argument(help: "The document ID.")
         var documentID: String
 
-        @Option(help: "The zero-based UTF-16 start index (inclusive; minimum 1; the body starts at 1).")
+        @Option(help: "The zero-based UTF-16 start index (inclusive; body minimum 1; segment minimum 0).")
         var from: Int
 
         @Option(help: "The zero-based UTF-16 end index (exclusive).")
         var to: Int
+
+        @Option(help: "A header, footer, or footnote segment id to delete from. Omit for the body.")
+        var segment: String?
 
         @Option(help: "Require the document be at this revision id; the write fails otherwise.")
         var requireRevision: String?
@@ -103,6 +130,7 @@ struct Docs: AsyncParsableCommand {
                 documentId: documentID,
                 startIndex: from,
                 endIndex: to,
+                segmentId: segment,
                 requiredRevisionId: requireRevision
             )
             print("Deleted content in [\(from), \(to)).")

@@ -73,23 +73,55 @@ public struct DocsClient: Sendable {
     /// API index model is kept for Docs text operations; graham does not
     /// translate it to a one-based position the way it does for slides and
     /// tables.
+    /// - Parameters:
+    ///   - segmentId: names a header, footer, or footnote segment to insert
+    ///     into; when nil, the insert targets the document body. A named segment
+    ///     starts its content at index 0, so the body-only `index >= 1` guard
+    ///     does not apply to it.
+    ///   - endOfSegment: append to the end of the segment (or the body, when
+    ///     `segmentId` is nil) without computing an index. `index` is ignored in
+    ///     this mode, and no index guard applies. This encodes an
+    ///     ``DocsEndOfSegmentLocation`` instead of a ``DocsLocation``.
     public func insertText(
         documentId: String,
         text: String,
         index: Int,
+        segmentId: String? = nil,
+        endOfSegment: Bool = false,
         requiredRevisionId: String? = nil
     ) async throws -> DocsBatchUpdateResponse {
         guard !text.isEmpty else {
             throw GrahamError.invalidArgument("text must not be empty")
         }
-        guard index >= 1 else {
-            throw GrahamError.invalidArgument(
-                "index must be 1 or greater; the document body starts at index 1")
+        let insert: DocsInsertTextRequest
+        if endOfSegment {
+            // Appending needs no index; the destination is the end of the
+            // segment (or the body when segmentId is nil).
+            insert = DocsInsertTextRequest(
+                text: text,
+                endOfSegmentLocation: DocsEndOfSegmentLocation(segmentId: segmentId)
+            )
+        } else {
+            // The body-only guard rejects index 0, which lands inside the
+            // initial section break the body cannot edit. A named segment
+            // starts its content at index 0, so it only needs index >= 0.
+            if segmentId == nil {
+                guard index >= 1 else {
+                    throw GrahamError.invalidArgument(
+                        "index must be 1 or greater; the document body starts at index 1")
+                }
+            } else {
+                guard index >= 0 else {
+                    throw GrahamError.invalidArgument(
+                        "index must be 0 or greater in a segment")
+                }
+            }
+            insert = DocsInsertTextRequest(
+                text: text,
+                location: DocsLocation(index: index, segmentId: segmentId)
+            )
         }
-        let request = DocsBatchUpdateRequest.insertText(DocsInsertTextRequest(
-            text: text,
-            location: DocsLocation(index: index)
-        ))
+        let request = DocsBatchUpdateRequest.insertText(insert)
         return try await batchUpdate(
             documentId: documentId, requests: [request],
             requiredRevisionId: requiredRevisionId)
@@ -99,22 +131,31 @@ public struct DocsClient: Sendable {
     ///
     /// Both indices are zero-based offsets in UTF-16 code units into the
     /// document (see ``DocsRange``).
+    /// - Parameter segmentId: names a header, footer, or footnote segment whose
+    ///   content is deleted; when nil, the range refers to the document body. A
+    ///   named segment starts its content at index 0, so its minimum
+    ///   `startIndex` is 0; the body's minimum stays 1.
     public func deleteContentRange(
         documentId: String,
         startIndex: Int,
         endIndex: Int,
+        segmentId: String? = nil,
         requiredRevisionId: String? = nil
     ) async throws -> DocsBatchUpdateResponse {
-        guard startIndex >= 1 else {
+        // The body's first editable index is 1; a named segment starts at 0.
+        let minStart = segmentId == nil ? 1 : 0
+        guard startIndex >= minStart else {
             throw GrahamError.invalidArgument(
-                "startIndex must be 1 or greater; the document body starts at index 1")
+                segmentId == nil
+                    ? "startIndex must be 1 or greater; the document body starts at index 1"
+                    : "startIndex must be 0 or greater in a segment")
         }
         guard endIndex > startIndex else {
             throw GrahamError.invalidArgument(
                 "endIndex (\(endIndex)) must be greater than startIndex (\(startIndex))")
         }
         let request = DocsBatchUpdateRequest.deleteContentRange(DocsDeleteContentRangeRequest(
-            range: DocsRange(startIndex: startIndex, endIndex: endIndex)
+            range: DocsRange(startIndex: startIndex, endIndex: endIndex, segmentId: segmentId)
         ))
         return try await batchUpdate(
             documentId: documentId, requests: [request],

@@ -36,6 +36,43 @@ final class DocsWriteParsingTests: XCTestCase {
         XCTAssertThrowsError(try Docs.Insert.parse(["doc-1", "--at", "1"]))
     }
 
+    func testDocsInsertParsesSegmentAndEnd() throws {
+        let command = try Docs.Insert.parse([
+            "doc-1", "--text", "hi", "--segment", "hdr-1", "--end",
+        ])
+        XCTAssertEqual(command.segment, "hdr-1")
+        XCTAssertTrue(command.end)
+        XCTAssertNil(command.at)
+    }
+
+    func testDocsInsertWithEndDoesNotRequireAnIndex() {
+        // --end appends to the end of the segment, so --at is not required.
+        XCTAssertNoThrow(try Docs.Insert.parse(["doc-1", "--text", "hi", "--end"]))
+    }
+
+    func testDocsInsertWithoutIndexOrEndIsRejectedAtParse() {
+        // Neither --at nor --end: the validate() gate rejects it.
+        XCTAssertThrowsError(try Docs.Insert.parse(["doc-1", "--text", "hi"]))
+    }
+
+    func testDocsInsertDefaultsSegmentToNilAndEndToFalse() throws {
+        let command = try Docs.Insert.parse(["doc-1", "--text", "hi", "--at", "1"])
+        XCTAssertNil(command.segment)
+        XCTAssertFalse(command.end)
+    }
+
+    func testDocsDeleteParsesSegment() throws {
+        let command = try Docs.Delete.parse([
+            "doc-1", "--from", "0", "--to", "4", "--segment", "ftr-2",
+        ])
+        XCTAssertEqual(command.segment, "ftr-2")
+    }
+
+    func testDocsDeleteDefaultsSegmentToNil() throws {
+        let command = try Docs.Delete.parse(["doc-1", "--from", "1", "--to", "4"])
+        XCTAssertNil(command.segment)
+    }
+
     func testDocsInsertParsesRequireRevision() throws {
         let command = try Docs.Insert.parse([
             "doc-1", "--text", "hi", "--at", "1", "--require-revision", "rev-7",

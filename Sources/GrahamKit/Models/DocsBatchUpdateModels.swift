@@ -177,15 +177,27 @@ public struct DocsTableRange: Codable, Sendable, Equatable {
 
 // MARK: - Operation requests
 
-/// The `insertText` operation. Both the text and the insertion location are
-/// required by the API.
+/// The `insertText` operation. The `text` is always required; the destination
+/// is exactly one of a ``DocsLocation`` (an explicit index) or a
+/// ``DocsEndOfSegmentLocation`` (append to the end of the body or a segment
+/// without computing an index). The two inits keep those mutually exclusive:
+/// only the chosen one is set, and the other stays nil and is omitted when
+/// encoded.
 public struct DocsInsertTextRequest: Codable, Sendable, Equatable {
     public let text: String
-    public let location: DocsLocation
+    public let location: DocsLocation?
+    public let endOfSegmentLocation: DocsEndOfSegmentLocation?
 
     public init(text: String, location: DocsLocation) {
         self.text = text
         self.location = location
+        self.endOfSegmentLocation = nil
+    }
+
+    public init(text: String, endOfSegmentLocation: DocsEndOfSegmentLocation) {
+        self.text = text
+        self.location = nil
+        self.endOfSegmentLocation = endOfSegmentLocation
     }
 }
 

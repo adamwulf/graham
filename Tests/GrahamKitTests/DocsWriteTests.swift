@@ -246,6 +246,108 @@ final class DocsWriteTests: XCTestCase {
         }
     }
 
+    // MARK: - Segment-aware text ops
+
+    func testInsertTextIntoSegmentAllowsIndexZeroAndCarriesSegmentId() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
+
+        // A named segment starts its content at index 0, which the body guard
+        // would reject; here it is allowed, and the location carries segmentId.
+        _ = try await client.insertText(
+            documentId: "doc-1", text: "Hi", index: 0, segmentId: "hdr-1")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"insertText":{"location":{"index":0,"segmentId":"hdr-1"},"text":"Hi"}}]}"#
+        )
+    }
+
+    func testInsertTextBodyGuardStillRejectsIndexZeroWithoutSegment() async {
+        // The body guard is unchanged: index 0 in the body (no segment) is
+        // rejected before any request goes out.
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            _ = try await client.insertText(documentId: "doc-1", text: "Hi", index: 0)
+        }
+        // In a segment, a negative index is still rejected.
+        await assertInvalidArgument {
+            _ = try await client.insertText(
+                documentId: "doc-1", text: "Hi", index: -1, segmentId: "hdr-1")
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testInsertTextEndOfSegmentEncodesEndOfSegmentLocation() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
+
+        _ = try await client.insertText(
+            documentId: "doc-1", text: "Hi", index: 0, segmentId: "hdr-1", endOfSegment: true)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        // Appending encodes endOfSegmentLocation instead of location; no index
+        // is present at all.
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"insertText":{"endOfSegmentLocation":{"segmentId":"hdr-1"},"text":"Hi"}}]}"#
+        )
+    }
+
+    func testInsertTextEndOfBodyIgnoresIndexAndEncodesEmptyEndOfSegment() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
+
+        // No segment and end-of-segment: the destination is the end of the
+        // body. The passed index is ignored, and no index guard applies.
+        _ = try await client.insertText(
+            documentId: "doc-1", text: "Hi", index: 999, endOfSegment: true)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"insertText":{"endOfSegmentLocation":{},"text":"Hi"}}]}"#
+        )
+    }
+
+    func testDeleteContentRangeInSegmentAllowsIndexZeroAndCarriesSegmentId() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
+
+        _ = try await client.deleteContentRange(
+            documentId: "doc-1", startIndex: 0, endIndex: 4, segmentId: "ftr-2")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"deleteContentRange":{"range":{"endIndex":4,"segmentId":"ftr-2","startIndex":0}}}]}"#
+        )
+    }
+
+    func testDeleteContentRangeBodyGuardStillRejectsIndexZeroWithoutSegment() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        // Body: index 0 rejected, unchanged.
+        await assertInvalidArgument {
+            _ = try await client.deleteContentRange(
+                documentId: "doc-1", startIndex: 0, endIndex: 4)
+        }
+        // Segment: a negative start is still rejected.
+        await assertInvalidArgument {
+            _ = try await client.deleteContentRange(
+                documentId: "doc-1", startIndex: -1, endIndex: 4, segmentId: "ftr-2")
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
     // MARK: - WriteControl
 
     func testInsertTextWithRequiredRevisionCarriesWriteControl() async throws {
