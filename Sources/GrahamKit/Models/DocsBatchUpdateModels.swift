@@ -1091,21 +1091,22 @@ public struct DocsTableCellStyle: Codable, Sendable, Equatable {
 /// The writable subset of a Docs `TableRowStyle`.
 ///
 /// Every field is optional; the request's `fields` mask decides which the API
-/// applies. `minRowHeight` is a ``DocsDimension`` in points; `tableHeader` marks
-/// the row as a repeated header; `preventOverflow` keeps the row's content from
-/// spilling across a page break.
+/// applies. `minRowHeight` is a ``DocsDimension`` in points; `preventOverflow`
+/// keeps the row's content from spilling across a page break.
+///
+/// `tableHeader` is deliberately absent. Google's `updateTableRowStyle` rejects
+/// it ("Unallowed field: tableHeader"): header designation is structural and
+/// read-only once a table exists. Designate headers when the table is created,
+/// or pin leading rows with `DocsClient.pinTableHeaderRows`.
 public struct DocsTableRowStyle: Codable, Sendable, Equatable {
     public let minRowHeight: DocsDimension?
-    public let tableHeader: Bool?
     public let preventOverflow: Bool?
 
     public init(
         minRowHeight: DocsDimension? = nil,
-        tableHeader: Bool? = nil,
         preventOverflow: Bool? = nil
     ) {
         self.minRowHeight = minRowHeight
-        self.tableHeader = tableHeader
         self.preventOverflow = preventOverflow
     }
 }

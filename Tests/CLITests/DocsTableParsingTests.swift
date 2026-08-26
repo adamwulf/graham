@@ -300,25 +300,24 @@ final class DocsTableParsingTests: XCTestCase {
     func testRowStyleParsesRowsAndFlags() throws {
         let command = try Docs.Table.RowStyle.parse([
             "doc-1", "--table", "10", "--rows", "1", "3", "5",
-            "--min-height", "24", "--header", "--prevent-overflow",
+            "--min-height", "24", "--prevent-overflow",
             "--segment", "ftr-1", "--require-revision", "rev-4",
         ])
         XCTAssertEqual(command.table, 10)
         XCTAssertEqual(command.rows, [1, 3, 5])
         XCTAssertEqual(command.minHeight, 24)
-        XCTAssertEqual(command.header, true)
         XCTAssertEqual(command.preventOverflow, true)
         XCTAssertEqual(command.segment, "ftr-1")
         XCTAssertEqual(command.requireRevision, "rev-4")
     }
 
-    func testRowStyleParsesNoHeaderAndEmptyRows() throws {
+    func testRowStyleParsesNoPreventOverflowAndEmptyRows() throws {
         let command = try Docs.Table.RowStyle.parse([
-            "doc-1", "--table", "10", "--no-header",
+            "doc-1", "--table", "10", "--no-prevent-overflow",
         ])
         XCTAssertTrue(command.rows.isEmpty)
-        XCTAssertEqual(command.header, false)
-        XCTAssertNil(command.preventOverflow)
+        XCTAssertEqual(command.preventOverflow, false)
+        XCTAssertNil(command.minHeight)
     }
 
     func testRowStyleRejectsNoStyleOption() {
@@ -330,7 +329,7 @@ final class DocsTableParsingTests: XCTestCase {
             "doc-1", "--table", "10", "--min-height", "0",
         ]))
         XCTAssertThrowsError(try Docs.Table.RowStyle.parse([
-            "doc-1", "--table", "10", "--rows", "0", "--header",
+            "doc-1", "--table", "10", "--rows", "0", "--prevent-overflow",
         ]))
     }
 

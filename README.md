@@ -192,8 +192,10 @@ graham docs table pin-headers <document-id> --table 5 --count 1
 # all four paddings; --align is top/middle/bottom. At least one style is required.
 graham docs table style <document-id> --table 5 --row 1 --column 1 --background "#F1F3F4" --align middle
 graham docs table style <document-id> --table 5 --border "#000000" --border-width 1 --border-dash solid
-# Set row height/header/overflow for listed one-based --rows (omit for every row).
-graham docs table row-style <document-id> --table 5 --rows 1 --min-height 24 --header
+# Set row height/overflow for listed one-based --rows (omit for every row). To
+# mark header rows, use `pin-headers`; the Docs API cannot set a header row via
+# row style.
+graham docs table row-style <document-id> --table 5 --rows 1 --min-height 24 --prevent-overflow
 # Set the width of listed one-based --columns (omit for every column): a fixed
 # --width in points (>= 5) or --evenly distributed. Exactly one of the two.
 graham docs table column-width <document-id> --table 5 --columns 1 2 --width 90

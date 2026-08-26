@@ -363,7 +363,7 @@ public struct DocsLiveTest: Sendable {
             let start = try self.requireTableStart(try await docs.document(id: documentID))
             _ = try await docs.styleTableRow(
                 documentId: documentID, tableStartIndex: start, rows: [1],
-                minRowHeight: 24, tableHeader: true, preventOverflow: true)
+                minRowHeight: 24, preventOverflow: true)
         }
         _ = await actionStep("table-column-width", recorder: recorder, skipReason: tableSkip) {
             let start = try self.requireTableStart(try await docs.document(id: documentID))

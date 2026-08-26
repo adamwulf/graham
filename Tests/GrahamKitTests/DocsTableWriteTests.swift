@@ -335,7 +335,7 @@ final class DocsTableWriteTests: XCTestCase {
             contentAlignment: .middle)
         let rowStyle = DocsTableRowStyle(
             minRowHeight: DocsDimension(magnitude: 20, unit: .pt),
-            tableHeader: true, preventOverflow: false)
+            preventOverflow: false)
         let columnProps = DocsTableColumnProperties(
             widthType: .fixedWidth, width: DocsDimension(magnitude: 90, unit: .pt))
         let cases: [(DocsBatchUpdateRequest, String)] = [
@@ -355,8 +355,8 @@ final class DocsTableWriteTests: XCTestCase {
                 .updateTableRowStyle(DocsUpdateTableRowStyleRequest(
                     tableStartLocation: start, rowIndices: [0, 2],
                     tableRowStyle: rowStyle,
-                    fields: "minRowHeight,tableHeader,preventOverflow")),
-                #"{"updateTableRowStyle":{"fields":"minRowHeight,tableHeader,preventOverflow","rowIndices":[0,2],"tableRowStyle":{"minRowHeight":{"magnitude":20,"unit":"PT"},"preventOverflow":false,"tableHeader":true},"tableStartLocation":{"index":10}}}"#
+                    fields: "minRowHeight,preventOverflow")),
+                #"{"updateTableRowStyle":{"fields":"minRowHeight,preventOverflow","rowIndices":[0,2],"tableRowStyle":{"minRowHeight":{"magnitude":20,"unit":"PT"},"preventOverflow":false},"tableStartLocation":{"index":10}}}"#
             ),
             (
                 .updateTableColumnProperties(DocsUpdateTableColumnPropertiesRequest(
@@ -393,10 +393,10 @@ final class DocsTableWriteTests: XCTestCase {
         // Row style, all rows (empty list -> no rowIndices), min height only.
         _ = try await client.styleTableRow(
             documentId: "doc-1", tableStartIndex: 10, minRowHeight: 24)
-        // Row style, specific one-based rows -> zero-based, header + overflow.
+        // Row style, specific one-based rows -> zero-based, overflow only.
         _ = try await client.styleTableRow(
             documentId: "doc-1", tableStartIndex: 10, rows: [1, 3],
-            tableHeader: true, preventOverflow: false)
+            preventOverflow: false)
         // Column width, specific one-based column -> zero-based, fixed width.
         _ = try await client.styleTableColumnWidth(
             documentId: "doc-1", tableStartIndex: 10, columns: [2], width: 90)
@@ -443,7 +443,7 @@ final class DocsTableWriteTests: XCTestCase {
         )
         XCTAssertEqual(
             Self.body(requests[3]),
-            #"{"requests":[{"updateTableRowStyle":{"fields":"tableHeader,preventOverflow","rowIndices":[0,2],"tableRowStyle":{"preventOverflow":false,"tableHeader":true},"tableStartLocation":{"index":10}}}]}"#
+            #"{"requests":[{"updateTableRowStyle":{"fields":"preventOverflow","rowIndices":[0,2],"tableRowStyle":{"preventOverflow":false},"tableStartLocation":{"index":10}}}]}"#
         )
         XCTAssertEqual(
             Self.body(requests[4]),
@@ -517,21 +517,22 @@ final class DocsTableWriteTests: XCTestCase {
         )
     }
 
-    func testRowStyleWithAllThreeStylesEmitsFullMaskInBuilderOrder() async throws {
+    func testRowStyleWithBothStylesEmitsFullMaskInBuilderOrder() async throws {
         let transport = StubTransport()
         let client = makeClient(transport: transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
-        // Setting min height, header, and overflow together exercises the full
-        // row-style mask, in the fixed builder order.
+        // Setting min height and overflow together exercises the full row-style
+        // mask, in the fixed builder order. (`tableHeader` is not writable via
+        // updateTableRowStyle, so the mask has exactly these two paths.)
         _ = try await client.styleTableRow(
             documentId: "doc-1", tableStartIndex: 10,
-            minRowHeight: 18, tableHeader: true, preventOverflow: true)
+            minRowHeight: 18, preventOverflow: true)
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
             Self.body(request),
-            #"{"requests":[{"updateTableRowStyle":{"fields":"minRowHeight,tableHeader,preventOverflow","tableRowStyle":{"minRowHeight":{"magnitude":18,"unit":"PT"},"preventOverflow":true,"tableHeader":true},"tableStartLocation":{"index":10}}}]}"#
+            #"{"requests":[{"updateTableRowStyle":{"fields":"minRowHeight,preventOverflow","tableRowStyle":{"minRowHeight":{"magnitude":18,"unit":"PT"},"preventOverflow":true},"tableStartLocation":{"index":10}}}]}"#
         )
     }
 
@@ -568,7 +569,7 @@ final class DocsTableWriteTests: XCTestCase {
         transport.stub(urlContains: ":batchUpdate", json: "{}")
 
         let response = try await client.styleTableRow(
-            documentId: "doc-1", tableStartIndex: 10, tableHeader: true)
+            documentId: "doc-1", tableStartIndex: 10, preventOverflow: true)
 
         XCTAssertNil(response.documentId)
         XCTAssertNil(response.replies)
@@ -674,7 +675,7 @@ final class DocsTableWriteTests: XCTestCase {
             documentId: "doc-1", tableStartIndex: 10, minRowHeight: 0) }
         // A bad one-based row number in the list.
         await assertInvalid { _ = try await client.styleTableRow(
-            documentId: "doc-1", tableStartIndex: 10, rows: [0], tableHeader: true) }
+            documentId: "doc-1", tableStartIndex: 10, rows: [0], preventOverflow: true) }
 
         XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
     }
