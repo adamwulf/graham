@@ -238,13 +238,14 @@ struct Docs: AsyncParsableCommand {
             discussion: """
                 Sets the character style of a zero-based UTF-16 range from --from
                 up to but not including --to; at least one style flag is required.
-                --bold, --italic, --underline, and --strike are toggles: pass the
-                flag to turn it on, or its --no- form (for example --no-bold) to
-                turn it off. Colors are a hex value like #FF0000. --size is in
-                points and --font names a family, with an optional --font-weight
-                (a multiple of 100 from 100 to 900). --baseline is super, sub, or
-                none. In a named segment (--segment) the content starts at index
-                0. Get index ranges from `docs structure`.
+                --bold, --italic, --underline, --strike, and --small-caps are
+                toggles: pass the flag to turn it on, or its --no- form (for
+                example --no-bold) to turn it off. Colors are a hex value like
+                #FF0000. --size is in points and --font names a family, with an
+                optional --font-weight (a multiple of 100 from 100 to 900).
+                --baseline is super, sub, or none. In a named segment (--segment)
+                the content starts at index 0. Get index ranges from `docs
+                structure`.
                 """
         )
 
@@ -271,6 +272,12 @@ struct Docs: AsyncParsableCommand {
 
         @Flag(inversion: .prefixedNo, help: "Strike through the text (--no-strike turns it off).")
         var strike: Bool?
+
+        @Flag(
+            inversion: .prefixedNo,
+            help: "Render the text in small caps (--no-small-caps turns it off)."
+        )
+        var smallCaps: Bool?
 
         @Option(help: "The text color as a hex value like #FF0000.")
         var color: String?
@@ -305,8 +312,8 @@ struct Docs: AsyncParsableCommand {
         func validate() throws {
             let hasStyle =
                 bold != nil || italic != nil || underline != nil || strike != nil
-                || color != nil || background != nil || size != nil || font != nil
-                || fontWeight != nil || baseline != nil || link != nil
+                || smallCaps != nil || color != nil || background != nil || size != nil
+                || font != nil || fontWeight != nil || baseline != nil || link != nil
             guard hasStyle else {
                 throw ValidationError("Provide at least one style flag.")
             }
@@ -344,6 +351,7 @@ struct Docs: AsyncParsableCommand {
                 fontWeight: fontWeight,
                 baselineOffset: baseline?.baselineOffset,
                 linkURL: link,
+                smallCaps: smallCaps,
                 requiredRevisionId: requireRevision
             )
             print("Styled text in [\(from), \(to)).")
@@ -360,9 +368,12 @@ struct Docs: AsyncParsableCommand {
                 normal-text, title, subtitle, or heading-1 through heading-6.
                 --align is start, center, end, or justified; --direction is ltr or
                 rtl. --line-spacing is a percent of normal, where 100 is single;
-                spacing and indents are in points. In a named segment (--segment)
-                the content starts at index 0. Get index ranges from `docs
-                structure`.
+                spacing and indents are in points. --keep-lines-together,
+                --keep-with-next, --avoid-widows, and --page-break-before are
+                pagination toggles (use the --no- form to turn one off). --shading
+                is a hex background color; --spacing-mode is never-collapse or
+                collapse-lists. In a named segment (--segment) the content starts
+                at index 0. Get index ranges from `docs structure`.
                 """
         )
 
@@ -408,6 +419,36 @@ struct Docs: AsyncParsableCommand {
         @Option(parsing: .unconditional, help: "The first-line indent in points.")
         var indentFirstLine: Double?
 
+        @Flag(
+            inversion: .prefixedNo,
+            help: "Keep every line of the paragraph on one page (--no- turns it off)."
+        )
+        var keepLinesTogether: Bool?
+
+        @Flag(
+            inversion: .prefixedNo,
+            help: "Keep the paragraph on the same page as the next one (--no- turns it off)."
+        )
+        var keepWithNext: Bool?
+
+        @Flag(
+            inversion: .prefixedNo,
+            help: "Avoid a single line stranded across a page break (--no- turns it off)."
+        )
+        var avoidWidows: Bool?
+
+        @Flag(
+            inversion: .prefixedNo,
+            help: "Start the paragraph on a new page (--no- turns it off)."
+        )
+        var pageBreakBefore: Bool?
+
+        @Option(help: "The paragraph background (shading) color as a hex value like #FFFF00.")
+        var shading: String?
+
+        @Option(help: "The spacing mode: never-collapse or collapse-lists.")
+        var spacingMode: DocsSpacingModeArgument?
+
         @Option(help: "Require the document be at this revision id; the write fails otherwise.")
         var requireRevision: String?
 
@@ -415,7 +456,9 @@ struct Docs: AsyncParsableCommand {
             let hasStyle =
                 style != nil || align != nil || direction != nil || lineSpacing != nil
                 || spaceAbove != nil || spaceBelow != nil || indentStart != nil
-                || indentEnd != nil || indentFirstLine != nil
+                || indentEnd != nil || indentFirstLine != nil || keepLinesTogether != nil
+                || keepWithNext != nil || avoidWidows != nil || pageBreakBefore != nil
+                || shading != nil || spacingMode != nil
             guard hasStyle else {
                 throw ValidationError("Provide at least one style flag.")
             }
@@ -425,6 +468,7 @@ struct Docs: AsyncParsableCommand {
         }
 
         func run() async throws {
+            let shadingColor = try shading.map { try DocsOptionalColor.parse($0) }
             let client = DocsClient(api: try CLI.makeAPI())
             _ = try await client.styleParagraphs(
                 documentId: documentID,
@@ -440,6 +484,12 @@ struct Docs: AsyncParsableCommand {
                 indentStart: indentStart,
                 indentEnd: indentEnd,
                 indentFirstLine: indentFirstLine,
+                keepLinesTogether: keepLinesTogether,
+                keepWithNext: keepWithNext,
+                avoidWidowAndOrphan: avoidWidows,
+                pageBreakBefore: pageBreakBefore,
+                shadingBackgroundColor: shadingColor,
+                spacingMode: spacingMode?.spacingMode,
                 requiredRevisionId: requireRevision
             )
             print("Styled paragraphs in [\(from), \(to)).")
@@ -2082,8 +2132,12 @@ struct Docs: AsyncParsableCommand {
                 --first-page-header-footer / --even-page-header-footer toggle the \
                 first-page and even-page header/footer (use the --no- forms to \
                 clear them). --background is a hex color like #FFFFFF. --mode is \
-                pages or pageless. Every dimension must be a finite value greater \
-                than zero, and at least one option is required.
+                pages or pageless. --page-number-start sets the first page number \
+                (1 or greater). --margin-header / --margin-footer set the header \
+                and footer margins in points (each turns on custom header/footer \
+                margins). --flip-orientation swaps the page width and height. \
+                Every dimension must be a finite value greater than zero, and at \
+                least one option is required.
                 """
         )
 
@@ -2126,6 +2180,30 @@ struct Docs: AsyncParsableCommand {
         @Option(help: "The document mode: pages or pageless.")
         var mode: DocsDocumentModeArgument?
 
+        @Option(
+            parsing: .unconditional,
+            help: "The first visible page number (1 or greater)."
+        )
+        var pageNumberStart: Int?
+
+        @Option(
+            parsing: .unconditional,
+            help: "The header margin in points (turns on custom header/footer margins)."
+        )
+        var marginHeader: Double?
+
+        @Option(
+            parsing: .unconditional,
+            help: "The footer margin in points (turns on custom header/footer margins)."
+        )
+        var marginFooter: Double?
+
+        @Flag(
+            inversion: .prefixedNo,
+            help: "Flip the page orientation, swapping width and height (--no- turns it off)."
+        )
+        var flipOrientation: Bool?
+
         @Option(help: "Require the document be at this revision id; the write fails otherwise.")
         var requireRevision: String?
 
@@ -2134,7 +2212,8 @@ struct Docs: AsyncParsableCommand {
                 pageWidth != nil || pageHeight != nil || marginTop != nil
                 || marginBottom != nil || marginLeft != nil || marginRight != nil
                 || firstPageHeaderFooter != nil || evenPageHeaderFooter != nil
-                || background != nil || mode != nil
+                || background != nil || mode != nil || pageNumberStart != nil
+                || marginHeader != nil || marginFooter != nil || flipOrientation != nil
             guard hasOption else {
                 throw ValidationError("Provide at least one page-setup option.")
             }
@@ -2155,6 +2234,11 @@ struct Docs: AsyncParsableCommand {
             try requirePositive(marginBottom, "--margin-bottom")
             try requirePositive(marginLeft, "--margin-left")
             try requirePositive(marginRight, "--margin-right")
+            try requirePositive(marginHeader, "--margin-header")
+            try requirePositive(marginFooter, "--margin-footer")
+            if let pageNumberStart, pageNumberStart < 1 {
+                throw ValidationError("--page-number-start must be 1 or greater.")
+            }
         }
 
         func run() async throws {
@@ -2172,6 +2256,10 @@ struct Docs: AsyncParsableCommand {
                 useEvenPageHeaderFooter: evenPageHeaderFooter,
                 background: backgroundColor,
                 documentMode: mode?.documentMode,
+                pageNumberStart: pageNumberStart,
+                marginHeader: marginHeader,
+                marginFooter: marginFooter,
+                flipPageOrientation: flipOrientation,
                 requiredRevisionId: requireRevision)
             print("Updated the document style.")
         }
@@ -2405,6 +2493,22 @@ enum DocsDocumentModeArgument: String, ExpressibleByArgument {
         switch self {
         case .pages: return .pages
         case .pageless: return .pageless
+        }
+    }
+}
+
+/// CLI-facing paragraph spacing-mode names, lower-kebab, mapping to the API
+/// ``DocsSpacingMode`` — never-collapse or collapse-lists, the writable
+/// `ParagraphStyle.spacingMode` values.
+enum DocsSpacingModeArgument: String, ExpressibleByArgument {
+    case neverCollapse = "never-collapse"
+    case collapseLists = "collapse-lists"
+
+    /// The Docs API spacing mode this argument maps to.
+    var spacingMode: DocsSpacingMode {
+        switch self {
+        case .neverCollapse: return .neverCollapse
+        case .collapseLists: return .collapseLists
         }
     }
 }
