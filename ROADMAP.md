@@ -51,26 +51,7 @@ keep the styling change reviewable:
   `docs paragraph` border flags. Same fields-mask discipline and exact-string
   tests.
 
-### Phase 6 — Structure and images (next up)
-
-- **`insertPageBreak`** *(core)* — insert a page break plus newline; body only.
-  CLI `docs page-break`. Zero-based UTF-16, body index >= 1, or end-of-segment.
-- **`insertInlineImage`** *(core)* — insert an image from a URI (<50MB,
-  <=25 megapixels, PNG/JPEG/GIF), optional `objectSize`; the reply carries the
-  new `objectId`. CLI `docs image insert <id> --uri --at [--width --height]`.
-  The URI must be publicly fetchable by Google at insertion time.
-- **`replaceImage`** *(useful)* — swap an existing image by object id; the only
-  replace method is `CENTER_CROP`. CLI `docs image replace`.
-- **`deletePositionedObject`** *(useful)* — delete a positioned object by id
-  (positioned objects cannot be created through the API, only deleted or
-  restyled). CLI `docs object delete`.
-- **`insertSectionBreak`** *(useful)* — insert a `CONTINUOUS` or `NEXT_PAGE`
-  section break; body only. CLI `docs section-break`.
-- **`updateSectionStyle`** *(advanced)* — margins, columns, page numbering, and
-  header/footer ids for the sections overlapping a range; `fields` mask; the
-  range's `segmentId` must be empty.
-
-### Phase 7 — Headers, footers, footnotes
+### Phase 7 — Headers, footers, footnotes (next up)
 
 Create replies carry the new segment id (`headerId` / `footerId` /
 `footnoteId`); print it so follow-up segment writes can target it.
