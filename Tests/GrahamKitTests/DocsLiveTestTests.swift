@@ -55,13 +55,9 @@ final class DocsLiveTestTests: XCTestCase {
         XCTAssertEqual(summary.steps.map(\.name), Self.expectedStepNames)
         XCTAssertEqual(callback.steps, summary.steps)
         XCTAssertEqual(summary.failed, 0)
-        // positioned-delete always skips: a positioned object cannot be created
-        // through the Docs API, so the disposable document never carries one.
-        XCTAssertEqual(summary.skipped, 1)
-        XCTAssertEqual(
-            summary.steps.first(where: { $0.name == "positioned-delete" })?.outcome,
-            .skip(reason: "no positioned object exists"))
-        XCTAssertEqual(summary.passed, Self.expectedStepNames.count - 1)
+        // The happy path skips nothing: every step is a real write.
+        XCTAssertEqual(summary.skipped, 0)
+        XCTAssertEqual(summary.passed, Self.expectedStepNames.count)
 
         // The created ids surface through their steps.
         XCTAssertEqual(
@@ -170,8 +166,8 @@ final class DocsLiveTestTests: XCTestCase {
         let summary = await fixture.makeRunner(keep: true).run()
 
         XCTAssertEqual(summary.failed, 0)
-        // positioned-delete (always) plus the one kept cleanup step.
-        XCTAssertEqual(summary.skipped, 2)
+        // Only the kept cleanup step skips.
+        XCTAssertEqual(summary.skipped, 1)
         XCTAssertEqual(summary.steps.last?.name, "trash-doc")
         XCTAssertEqual(summary.steps.last?.outcome, .skip(reason: "kept"))
         XCTAssertTrue(fixture.trashRequests.isEmpty)
@@ -225,7 +221,7 @@ final class DocsLiveTestTests: XCTestCase {
         "table-insert", "table-add-row", "table-add-column", "table-style-cells",
         "table-row-style", "table-column-width", "table-merge", "table-unmerge",
         "table-pin-headers", "table-delete-row", "table-delete-column",
-        "page-break", "section-break", "image-insert", "image-replace", "positioned-delete",
+        "page-break", "section-break", "image-insert", "image-replace",
         "header-create", "header-insert", "footer-create", "footer-insert", "footnote-create",
         "header-delete", "footer-delete",
         "range-create", "range-list", "range-fill", "range-delete",
@@ -615,8 +611,6 @@ private final class DocsLiveFixture: @unchecked Sendable {
                 throw SimReject(message: "unknown image object id to replace")
             }
             image.sourceUri = op["uri"] as? String ?? image.sourceUri
-            return [:]
-        case "deletePositionedObject":
             return [:]
         case "createHeader":
             headerCounter += 1

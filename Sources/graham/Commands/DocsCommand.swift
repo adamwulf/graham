@@ -9,7 +9,7 @@ struct Docs: AsyncParsableCommand {
             Cat.self, Structure.self, Insert.self, Delete.self,
             Replace.self, Style.self, Paragraph.self, Heading.self, Bullets.self,
             Unbullet.self, Table.self, Images.self, PageBreak.self, Image.self,
-            Object.self, SectionBreak.self, Header.self, Footer.self, Footnote.self,
+            SectionBreak.self, Header.self, Footer.self, Footnote.self,
             NamedRange.self, PageSetup.self, Test.self,
         ]
     )
@@ -1702,53 +1702,6 @@ struct Docs: AsyncParsableCommand {
                     documentId: documentID, imageObjectId: imageObjectID, uri: uri,
                     requiredRevisionId: requireRevision)
                 print("Replaced image \(imageObjectID).")
-            }
-        }
-    }
-
-    struct Object: AsyncParsableCommand {
-        static let configuration = CommandConfiguration(
-            commandName: "object",
-            abstract: "Delete a positioned object from a document.",
-            discussion: """
-                Positioned objects (such as floating images) cannot be created \
-                through the API, only deleted. Get object ids from `docs images`.
-                """,
-            subcommands: [Delete.self]
-        )
-
-        struct Delete: AsyncParsableCommand {
-            static let configuration = CommandConfiguration(
-                commandName: "delete",
-                abstract: "Delete a positioned object by its object id.",
-                discussion: """
-                    Deletes the positioned object with id <object-id>. Positioned \
-                    objects cannot be created through the API, only deleted. Get \
-                    object ids from `docs images`.
-                    """
-            )
-
-            @Argument(help: "The document ID.")
-            var documentID: String
-
-            @Argument(help: "The positioned object's id (from `docs images`).")
-            var objectID: String
-
-            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
-            var requireRevision: String?
-
-            func validate() throws {
-                if objectID.isEmpty {
-                    throw ValidationError("The object id must not be empty.")
-                }
-            }
-
-            func run() async throws {
-                let client = DocsClient(api: try CLI.makeAPI())
-                _ = try await client.deletePositionedObject(
-                    documentId: documentID, objectId: objectID,
-                    requiredRevisionId: requireRevision)
-                print("Deleted positioned object \(objectID).")
             }
         }
     }

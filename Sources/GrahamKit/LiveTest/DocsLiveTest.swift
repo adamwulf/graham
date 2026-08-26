@@ -429,12 +429,6 @@ public struct DocsLiveTest: Sendable {
             _ = try await docs.replaceImage(
                 documentId: documentID, imageObjectId: imageID!, uri: Self.replacementImageURL)
         }
-        // deletePositionedObject: positioned objects cannot be created through
-        // the Docs API, so a freshly created test document never has one. Skip
-        // gracefully when none exists; delete it when a document happens to
-        // carry one already.
-        await positionedDeleteStep(documentID: documentID, recorder: recorder)
-
         // Headers, footers, footnotes.
         let headerID = await valueStep(
             "header-create", recorder: recorder, createdIDs: { [$0] }
@@ -625,31 +619,6 @@ public struct DocsLiveTest: Sendable {
         }
         let folder = try await drive.create(name: folderName, type: .folder, parent: "root")
         return FolderResult(file: folder, created: true)
-    }
-
-    /// The `deletePositionedObject` step. It is not a value/action step because
-    /// a graceful skip (no positioned object exists) is the normal outcome, not
-    /// a dependency skip. This mirrors the special-cased `group` step in
-    /// ``SlidesLiveTest``.
-    private func positionedDeleteStep(documentID: String, recorder: Recorder) async {
-        do {
-            let document = try await docs.document(id: documentID)
-            if let positioned = document.imageRows.first(where: { $0.origin == .positioned }),
-               let objectId = positioned.objectId {
-                _ = try await docs.deletePositionedObject(
-                    documentId: documentID, objectId: objectId)
-                // The object was deleted, not created, so nothing is recorded as
-                // a created id.
-                recorder.record(name: "positioned-delete", outcome: .pass)
-            } else {
-                recorder.record(
-                    name: "positioned-delete",
-                    outcome: .skip(reason: "no positioned object exists"))
-            }
-        } catch {
-            recorder.record(
-                name: "positioned-delete", outcome: .fail(reason: Self.reason(for: error)))
-        }
     }
 
     private func cleanupStep(

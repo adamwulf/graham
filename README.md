@@ -28,8 +28,8 @@ Named after Graham's number — a contrast to the googol that named Google.
   and columns, merge and unmerge cells, and pin header rows), style tables
   (cell background, borders, padding, and alignment; row height, header, and
   overflow; and column width), edit structure and images (insert page and
-  section breaks, insert an inline image from a URI, replace an image, and
-  delete a positioned object), manage headers, footers, and footnotes
+  section breaks, insert an inline image from a URI, and replace an image),
+  manage headers, footers, and footnotes
   (create and delete headers and footers, and create a footnote with optional
   text), fill templates with named ranges (create, list, delete, and replace
   the content of a named range by id or name), set document-wide page style
@@ -275,8 +275,6 @@ graham docs image insert <document-id> --uri https://example.com/pic.png --end
 # Replace an existing image in place (object id from `docs images`); the only
 # method is center-crop (scale and center to fill the original bounds).
 graham docs image replace <document-id> <image-object-id> --uri https://example.com/new.png
-# Delete a positioned object by id (positioned objects can only be deleted via the API).
-graham docs object delete <document-id> <object-id>
 # Insert a continuous or next-page section break (body only) at an index or the end.
 graham docs section-break <document-id> --type continuous --at 3
 graham docs section-break <document-id> --type next-page --end

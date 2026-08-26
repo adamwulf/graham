@@ -72,8 +72,6 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
     case insertInlineImage(DocsInsertInlineImageRequest)
     /// Replaces an existing image, in place, with a new image from a URI.
     case replaceImage(DocsReplaceImageRequest)
-    /// Deletes a positioned object by its object id.
-    case deletePositionedObject(DocsDeletePositionedObjectRequest)
     /// Inserts a continuous or next-page section break at a body location or the
     /// end of the body.
     case insertSectionBreak(DocsInsertSectionBreakRequest)
@@ -122,7 +120,6 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
         case insertPageBreak
         case insertInlineImage
         case replaceImage
-        case deletePositionedObject
         case insertSectionBreak
         case createHeader
         case createFooter
@@ -180,8 +177,6 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
             try container.encode(request, forKey: .insertInlineImage)
         case .replaceImage(let request):
             try container.encode(request, forKey: .replaceImage)
-        case .deletePositionedObject(let request):
-            try container.encode(request, forKey: .deletePositionedObject)
         case .insertSectionBreak(let request):
             try container.encode(request, forKey: .insertSectionBreak)
         case .createHeader(let request):
@@ -1213,8 +1208,8 @@ public struct DocsUpdateTableColumnPropertiesRequest: Codable, Sendable, Equatab
 // MARK: - Structure and images
 //
 // These mirror the Docs v1 structure and image operations: `insertPageBreak`,
-// `insertInlineImage`, `replaceImage`, `deletePositionedObject`, and
-// `insertSectionBreak`. Page breaks and section breaks are body-only in the API
+// `insertInlineImage`, `replaceImage`, and `insertSectionBreak`. Page breaks and
+// section breaks are body-only in the API
 // (their location's segment id must be empty), so those two requests carry no
 // segment. Inline images may go in the body, a header, or a footer (not a
 // footnote), so they reuse the shared ``DocsLocation`` /
@@ -1331,17 +1326,6 @@ public struct DocsReplaceImageRequest: Codable, Sendable, Equatable {
         self.imageObjectId = imageObjectId
         self.uri = uri
         self.imageReplaceMethod = imageReplaceMethod
-    }
-}
-
-/// The `deletePositionedObject` operation. `objectId` names the positioned
-/// object to delete (positioned objects cannot be created through the API, only
-/// deleted). Required by the API.
-public struct DocsDeletePositionedObjectRequest: Codable, Sendable, Equatable {
-    public let objectId: String
-
-    public init(objectId: String) {
-        self.objectId = objectId
     }
 }
 
@@ -1699,7 +1683,7 @@ public struct DocsBatchUpdateResponse: Codable, Sendable {
 /// `createHeader` / `createFooter` / `createFootnote` return the new segment id,
 /// and `createNamedRange` returns the new named-range id. The structure
 /// operations (`insertText`, `deleteContentRange`, `insertPageBreak`,
-/// `replaceImage`, `deletePositionedObject`, `insertSectionBreak`,
+/// `replaceImage`, `insertSectionBreak`,
 /// `deleteHeader`, `deleteFooter`, `deleteNamedRange`, `replaceNamedRangeContent`,
 /// `updateDocumentStyle`, and the table ops) reply with an empty object, so this
 /// decodes to a reply whose every field is nil.

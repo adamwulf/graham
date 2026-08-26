@@ -3,14 +3,14 @@ import GrahamKit
 @testable import graham
 
 /// Argument-only coverage for the Phase 6 `docs page-break`, `docs image`,
-/// `docs object`, and `docs section-break` commands. These tests parse arguments
+/// and `docs section-break` commands. These tests parse arguments
 /// and never touch the network; the client behavior is covered by
 /// `DocsStructureWriteTests`. Mirrors `DocsWriteParsingTests` and
 /// `DocsTableParsingTests`.
 final class DocsStructureParsingTests: XCTestCase {
     func testDocsRegistersTheStructureSubcommands() {
         let names = Docs.configuration.subcommands.map { String(describing: $0) }
-        for expected in ["PageBreak", "Image", "Object", "SectionBreak"] {
+        for expected in ["PageBreak", "Image", "SectionBreak"] {
             XCTAssertTrue(names.contains(expected), "docs should list \(expected): \(names)")
         }
     }
@@ -128,31 +128,6 @@ final class DocsStructureParsingTests: XCTestCase {
         ]))
         // Empty uri.
         XCTAssertThrowsError(try Docs.Image.Replace.parse(["doc-1", "img-1", "--uri", ""]))
-    }
-
-    // MARK: - object delete
-
-    func testDocsObjectListsDelete() {
-        let names = Docs.Object.configuration.subcommands.compactMap {
-            $0.configuration.commandName ?? "\($0)".lowercased()
-        }
-        XCTAssertEqual(names, ["delete"])
-    }
-
-    func testObjectDeleteParsesArguments() throws {
-        let command = try Docs.Object.Delete.parse([
-            "doc-1", "obj-1", "--require-revision", "rev-4",
-        ])
-        XCTAssertEqual(command.documentID, "doc-1")
-        XCTAssertEqual(command.objectID, "obj-1")
-        XCTAssertEqual(command.requireRevision, "rev-4")
-    }
-
-    func testObjectDeleteRequiresObjectId() {
-        XCTAssertThrowsError(try Docs.Object.Delete.parse([]))
-        XCTAssertThrowsError(try Docs.Object.Delete.parse(["doc-1"]))
-        // Empty object id.
-        XCTAssertThrowsError(try Docs.Object.Delete.parse(["doc-1", ""]))
     }
 
     // MARK: - section-break
