@@ -384,13 +384,32 @@ public struct DocsClient: Sendable {
     ///   - shadingBackgroundColor: the paragraph background fill, already parsed
     ///     to a ``DocsOptionalColor``; wrapped into a ``DocsShading``.
     ///   - spacingMode: how the space-above/below collapse (never or lists).
+    ///   - outerBorderColor: the color of the four outer paragraph borders (top,
+    ///     bottom, left, right), already parsed to a ``DocsOptionalColor``. A
+    ///     single color fans to all four sides. A border is set only when a color
+    ///     is given; a `borderWidth`, `borderDash`, or `borderPadding` with no
+    ///     `outerBorderColor` and no `betweenBorderColor` is rejected.
+    ///   - betweenBorderColor: the color of the between-paragraph border, already
+    ///     parsed to a ``DocsOptionalColor``.
+    ///   - borderWidth: the border width in points, shared by the outer and
+    ///     between borders (defaults to 1); must be finite and not negative. A
+    ///     width of 0 hides the border.
+    ///   - borderDash: the border dash style shared by both borders (defaults to
+    ///     solid).
+    ///   - borderPadding: the border padding in points shared by both borders
+    ///     (defaults to 0); must be finite and not negative.
     ///
     /// The `fields` mask is emitted in the fixed order `namedStyleType`,
     /// `alignment`, `direction`, `lineSpacing`, `spaceAbove`, `spaceBelow`,
     /// `indentStart`, `indentEnd`, `indentFirstLine`, `keepLinesTogether`,
     /// `keepWithNext`, `avoidWidowAndOrphan`, `pageBreakBefore`, `shading`,
-    /// `spacingMode`. At least one parameter is required. Tab stops are out of
-    /// scope because `ParagraphStyle.tabStops` is read-only in the Docs API.
+    /// `spacingMode`, `borderTop`, `borderBottom`, `borderLeft`, `borderRight`,
+    /// `borderBetween` — the border paths are appended last, so a caller that
+    /// sets no border produces exactly the same mask as before. Each set border
+    /// encodes a full ``DocsParagraphBorder`` (color, width, padding, dash),
+    /// because the Docs API forbids a partial paragraph-border update. At least
+    /// one parameter is required. Tab stops are out of scope because
+    /// `ParagraphStyle.tabStops` is read-only in the Docs API.
     public func styleParagraphs(
         documentId: String,
         startIndex: Int,
@@ -411,6 +430,11 @@ public struct DocsClient: Sendable {
         pageBreakBefore: Bool? = nil,
         shadingBackgroundColor: DocsOptionalColor? = nil,
         spacingMode: DocsSpacingMode? = nil,
+        outerBorderColor: DocsOptionalColor? = nil,
+        betweenBorderColor: DocsOptionalColor? = nil,
+        borderWidth: Double? = nil,
+        borderDash: DocsDashStyle? = nil,
+        borderPadding: Double? = nil,
         requiredRevisionId: String? = nil
     ) async throws -> DocsBatchUpdateResponse {
         let range = try Self.makeStyleRange(
@@ -445,6 +469,46 @@ public struct DocsClient: Sendable {
 
         let shading = shadingBackgroundColor.map { DocsShading(backgroundColor: $0) }
 
+        // Paragraph borders. A full border requires a color, so a width, dash,
+        // or padding with neither an outer nor a between color has nothing to
+        // attach to. The width, dash, and padding are shared by both borders; the
+        // Docs API forbids a partial border update, so each set border carries a
+        // complete ``DocsParagraphBorder``.
+        let hasBorderColor = outerBorderColor != nil || betweenBorderColor != nil
+        if !hasBorderColor, borderWidth != nil || borderDash != nil || borderPadding != nil {
+            throw GrahamError.invalidArgument(
+                "a paragraph border requires a color; set an outer or between border color "
+                + "to set its width, dash, or padding")
+        }
+        var outerBorder: DocsParagraphBorder?
+        var betweenBorder: DocsParagraphBorder?
+        if hasBorderColor {
+            let width = borderWidth ?? 1
+            // A width of 0 hides the border (border removal), so 0 is valid; only
+            // a negative or non-finite width is invalid.
+            guard width.isFinite, width >= 0 else {
+                throw GrahamError.invalidArgument(
+                    "border width must be finite and not negative, got \(width)")
+            }
+            let padding = borderPadding ?? 0
+            // A padding of 0 is valid (no padding); only a negative or non-finite
+            // padding is invalid.
+            guard padding.isFinite, padding >= 0 else {
+                throw GrahamError.invalidArgument(
+                    "border padding must be finite and not negative, got \(padding)")
+            }
+            let dash = borderDash ?? .solid
+            func makeBorder(_ color: DocsOptionalColor) -> DocsParagraphBorder {
+                DocsParagraphBorder(
+                    color: color,
+                    width: DocsDimension(magnitude: width, unit: .pt),
+                    padding: DocsDimension(magnitude: padding, unit: .pt),
+                    dashStyle: dash)
+            }
+            outerBorder = outerBorderColor.map(makeBorder)
+            betweenBorder = betweenBorderColor.map(makeBorder)
+        }
+
         var mask: [String] = []
         if resolvedNamedStyle != nil { mask.append("namedStyleType") }
         if alignment != nil { mask.append("alignment") }
@@ -461,6 +525,12 @@ public struct DocsClient: Sendable {
         if pageBreakBefore != nil { mask.append("pageBreakBefore") }
         if shading != nil { mask.append("shading") }
         if spacingMode != nil { mask.append("spacingMode") }
+        // The border paths are appended last, in a fixed order, so a caller that
+        // sets no border produces exactly the same mask as before.
+        if outerBorder != nil {
+            mask.append(contentsOf: ["borderTop", "borderBottom", "borderLeft", "borderRight"])
+        }
+        if betweenBorder != nil { mask.append("borderBetween") }
 
         guard !mask.isEmpty else {
             throw GrahamError.invalidArgument(
@@ -485,7 +555,12 @@ public struct DocsClient: Sendable {
             avoidWidowAndOrphan: avoidWidowAndOrphan,
             pageBreakBefore: pageBreakBefore,
             shading: shading,
-            spacingMode: spacingMode
+            spacingMode: spacingMode,
+            borderTop: outerBorder,
+            borderBottom: outerBorder,
+            borderLeft: outerBorder,
+            borderRight: outerBorder,
+            borderBetween: betweenBorder
         )
         let request = DocsBatchUpdateRequest.updateParagraphStyle(DocsUpdateParagraphStyleRequest(
             paragraphStyle: style, fields: mask.joined(separator: ","), range: range))
