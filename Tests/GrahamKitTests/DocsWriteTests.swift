@@ -1993,10 +1993,10 @@ final class DocsWriteTests: XCTestCase {
         )
     }
 
-    /// Setting both header and footer margins implies useCustomHeaderFooterMargins,
-    /// which the API needs for the custom margins to take effect; the mask lists
-    /// marginHeader, marginFooter, then the implied flag.
-    func testUpdateDocumentStyleHeaderFooterMarginsImplyUseCustomFlag() async throws {
+    /// The header and footer margins are writable, but the
+    /// useCustomHeaderFooterMargins flag that governs them is read-only, so the
+    /// client sends the margins alone and never sets or masks that flag.
+    func testUpdateDocumentStyleHeaderFooterMarginsSentWithoutTheReadOnlyFlag() async throws {
         let transport = StubTransport()
         let client = makeClient(transport: transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
@@ -2007,12 +2007,12 @@ final class DocsWriteTests: XCTestCase {
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
             Self.bodyString(request),
-            #"{"requests":[{"updateDocumentStyle":{"documentStyle":{"marginFooter":{"magnitude":24,"unit":"PT"},"marginHeader":{"magnitude":24,"unit":"PT"},"useCustomHeaderFooterMargins":true},"fields":"marginHeader,marginFooter,useCustomHeaderFooterMargins"}}]}"#
+            #"{"requests":[{"updateDocumentStyle":{"documentStyle":{"marginFooter":{"magnitude":24,"unit":"PT"},"marginHeader":{"magnitude":24,"unit":"PT"}},"fields":"marginHeader,marginFooter"}}]}"#
         )
     }
 
-    /// A single header margin still implies the flag.
-    func testUpdateDocumentStyleMarginHeaderOnlyImpliesUseCustomFlag() async throws {
+    /// A single header margin is sent alone, still without the read-only flag.
+    func testUpdateDocumentStyleMarginHeaderOnlySentWithoutTheReadOnlyFlag() async throws {
         let transport = StubTransport()
         let client = makeClient(transport: transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
@@ -2022,7 +2022,7 @@ final class DocsWriteTests: XCTestCase {
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
             Self.bodyString(request),
-            #"{"requests":[{"updateDocumentStyle":{"documentStyle":{"marginHeader":{"magnitude":18,"unit":"PT"},"useCustomHeaderFooterMargins":true},"fields":"marginHeader,useCustomHeaderFooterMargins"}}]}"#
+            #"{"requests":[{"updateDocumentStyle":{"documentStyle":{"marginHeader":{"magnitude":18,"unit":"PT"}},"fields":"marginHeader"}}]}"#
         )
     }
 
@@ -2042,8 +2042,7 @@ final class DocsWriteTests: XCTestCase {
 
     /// The new fields are appended after the existing entries, so a marginTop
     /// (existing) plus the new fields locks the mask order
-    /// `marginTop,pageNumberStart,marginHeader,useCustomHeaderFooterMargins,`
-    /// `flipPageOrientation`.
+    /// `marginTop,pageNumberStart,marginHeader,flipPageOrientation`.
     func testUpdateDocumentStyleNewFieldsAfterExistingKeepFixedMaskOrder() async throws {
         let transport = StubTransport()
         let client = makeClient(transport: transport)
@@ -2056,7 +2055,7 @@ final class DocsWriteTests: XCTestCase {
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
             Self.bodyString(request),
-            #"{"requests":[{"updateDocumentStyle":{"documentStyle":{"flipPageOrientation":false,"marginHeader":{"magnitude":12,"unit":"PT"},"marginTop":{"magnitude":36,"unit":"PT"},"pageNumberStart":5,"useCustomHeaderFooterMargins":true},"fields":"marginTop,pageNumberStart,marginHeader,useCustomHeaderFooterMargins,flipPageOrientation"}}]}"#
+            #"{"requests":[{"updateDocumentStyle":{"documentStyle":{"flipPageOrientation":false,"marginHeader":{"magnitude":12,"unit":"PT"},"marginTop":{"magnitude":36,"unit":"PT"},"pageNumberStart":5},"fields":"marginTop,pageNumberStart,marginHeader,flipPageOrientation"}}]}"#
         )
     }
 

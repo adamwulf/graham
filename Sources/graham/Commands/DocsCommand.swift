@@ -439,7 +439,10 @@ struct Docs: AsyncParsableCommand {
 
         @Flag(
             inversion: .prefixedNo,
-            help: "Start the paragraph on a new page (--no- turns it off)."
+            help: """
+                Start the paragraph on a new page (--no- turns it off). The server \
+                rejects this inside tables, headers, footers, and footnotes.
+                """
         )
         var pageBreakBefore: Bool?
 

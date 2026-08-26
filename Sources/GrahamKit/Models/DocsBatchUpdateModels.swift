@@ -1566,10 +1566,10 @@ public struct DocsDocumentFormat: Codable, Sendable, Equatable {
 /// ids; `background` sets the document background color; `documentFormat` carries
 /// the document mode (pages vs pageless). `pageNumberStart` is the first visible
 /// page number; `marginHeader` and `marginFooter` are the header and footer
-/// margins in points, and take effect only when `useCustomHeaderFooterMargins`
-/// is true (the client sets that flag whenever it sets a header or footer
-/// margin); `flipPageOrientation` swaps the page width and height (landscape).
-/// The read-only header/footer ids are out of this slice.
+/// margins in points; `flipPageOrientation` swaps the page width and height
+/// (landscape). The read-only header/footer ids and the read-only
+/// `useCustomHeaderFooterMargins` flag (the server derives whether the custom
+/// header/footer margins apply) are out of this slice.
 public struct DocsDocumentStyle: Codable, Sendable, Equatable {
     public let pageSize: DocsSize?
     public let marginTop: DocsDimension?
@@ -1583,7 +1583,6 @@ public struct DocsDocumentStyle: Codable, Sendable, Equatable {
     public let pageNumberStart: Int?
     public let marginHeader: DocsDimension?
     public let marginFooter: DocsDimension?
-    public let useCustomHeaderFooterMargins: Bool?
     public let flipPageOrientation: Bool?
 
     public init(
@@ -1599,7 +1598,6 @@ public struct DocsDocumentStyle: Codable, Sendable, Equatable {
         pageNumberStart: Int? = nil,
         marginHeader: DocsDimension? = nil,
         marginFooter: DocsDimension? = nil,
-        useCustomHeaderFooterMargins: Bool? = nil,
         flipPageOrientation: Bool? = nil
     ) {
         self.pageSize = pageSize
@@ -1614,7 +1612,6 @@ public struct DocsDocumentStyle: Codable, Sendable, Equatable {
         self.pageNumberStart = pageNumberStart
         self.marginHeader = marginHeader
         self.marginFooter = marginFooter
-        self.useCustomHeaderFooterMargins = useCustomHeaderFooterMargins
         self.flipPageOrientation = flipPageOrientation
     }
 }

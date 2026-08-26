@@ -390,7 +390,7 @@ public struct DocsClient: Sendable {
     /// `indentStart`, `indentEnd`, `indentFirstLine`, `keepLinesTogether`,
     /// `keepWithNext`, `avoidWidowAndOrphan`, `pageBreakBefore`, `shading`,
     /// `spacingMode`. At least one parameter is required. Tab stops are out of
-    /// scope (a complex repeated `TabStop` list the API models separately).
+    /// scope because `ParagraphStyle.tabStops` is read-only in the Docs API.
     public func styleParagraphs(
         documentId: String,
         startIndex: Int,
@@ -1824,18 +1824,17 @@ public struct DocsClient: Sendable {
     ///     `documentFormat.documentMode` path so only the mode is set.
     ///   - pageNumberStart: the first visible page number; must be 1 or greater.
     ///   - marginHeader / marginFooter: the header and footer margins in points;
-    ///     each must be a finite value greater than zero when given. Setting
-    ///     either implies `useCustomHeaderFooterMargins = true` (the API otherwise
-    ///     ignores the custom margins), so the client sets that flag and masks it
-    ///     whenever a header or footer margin is set.
+    ///     each must be a finite value greater than zero when given. These are
+    ///     writable, but the `useCustomHeaderFooterMargins` flag that governs
+    ///     whether they apply is read-only (the server derives it), so the client
+    ///     sends the margins alone and never masks that flag.
     ///   - flipPageOrientation: swap the page width and height (landscape).
     ///
     /// The `fields` mask is emitted in the fixed order `pageSize`, `marginTop`,
     /// `marginBottom`, `marginLeft`, `marginRight`, `useFirstPageHeaderFooter`,
     /// `useEvenPageHeaderFooter`, `background`, `documentFormat.documentMode`,
-    /// `pageNumberStart`, `marginHeader`, `marginFooter`,
-    /// `useCustomHeaderFooterMargins`, `flipPageOrientation`. At least one
-    /// parameter is required.
+    /// `pageNumberStart`, `marginHeader`, `marginFooter`, `flipPageOrientation`.
+    /// At least one parameter is required.
     public func updateDocumentStyle(
         documentId: String,
         pageWidth: Double? = nil,
@@ -1887,12 +1886,10 @@ public struct DocsClient: Sendable {
             }
         }
 
-        // The API ignores marginHeader/marginFooter unless custom header/footer
-        // margins are turned on, so setting either implies the flag. The client
-        // sets and masks it whenever a header or footer margin is set; otherwise
-        // it stays nil and is neither sent nor masked.
-        let useCustomHeaderFooterMargins: Bool? =
-            (marginHeader != nil || marginFooter != nil) ? true : nil
+        // `useCustomHeaderFooterMargins` is read-only on DocumentStyle — the
+        // server derives whether the custom header/footer margins apply — so
+        // masking it would make the request invalid (Google 400s). We send the
+        // writable marginHeader/marginFooter alone and never set or mask the flag.
 
         func points(_ value: Double?) -> DocsDimension? {
             value.map { DocsDimension(magnitude: $0, unit: .pt) }
@@ -1923,8 +1920,6 @@ public struct DocsClient: Sendable {
         if pageNumberStart != nil { mask.append("pageNumberStart") }
         if marginHeader != nil { mask.append("marginHeader") }
         if marginFooter != nil { mask.append("marginFooter") }
-        // The implied flag rides right after the margins it enables.
-        if useCustomHeaderFooterMargins != nil { mask.append("useCustomHeaderFooterMargins") }
         if flipPageOrientation != nil { mask.append("flipPageOrientation") }
 
         guard !mask.isEmpty else {
@@ -1944,7 +1939,6 @@ public struct DocsClient: Sendable {
             pageNumberStart: pageNumberStart,
             marginHeader: points(marginHeader),
             marginFooter: points(marginFooter),
-            useCustomHeaderFooterMargins: useCustomHeaderFooterMargins,
             flipPageOrientation: flipPageOrientation)
         let request = DocsBatchUpdateRequest.updateDocumentStyle(
             DocsUpdateDocumentStyleRequest(
