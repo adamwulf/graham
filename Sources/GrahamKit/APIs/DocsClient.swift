@@ -5,9 +5,23 @@ public struct DocsClient: Sendable {
     public static let baseURL = "https://docs.googleapis.com/v1"
 
     private let api: GoogleAPI
+    private let downloadTransport: any HTTPTransport
 
-    public init(api: GoogleAPI) {
+    /// Builds the client.
+    ///
+    /// - Parameters:
+    ///   - api: The low-level executor for Docs API calls (with the OAuth
+    ///     bearer, retry, and backoff).
+    ///   - downloadTransport: A separate transport for image downloads. It is
+    ///     deliberately not the ``GoogleAPI`` path: an image `contentUri` is a
+    ///     pre-authorized, short-lived URL on a Google user-content host, not on
+    ///     the Docs API host, so a download must **not** attach the Docs API
+    ///     bearer token — doing so would leak the token to a different host and
+    ///     is unnecessary. Tests inject a stub here; production uses a plain
+    ///     `URLSession`. This mirrors the Slides ``SlidesClient`` seam.
+    public init(api: GoogleAPI, downloadTransport: any HTTPTransport = URLSessionTransport()) {
         self.api = api
+        self.downloadTransport = downloadTransport
     }
 
     /// Gets one document, with its body content.
@@ -194,5 +208,97 @@ public struct DocsClient: Sendable {
             documentId: documentId, requests: [request],
             requiredRevisionId: requiredRevisionId)
         return response.replies?.first?.replaceAllText?.occurrencesChanged ?? 0
+    }
+
+    // MARK: - Image download
+
+    /// Downloads the bytes at an image `contentUri`.
+    ///
+    /// The request is a plain GET with no `Authorization` header. A Docs
+    /// `ImageProperties.contentUri` is short-lived and pre-authorized; the URI
+    /// itself carries the authorization, and it points at a Google user-content
+    /// host rather than the Docs API host. Attaching the API OAuth bearer would
+    /// therefore both leak the token to a third-party host and be redundant, so
+    /// the download bypasses ``GoogleAPI`` and goes straight through the
+    /// injected transport — exactly like the Slides `Image.contentUrl` seam.
+    public func downloadImage(from contentUri: String) async throws -> Data {
+        guard let url = URL(string: contentUri), url.scheme != nil else {
+            throw GrahamError.invalidURL(contentUri)
+        }
+        let response = try await downloadTransport.send(HTTPRequest(method: "GET", url: url))
+        guard (200..<300).contains(response.statusCode) else {
+            let text = String(data: response.body, encoding: .utf8) ?? ""
+            throw GrahamError.httpError(statusCode: response.statusCode, body: String(text.prefix(500)))
+        }
+        return response.body
+    }
+
+    /// Downloads every image in `rows` into `directory`.
+    ///
+    /// The directory is created if it does not exist. Each image is fetched in
+    /// order and written under a deterministic, collision-free name (see
+    /// ``DocImageFile``). A row with no content URI is skipped, and a fetch or
+    /// write that fails is recorded and does not stop the rest — so one bad
+    /// image never loses the others. The returned results are in the same order
+    /// as `rows`, one per row. This mirrors ``SlidesClient/downloadImages(_:to:)``.
+    public func downloadImages(
+        _ rows: [DocImageRow],
+        to directory: URL
+    ) async throws -> [DocImageDownloadResult] {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let target = directory.standardizedFileURL
+
+        var results: [DocImageDownloadResult] = []
+        var sequence = 0
+        for row in rows {
+            guard let contentUri = row.contentUri, !contentUri.isEmpty else {
+                results.append(DocImageDownloadResult(
+                    objectId: row.objectId,
+                    origin: row.origin,
+                    contentUri: row.contentUri,
+                    outcome: .skipped(reason: "no content URI")
+                ))
+                continue
+            }
+            sequence += 1
+            do {
+                let data = try await downloadImage(from: contentUri)
+                let filename = DocImageFile.filename(
+                    sequence: sequence,
+                    origin: row.origin,
+                    objectId: row.objectId,
+                    fileExtension: DocImageFile.fileExtension(forBytes: data)
+                )
+                let fileURL = directory.appendingPathComponent(filename)
+                // Defense in depth: the name is already sanitized, but confirm
+                // the resolved file still sits directly inside the directory.
+                guard fileURL.deletingLastPathComponent().standardizedFileURL == target else {
+                    results.append(DocImageDownloadResult(
+                        objectId: row.objectId,
+                        origin: row.origin,
+                        contentUri: contentUri,
+                        outcome: .failed(reason: "unsafe file path for \(filename)")
+                    ))
+                    continue
+                }
+                try data.write(to: fileURL)
+                results.append(DocImageDownloadResult(
+                    objectId: row.objectId,
+                    origin: row.origin,
+                    contentUri: contentUri,
+                    outcome: .downloaded(filename: filename, byteCount: data.count)
+                ))
+            } catch {
+                let reason = (error as? LocalizedError)?.errorDescription
+                    ?? String(describing: error)
+                results.append(DocImageDownloadResult(
+                    objectId: row.objectId,
+                    origin: row.origin,
+                    contentUri: contentUri,
+                    outcome: .failed(reason: reason)
+                ))
+            }
+        }
+        return results
     }
 }

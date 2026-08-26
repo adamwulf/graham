@@ -754,3 +754,219 @@ extension DocBlockRow: GrahamRow {
         return "\(start)-\(end)"
     }
 }
+
+// MARK: - Image list facade
+
+/// Whether an image lives inline in the text (``Document/inlineObjects``) or is
+/// a positioned, floating object (``Document/positionedObjects``).
+public enum DocImageOrigin: String, Codable, Sendable, Equatable {
+    /// An image that flows with the text.
+    case inline
+    /// A floating image anchored to a paragraph.
+    case positioned
+}
+
+/// One image in a document, flattened out of ``Document/inlineObjects`` and
+/// ``Document/positionedObjects``.
+///
+/// Each row carries the object id, its ``origin``, the image size, and the two
+/// URIs Docs exposes for an image: ``sourceUri`` (the URI the image was created
+/// from) and ``contentUri`` (a short-lived, pre-authorized download URL on a
+/// Google user-content host). A download needs ``contentUri``; it is fetched
+/// with a plain GET and no OAuth header, exactly like the Slides content URL —
+/// see ``DocsClient/downloadImage(from:)``.
+public struct DocImageRow: Codable, Sendable, Equatable {
+    /// The object id, keyed in the document's inline or positioned object map.
+    public let objectId: String?
+    /// Whether the image is inline or positioned.
+    public let origin: DocImageOrigin
+    /// The image width magnitude, in the unit named by ``widthUnit`` (Docs
+    /// reports points); `nil` when the response omits the size.
+    public let width: Double?
+    /// The image height magnitude, in the unit named by ``heightUnit``.
+    public let height: Double?
+    /// The unit of ``width`` (for example `PT`), as the API reports it.
+    public let widthUnit: String?
+    /// The unit of ``height``.
+    public let heightUnit: String?
+    /// The URI the image was created from, if Google keeps it.
+    public let sourceUri: String?
+    /// The short-lived, pre-authorized content URL. `nil` when the response
+    /// omits it; a download needs it.
+    public let contentUri: String?
+
+    init(objectId: String?, origin: DocImageOrigin, embeddedObject: DocEmbeddedObject?) {
+        self.objectId = objectId
+        self.origin = origin
+        width = embeddedObject?.size?.width?.magnitude
+        height = embeddedObject?.size?.height?.magnitude
+        widthUnit = embeddedObject?.size?.width?.unit
+        heightUnit = embeddedObject?.size?.height?.unit
+        sourceUri = embeddedObject?.imageProperties?.sourceUri
+        contentUri = embeddedObject?.imageProperties?.contentUri
+    }
+}
+
+extension Document {
+    /// Every image in the document: inline images first, then positioned
+    /// images.
+    ///
+    /// The API keys both maps in an unordered dictionary, so within each group
+    /// the rows are ordered by object id — this keeps the output deterministic,
+    /// the way the rest of graham's output is. The extraction lives here in
+    /// GrahamKit; the command only fetches and renders. See ``DocImageRow``.
+    public var imageRows: [DocImageRow] {
+        var rows: [DocImageRow] = []
+        for key in (inlineObjects ?? [:]).keys.sorted() {
+            guard let object = inlineObjects?[key] else { continue }
+            rows.append(DocImageRow(
+                objectId: object.objectId ?? key,
+                origin: .inline,
+                embeddedObject: object.embeddedObject
+            ))
+        }
+        for key in (positionedObjects ?? [:]).keys.sorted() {
+            guard let object = positionedObjects?[key] else { continue }
+            rows.append(DocImageRow(
+                objectId: object.objectId ?? key,
+                origin: .positioned,
+                embeddedObject: object.embeddedObject
+            ))
+        }
+        return rows
+    }
+}
+
+extension DocImageRow: GrahamRow {
+    public static var tableColumns: [String] {
+        ["ORIGIN", "OBJECT", "SIZE(pt)", "SOURCE_URI", "CONTENT_URI"]
+    }
+
+    public var tableValues: [String] {
+        [
+            origin.rawValue,
+            objectId ?? "",
+            sizeText,
+            sourceUri ?? "",
+            // The content URL is long and last, so it is not padded.
+            contentUri ?? "",
+        ]
+    }
+
+    public var idValue: String { objectId ?? "" }
+
+    /// The size as `WxH` rounded to whole points, or empty when either
+    /// dimension is missing. Docs reports image sizes in points (`PT`).
+    var sizeText: String {
+        guard let width, let height else { return "" }
+        return "\(Self.roundedPoints(width))x\(Self.roundedPoints(height))"
+    }
+
+    private static func roundedPoints(_ value: Double) -> String {
+        String(Int(value.rounded()))
+    }
+}
+
+// MARK: - Image download
+
+/// Builds safe, deterministic file names for downloaded document images.
+///
+/// The name is:
+///
+///     <seq>-<origin>-<objectId>.<ext>
+///
+/// where `seq` is a zero-padded position in the download order (so two images
+/// can never collide, even with an equal or missing object id), `origin` is
+/// `inline` or `positioned`, `objectId` is sanitized to a safe character set,
+/// and `ext` is chosen by sniffing the downloaded bytes (never guessed from
+/// the URI). This mirrors the Slides ``SlideImageFile`` naming; sanitizing
+/// drops every path separator and dot, so a name can never traverse out of the
+/// target directory.
+public enum DocImageFile {
+    /// The characters kept in a sanitized name component. Note that `.` is not
+    /// in the set, so a component can never form `..` or a hidden file.
+    private static let safe = Set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
+
+    /// Replaces every unsafe character in a name component with `_`.
+    public static func sanitize(_ component: String) -> String {
+        let mapped = String(component.map { safe.contains($0) ? $0 : "_" })
+        return mapped.isEmpty ? "image" : mapped
+    }
+
+    /// Builds the file name for the image at `sequence` in the download order.
+    public static func filename(
+        sequence: Int,
+        origin: DocImageOrigin,
+        objectId: String?,
+        fileExtension: String
+    ) -> String {
+        let seq = String(format: "%03d", sequence)
+        let name = sanitize(objectId ?? "image")
+        return "\(seq)-\(origin.rawValue)-\(name).\(fileExtension)"
+    }
+
+    /// Chooses a file extension by sniffing the leading "magic" bytes of the
+    /// image, never by trusting the URI. Returns `bin` for an unrecognized
+    /// format, so an unknown image is still saved with a safe, generic name.
+    ///
+    /// Docs serves PNG, JPEG, or GIF for pictures; the extra formats are
+    /// recognized so a future or unusual response is still labelled correctly.
+    /// The detection is byte-for-byte identical to the Slides reader's, kept
+    /// here so the Docs download stays self-contained.
+    public static func fileExtension(forBytes bytes: Data) -> String {
+        func startsWith(_ prefix: [UInt8]) -> Bool {
+            guard bytes.count >= prefix.count else { return false }
+            for (index, byte) in prefix.enumerated() where bytes[bytes.startIndex + index] != byte {
+                return false
+            }
+            return true
+        }
+        func matches(_ ascii: String, at offset: Int) -> Bool {
+            let prefix = Array(ascii.utf8)
+            guard bytes.count >= offset + prefix.count else { return false }
+            for (index, byte) in prefix.enumerated()
+            where bytes[bytes.startIndex + offset + index] != byte {
+                return false
+            }
+            return true
+        }
+
+        if startsWith([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) { return "png" }
+        if startsWith([0xFF, 0xD8, 0xFF]) { return "jpg" }
+        if startsWith([0x47, 0x49, 0x46, 0x38]) { return "gif" }
+        if matches("RIFF", at: 0) && matches("WEBP", at: 8) { return "webp" }
+        if startsWith([0x42, 0x4D]) { return "bmp" }
+        if startsWith([0x49, 0x49, 0x2A, 0x00]) || startsWith([0x4D, 0x4D, 0x00, 0x2A]) { return "tiff" }
+        return "bin"
+    }
+}
+
+/// What happened to one image in a document download run.
+public enum DocImageDownloadOutcome: Sendable, Equatable {
+    /// The image was fetched and written. `byteCount` is the size on disk.
+    case downloaded(filename: String, byteCount: Int)
+    /// The image could not be fetched or written; `reason` explains why.
+    case failed(reason: String)
+    /// The image had no content URI, so there was nothing to download.
+    case skipped(reason: String)
+}
+
+/// The result of trying to download one document image.
+public struct DocImageDownloadResult: Sendable, Equatable {
+    public let objectId: String?
+    public let origin: DocImageOrigin
+    public let contentUri: String?
+    public let outcome: DocImageDownloadOutcome
+
+    public init(
+        objectId: String?,
+        origin: DocImageOrigin,
+        contentUri: String?,
+        outcome: DocImageDownloadOutcome
+    ) {
+        self.objectId = objectId
+        self.origin = origin
+        self.contentUri = contentUri
+        self.outcome = outcome
+    }
+}
