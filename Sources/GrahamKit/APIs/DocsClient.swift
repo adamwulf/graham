@@ -463,6 +463,77 @@ public struct DocsClient: Sendable {
             requiredRevisionId: requiredRevisionId)
     }
 
+    // MARK: - Lists (bullets)
+    //
+    // Both methods reuse `makeStyleRange` for the shared range rules: an empty
+    // `segmentId` normalizes to the body, the body's first editable index is 1
+    // (a named segment starts at 0), and `endIndex` must be greater than
+    // `startIndex`. The range is zero-based UTF-16, exactly like the styling ops.
+
+    /// Turns every paragraph the range touches into a list, using a bullet
+    /// `preset` (its glyphs or numbering).
+    ///
+    /// - Parameters:
+    ///   - startIndex / endIndex: the zero-based, half-open UTF-16 range; every
+    ///     paragraph it overlaps becomes a list item. `endIndex` must be greater
+    ///     than `startIndex`.
+    ///   - preset: the ``DocsBulletPreset`` spelling (case-insensitive), such as
+    ///     `BULLET_DISC_CIRCLE_SQUARE`, `BULLET_CHECKBOX`, or
+    ///     `NUMBERED_DECIMAL_ALPHA_ROMAN`. A value outside the preset set is
+    ///     rejected before any request goes out.
+    ///   - segmentId: a header, footer, or footnote segment; nil or an empty
+    ///     string targets the body.
+    ///
+    /// Nesting comes from the leading tab characters already in each paragraph;
+    /// the API counts them, then removes them, so the write may shift later
+    /// indices.
+    public func createParagraphBullets(
+        documentId: String,
+        startIndex: Int,
+        endIndex: Int,
+        preset: String,
+        segmentId: String? = nil,
+        requiredRevisionId: String? = nil
+    ) async throws -> DocsBatchUpdateResponse {
+        let range = try Self.makeStyleRange(
+            startIndex: startIndex, endIndex: endIndex, segmentId: segmentId)
+        guard let bulletPreset = DocsBulletPreset(rawValue: preset.uppercased()) else {
+            throw GrahamError.invalidArgument(
+                "unknown bullet preset \"\(preset)\"; use one of "
+                + DocsBulletPreset.allCases.map(\.rawValue).joined(separator: ", "))
+        }
+        let request = DocsBatchUpdateRequest.createParagraphBullets(
+            DocsCreateParagraphBulletsRequest(range: range, bulletPreset: bulletPreset))
+        return try await batchUpdate(
+            documentId: documentId, requests: [request],
+            requiredRevisionId: requiredRevisionId)
+    }
+
+    /// Removes bullets from every paragraph the range touches, preserving the
+    /// visual nesting through indents.
+    ///
+    /// - Parameters:
+    ///   - startIndex / endIndex: the zero-based, half-open UTF-16 range; every
+    ///     paragraph it overlaps loses its bullets. `endIndex` must be greater
+    ///     than `startIndex`.
+    ///   - segmentId: a header, footer, or footnote segment; nil or an empty
+    ///     string targets the body.
+    public func deleteParagraphBullets(
+        documentId: String,
+        startIndex: Int,
+        endIndex: Int,
+        segmentId: String? = nil,
+        requiredRevisionId: String? = nil
+    ) async throws -> DocsBatchUpdateResponse {
+        let range = try Self.makeStyleRange(
+            startIndex: startIndex, endIndex: endIndex, segmentId: segmentId)
+        let request = DocsBatchUpdateRequest.deleteParagraphBullets(
+            DocsDeleteParagraphBulletsRequest(range: range))
+        return try await batchUpdate(
+            documentId: documentId, requests: [request],
+            requiredRevisionId: requiredRevisionId)
+    }
+
     // MARK: - Image download
 
     /// Downloads the bytes at an image `contentUri`.

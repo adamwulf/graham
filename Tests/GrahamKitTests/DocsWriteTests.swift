@@ -531,6 +531,282 @@ final class DocsWriteTests: XCTestCase {
         XCTAssertNil(decoded.targetRevisionId)
     }
 
+    // MARK: - createParagraphBullets
+
+    func testCreateParagraphBulletsPostsExactBodyAndDecodesReply() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"documentId":"doc-1","replies":[{}]}"#
+        )
+
+        let response = try await client.createParagraphBullets(
+            documentId: "doc-1", startIndex: 1, endIndex: 9,
+            preset: "BULLET_DISC_CIRCLE_SQUARE")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(
+            request.url.absoluteString,
+            "https://docs.googleapis.com/v1/documents/doc-1:batchUpdate"
+        )
+        XCTAssertEqual(request.headers["Content-Type"], "application/json")
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"createParagraphBullets":{"bulletPreset":"BULLET_DISC_CIRCLE_SQUARE","range":{"endIndex":9,"startIndex":1}}}]}"#
+        )
+        XCTAssertEqual(response.documentId, "doc-1")
+        XCTAssertEqual(response.replies?.count, 1)
+    }
+
+    func testCreateParagraphBulletsDecodesEmptyReply() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: "{}")
+
+        let response = try await client.createParagraphBullets(
+            documentId: "doc-1", startIndex: 1, endIndex: 9,
+            preset: "BULLET_CHECKBOX")
+
+        XCTAssertNil(response.documentId)
+        XCTAssertNil(response.replies)
+    }
+
+    func testCreateParagraphBulletsInSegmentAllowsIndexZeroAndCarriesSegmentId() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
+
+        // A named segment starts its content at index 0, which the body guard
+        // would reject; here it is allowed, and the range carries segmentId.
+        _ = try await client.createParagraphBullets(
+            documentId: "doc-1", startIndex: 0, endIndex: 4,
+            preset: "BULLET_CHECKBOX", segmentId: "ftr-2")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"createParagraphBullets":{"bulletPreset":"BULLET_CHECKBOX","range":{"endIndex":4,"segmentId":"ftr-2","startIndex":0}}}]}"#
+        )
+    }
+
+    func testCreateParagraphBulletsAcceptsThePresetCaseInsensitively() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
+
+        // A lowercased API spelling is uppercased before it is matched, so it
+        // still encodes the canonical wire value.
+        _ = try await client.createParagraphBullets(
+            documentId: "doc-1", startIndex: 1, endIndex: 9,
+            preset: "numbered_decimal_alpha_roman")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"createParagraphBullets":{"bulletPreset":"NUMBERED_DECIMAL_ALPHA_ROMAN","range":{"endIndex":9,"startIndex":1}}}]}"#
+        )
+    }
+
+    func testCreateParagraphBulletsWithRequiredRevisionCarriesWriteControl() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
+
+        _ = try await client.createParagraphBullets(
+            documentId: "doc-1", startIndex: 1, endIndex: 9,
+            preset: "BULLET_DISC_CIRCLE_SQUARE", requiredRevisionId: "rev-4")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"createParagraphBullets":{"bulletPreset":"BULLET_DISC_CIRCLE_SQUARE","range":{"endIndex":9,"startIndex":1}}}],"writeControl":{"requiredRevisionId":"rev-4"}}"#
+        )
+    }
+
+    func testCreateParagraphBulletsRejectsBadInputWithoutSendingARequest() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        // startIndex 0 in the body lands inside the initial section break; the
+        // range guard rejects it before any request goes out.
+        await assertInvalidArgument {
+            _ = try await client.createParagraphBullets(
+                documentId: "doc-1", startIndex: 0, endIndex: 4,
+                preset: "BULLET_DISC_CIRCLE_SQUARE")
+        }
+        // A negative start is rejected.
+        await assertInvalidArgument {
+            _ = try await client.createParagraphBullets(
+                documentId: "doc-1", startIndex: -1, endIndex: 4,
+                preset: "BULLET_DISC_CIRCLE_SQUARE")
+        }
+        // An empty range (end not greater than start) is rejected.
+        await assertInvalidArgument {
+            _ = try await client.createParagraphBullets(
+                documentId: "doc-1", startIndex: 4, endIndex: 4,
+                preset: "BULLET_DISC_CIRCLE_SQUARE")
+        }
+        // An unknown preset is rejected before any request goes out.
+        await assertInvalidArgument {
+            _ = try await client.createParagraphBullets(
+                documentId: "doc-1", startIndex: 1, endIndex: 9,
+                preset: "BULLET_NOT_A_REAL_PRESET")
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testCreateParagraphBulletsPropagatesGoogleErrorEnvelope() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"error":{"code":400,"message":"Bad bullets","status":"INVALID_ARGUMENT"}}"#,
+            status: 400
+        )
+
+        await assertGoogleError(code: 400, status: "INVALID_ARGUMENT", message: "Bad bullets") {
+            _ = try await client.createParagraphBullets(
+                documentId: "doc-1", startIndex: 1, endIndex: 9,
+                preset: "BULLET_DISC_CIRCLE_SQUARE")
+        }
+    }
+
+    /// Every writable preset maps to its exact API wire value, so the enum's raw
+    /// values never drift from the discovery document.
+    func testDocsBulletPresetRawValuesMatchTheWireSpellings() {
+        XCTAssertEqual(
+            DocsBulletPreset.allCases.map(\.rawValue),
+            [
+                "BULLET_DISC_CIRCLE_SQUARE",
+                "BULLET_DIAMONDX_ARROW3D_SQUARE",
+                "BULLET_CHECKBOX",
+                "BULLET_ARROW_DIAMOND_DISC",
+                "BULLET_STAR_CIRCLE_SQUARE",
+                "BULLET_ARROW3D_CIRCLE_SQUARE",
+                "BULLET_LEFTTRIANGLE_DIAMOND_DISC",
+                "BULLET_DIAMONDX_HOLLOWDIAMOND_SQUARE",
+                "BULLET_DIAMOND_CIRCLE_SQUARE",
+                "NUMBERED_DECIMAL_ALPHA_ROMAN",
+                "NUMBERED_DECIMAL_ALPHA_ROMAN_PARENS",
+                "NUMBERED_DECIMAL_NESTED",
+                "NUMBERED_UPPERALPHA_ALPHA_ROMAN",
+                "NUMBERED_UPPERROMAN_UPPERALPHA_DECIMAL",
+                "NUMBERED_ZERODECIMAL_ALPHA_ROMAN",
+            ]
+        )
+    }
+
+    // MARK: - deleteParagraphBullets
+
+    func testDeleteParagraphBulletsPostsExactBodyAndDecodesReply() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"documentId":"doc-1","replies":[{}]}"#
+        )
+
+        let response = try await client.deleteParagraphBullets(
+            documentId: "doc-1", startIndex: 1, endIndex: 9)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(
+            request.url.absoluteString,
+            "https://docs.googleapis.com/v1/documents/doc-1:batchUpdate"
+        )
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"deleteParagraphBullets":{"range":{"endIndex":9,"startIndex":1}}}]}"#
+        )
+        XCTAssertEqual(response.documentId, "doc-1")
+        XCTAssertEqual(response.replies?.count, 1)
+    }
+
+    func testDeleteParagraphBulletsDecodesEmptyReply() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: "{}")
+
+        let response = try await client.deleteParagraphBullets(
+            documentId: "doc-1", startIndex: 1, endIndex: 9)
+
+        XCTAssertNil(response.documentId)
+        XCTAssertNil(response.replies)
+    }
+
+    func testDeleteParagraphBulletsInSegmentAllowsIndexZeroAndCarriesSegmentId() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
+
+        _ = try await client.deleteParagraphBullets(
+            documentId: "doc-1", startIndex: 0, endIndex: 4, segmentId: "ftr-2")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"deleteParagraphBullets":{"range":{"endIndex":4,"segmentId":"ftr-2","startIndex":0}}}]}"#
+        )
+    }
+
+    func testDeleteParagraphBulletsWithRequiredRevisionCarriesWriteControl() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
+
+        _ = try await client.deleteParagraphBullets(
+            documentId: "doc-1", startIndex: 1, endIndex: 9, requiredRevisionId: "rev-5")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"deleteParagraphBullets":{"range":{"endIndex":9,"startIndex":1}}}],"writeControl":{"requiredRevisionId":"rev-5"}}"#
+        )
+    }
+
+    func testDeleteParagraphBulletsRejectsBadRangesWithoutSendingARequest() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        // startIndex 0 in the body lands inside the initial section break.
+        await assertInvalidArgument {
+            _ = try await client.deleteParagraphBullets(
+                documentId: "doc-1", startIndex: 0, endIndex: 4)
+        }
+        await assertInvalidArgument {
+            _ = try await client.deleteParagraphBullets(
+                documentId: "doc-1", startIndex: -1, endIndex: 4)
+        }
+        await assertInvalidArgument {
+            _ = try await client.deleteParagraphBullets(
+                documentId: "doc-1", startIndex: 4, endIndex: 4)
+        }
+        // Segment: a negative start is still rejected.
+        await assertInvalidArgument {
+            _ = try await client.deleteParagraphBullets(
+                documentId: "doc-1", startIndex: -1, endIndex: 4, segmentId: "ftr-2")
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testDeleteParagraphBulletsPropagatesGoogleErrorEnvelope() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"error":{"code":403,"message":"No access","status":"PERMISSION_DENIED"}}"#,
+            status: 403
+        )
+
+        await assertGoogleError(code: 403, status: "PERMISSION_DENIED", message: "No access") {
+            _ = try await client.deleteParagraphBullets(
+                documentId: "doc-1", startIndex: 1, endIndex: 9)
+        }
+    }
+
     // MARK: - Encoding a mixed batch
 
     /// The union encodes each case under its own JSON key, so a caller can mix
@@ -552,6 +828,17 @@ final class DocsWriteTests: XCTestCase {
                     replaceText: "b",
                     containsText: DocsSubstringMatchCriteria(text: "a", matchCase: false))),
                 #"{"replaceAllText":{"containsText":{"matchCase":false,"text":"a"},"replaceText":"b"}}"#
+            ),
+            (
+                .createParagraphBullets(DocsCreateParagraphBulletsRequest(
+                    range: DocsRange(startIndex: 1, endIndex: 9),
+                    bulletPreset: .bulletDiscCircleSquare)),
+                #"{"createParagraphBullets":{"bulletPreset":"BULLET_DISC_CIRCLE_SQUARE","range":{"endIndex":9,"startIndex":1}}}"#
+            ),
+            (
+                .deleteParagraphBullets(DocsDeleteParagraphBulletsRequest(
+                    range: DocsRange(startIndex: 1, endIndex: 9))),
+                #"{"deleteParagraphBullets":{"range":{"endIndex":9,"startIndex":1}}}"#
             ),
         ]
         for (request, expected) in cases {

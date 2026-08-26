@@ -30,6 +30,12 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
     /// Styles the paragraphs a range touches (named style, alignment, spacing,
     /// indents, and so on).
     case updateParagraphStyle(DocsUpdateParagraphStyleRequest)
+    /// Turns the paragraphs overlapping a range into a list, using a bullet
+    /// preset (its glyphs or numbering).
+    case createParagraphBullets(DocsCreateParagraphBulletsRequest)
+    /// Removes bullets from the paragraphs overlapping a range, preserving
+    /// visual nesting through indents.
+    case deleteParagraphBullets(DocsDeleteParagraphBulletsRequest)
 
     private enum CodingKeys: String, CodingKey {
         case insertText
@@ -37,6 +43,8 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
         case replaceAllText
         case updateTextStyle
         case updateParagraphStyle
+        case createParagraphBullets
+        case deleteParagraphBullets
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -52,6 +60,10 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
             try container.encode(request, forKey: .updateTextStyle)
         case .updateParagraphStyle(let request):
             try container.encode(request, forKey: .updateParagraphStyle)
+        case .createParagraphBullets(let request):
+            try container.encode(request, forKey: .createParagraphBullets)
+        case .deleteParagraphBullets(let request):
+            try container.encode(request, forKey: .deleteParagraphBullets)
         }
     }
 }
@@ -537,6 +549,75 @@ public struct DocsUpdateParagraphStyleRequest: Codable, Sendable, Equatable {
     public init(paragraphStyle: DocsParagraphStyle, fields: String, range: DocsRange) {
         self.paragraphStyle = paragraphStyle
         self.fields = fields
+        self.range = range
+    }
+}
+
+// MARK: - Lists (bullets)
+//
+// These mirror the Docs v1 `CreateParagraphBulletsRequest`,
+// `DeleteParagraphBulletsRequest`, and the `BulletGlyphPreset` enum used to turn
+// paragraphs into (or out of) a bulleted or numbered list.
+
+/// A Docs v1 `BulletGlyphPreset`: the kinds of bullet glyphs (or numbering) a
+/// `createParagraphBullets` operation applies across the first three list
+/// nesting levels. The cases are the writable presets; the API's
+/// `BULLET_GLYPH_PRESET_UNSPECIFIED` is never sent, exactly like the other
+/// `*_UNSPECIFIED` sentinels in these models. Each raw value is the exact API
+/// spelling, so encoding a preset writes that string verbatim.
+public enum DocsBulletPreset: String, Codable, Sendable, Equatable, CaseIterable {
+    /// `DISC`, `CIRCLE`, `SQUARE` glyphs for the first three nesting levels.
+    case bulletDiscCircleSquare = "BULLET_DISC_CIRCLE_SQUARE"
+    /// `DIAMONDX`, `ARROW3D`, `SQUARE` glyphs.
+    case bulletDiamondxArrow3dSquare = "BULLET_DIAMONDX_ARROW3D_SQUARE"
+    /// `CHECKBOX` glyphs for every nesting level.
+    case bulletCheckbox = "BULLET_CHECKBOX"
+    /// `ARROW`, `DIAMOND`, `DISC` glyphs.
+    case bulletArrowDiamondDisc = "BULLET_ARROW_DIAMOND_DISC"
+    /// `STAR`, `CIRCLE`, `SQUARE` glyphs.
+    case bulletStarCircleSquare = "BULLET_STAR_CIRCLE_SQUARE"
+    /// `ARROW3D`, `CIRCLE`, `SQUARE` glyphs.
+    case bulletArrow3dCircleSquare = "BULLET_ARROW3D_CIRCLE_SQUARE"
+    /// `LEFTTRIANGLE`, `DIAMOND`, `DISC` glyphs.
+    case bulletLefttriangleDiamondDisc = "BULLET_LEFTTRIANGLE_DIAMOND_DISC"
+    /// `DIAMONDX`, `HOLLOWDIAMOND`, `SQUARE` glyphs.
+    case bulletDiamondxHollowdiamondSquare = "BULLET_DIAMONDX_HOLLOWDIAMOND_SQUARE"
+    /// `DIAMOND`, `CIRCLE`, `SQUARE` glyphs.
+    case bulletDiamondCircleSquare = "BULLET_DIAMOND_CIRCLE_SQUARE"
+    /// `DECIMAL`, `ALPHA`, `ROMAN` numbering, each followed by a period.
+    case numberedDecimalAlphaRoman = "NUMBERED_DECIMAL_ALPHA_ROMAN"
+    /// `DECIMAL`, `ALPHA`, `ROMAN` numbering, each followed by a parenthesis.
+    case numberedDecimalAlphaRomanParens = "NUMBERED_DECIMAL_ALPHA_ROMAN_PARENS"
+    /// `DECIMAL` numbering where each level prefixes the previous level's glyph
+    /// (`1.`, `1.1.`, `2.`).
+    case numberedDecimalNested = "NUMBERED_DECIMAL_NESTED"
+    /// `UPPERALPHA`, `ALPHA`, `ROMAN` numbering, each followed by a period.
+    case numberedUpperalphaAlphaRoman = "NUMBERED_UPPERALPHA_ALPHA_ROMAN"
+    /// `UPPERROMAN`, `UPPERALPHA`, `DECIMAL` numbering, each followed by a period.
+    case numberedUpperromanUpperalphaDecimal = "NUMBERED_UPPERROMAN_UPPERALPHA_DECIMAL"
+    /// `ZERODECIMAL`, `ALPHA`, `ROMAN` numbering, each followed by a period.
+    case numberedZerodecimalAlphaRoman = "NUMBERED_ZERODECIMAL_ALPHA_ROMAN"
+}
+
+/// The `createParagraphBullets` operation. Both the `range` (the zero-based
+/// UTF-16 span whose overlapping paragraphs become a list) and the
+/// `bulletPreset` (the glyphs or numbering to apply) are required by the API.
+public struct DocsCreateParagraphBulletsRequest: Codable, Sendable, Equatable {
+    public let range: DocsRange
+    public let bulletPreset: DocsBulletPreset
+
+    public init(range: DocsRange, bulletPreset: DocsBulletPreset) {
+        self.range = range
+        self.bulletPreset = bulletPreset
+    }
+}
+
+/// The `deleteParagraphBullets` operation. The `range` (the zero-based UTF-16
+/// span whose overlapping paragraphs lose their bullets) is required by the API.
+public struct DocsDeleteParagraphBulletsRequest: Codable, Sendable, Equatable {
+    public let range: DocsRange
+
+    public init(range: DocsRange) {
         self.range = range
     }
 }
