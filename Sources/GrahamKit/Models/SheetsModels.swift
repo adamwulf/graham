@@ -30,6 +30,29 @@ public struct Sheet: Codable, Sendable {
     }
 
     public let properties: Properties?
+    public let charts: [SheetChart]?
+}
+
+/// One embedded chart, as read from `sheets.charts`.
+public struct SheetChart: Codable, Sendable, Equatable {
+    public struct Spec: Codable, Sendable, Equatable {
+        public let title: String?
+    }
+
+    public let chartId: Int?
+    public let spec: Spec?
+}
+
+extension SheetChart: GrahamRow {
+    public static var tableColumns: [String] { ["CHART_ID", "TITLE"] }
+
+    public var tableValues: [String] {
+        [chartId.map(String.init) ?? "", spec?.title ?? ""]
+    }
+
+    public var idValue: String {
+        chartId.map(String.init) ?? ""
+    }
 }
 
 extension Sheet: GrahamRow {

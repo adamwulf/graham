@@ -260,19 +260,58 @@ public struct SheetsLiveTest: Sendable {
                 horizontalAlignment: .center)
         }
 
-        // A chart needs the data above, so it chains off the value write.
-        _ = await valueStep(
+        // Chart lifecycle: a chart needs the data above, so it chains off the
+        // value write. Add on a new sheet, list it, update its spec, delete it.
+        let chartTitle = "Graham live test"
+        let updatedChartTitle = "Graham live test updated"
+        let chartID = await valueStep(
             "chart-add", recorder: recorder,
             skipReason: valuesSet ? nil : "set-values failed",
             createdIDs: { [String($0)] }
         ) {
             try await sheets.addChart(
                 spreadsheetId: spreadsheetID,
-                title: "Graham live test",
+                title: chartTitle,
                 type: .column,
                 range: "A1:B4"
             )
         }
+        _ = await actionStep(
+            "chart-list", recorder: recorder,
+            skipReason: dependencyReason("chart-add", value: chartID)
+        ) {
+            let read = try await sheets.spreadsheet(id: spreadsheetID)
+            let charts = (read.sheets ?? []).flatMap { $0.charts ?? [] }
+            guard charts.contains(where: { $0.chartId == chartID! }) else {
+                throw GrahamError.invalidResponse("the chart list is missing \(chartID!)")
+            }
+        }
+        _ = await actionStep(
+            "chart-update", recorder: recorder,
+            skipReason: dependencyReason("chart-add", value: chartID)
+        ) {
+            try await sheets.updateChart(
+                spreadsheetId: spreadsheetID, chartId: chartID!,
+                title: updatedChartTitle, type: .line, range: "A1:B4")
+            let read = try await sheets.spreadsheet(id: spreadsheetID)
+            let charts = (read.sheets ?? []).flatMap { $0.charts ?? [] }
+            guard charts.first(where: { $0.chartId == chartID! })?.spec?.title
+                    == updatedChartTitle else {
+                throw GrahamError.invalidResponse("the chart update did not round-trip")
+            }
+        }
+        _ = await actionStep(
+            "chart-delete", recorder: recorder,
+            skipReason: dependencyReason("chart-add", value: chartID)
+        ) {
+            try await sheets.deleteChart(spreadsheetId: spreadsheetID, chartId: chartID!)
+            let read = try await sheets.spreadsheet(id: spreadsheetID)
+            let charts = (read.sheets ?? []).flatMap { $0.charts ?? [] }
+            guard !charts.contains(where: { $0.chartId == chartID! }) else {
+                throw GrahamError.invalidResponse("the deleted chart still appears")
+            }
+        }
+
         // Clear the values, then confirm the read comes back empty.
         let cleared = await actionStep(
             "clear", recorder: recorder,

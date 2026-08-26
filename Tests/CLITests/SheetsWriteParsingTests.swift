@@ -246,8 +246,52 @@ final class SheetsWriteParsingTests: XCTestCase {
     }
 
     func testSheetsChartAddRejectsUnknownType() {
+        // pie is not a --type; it is the --pie flag.
         XCTAssertThrowsError(try Sheets.Chart.Add.parse([
             "sheet-1", "--range", "A1:B2", "--type", "pie",
         ]))
+    }
+
+    func testSheetsChartAddParsesComboPieAndOverlay() throws {
+        let combo = try Sheets.Chart.Add.parse([
+            "sheet-1", "--range", "A1:C4", "--type", "combo",
+        ])
+        XCTAssertEqual(combo.type, .combo)
+
+        let overlay = try Sheets.Chart.Add.parse([
+            "sheet-1", "--range", "A1:B4", "--pie",
+            "--anchor", "Sheet2!D2", "--width", "300", "--height", "200",
+        ])
+        XCTAssertTrue(overlay.pie)
+        XCTAssertEqual(overlay.anchor, "Sheet2!D2")
+        XCTAssertEqual(overlay.width, 300)
+        XCTAssertEqual(overlay.height, 200)
+    }
+
+    func testSheetsChartAddRejectsSizeWithoutAnchor() {
+        XCTAssertThrowsError(try Sheets.Chart.Add.parse([
+            "sheet-1", "--range", "A1:B4", "--width", "300",
+        ]))
+    }
+
+    func testSheetsChartUpdateAndDeleteParse() throws {
+        let update = try Sheets.Chart.Update.parse([
+            "sheet-1", "--chart-id", "42", "--range", "A1:B4", "--title", "New",
+        ])
+        XCTAssertEqual(update.chartId, 42)
+        XCTAssertEqual(update.range, "A1:B4")
+        XCTAssertEqual(update.title, "New")
+
+        let delete = try Sheets.Chart.Delete.parse(["sheet-1", "--chart-id", "42"])
+        XCTAssertEqual(delete.chartId, 42)
+
+        // chartId is required for both.
+        XCTAssertThrowsError(try Sheets.Chart.Delete.parse(["sheet-1"]))
+        XCTAssertThrowsError(try Sheets.Chart.Update.parse(["sheet-1", "--range", "A1:B4"]))
+    }
+
+    func testSheetsChartRegistersAddUpdateDelete() {
+        let names = Sheets.Chart.configuration.subcommands.map { String(describing: $0) }
+        XCTAssertEqual(Set(names), ["Add", "Update", "Delete"])
     }
 }

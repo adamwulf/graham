@@ -14,7 +14,9 @@ public struct SheetsClient: Sendable {
     public func spreadsheet(id: String) async throws -> Spreadsheet {
         let url = try GoogleURL.build(
             "\(Self.baseURL)/spreadsheets/\(GoogleURL.escapePathComponent(id))",
-            query: [("fields", "spreadsheetId,properties.title,spreadsheetUrl,sheets.properties")]
+            query: [("fields",
+                "spreadsheetId,properties.title,spreadsheetUrl,sheets.properties,"
+                    + "sheets.charts.chartId,sheets.charts.spec.title")]
         )
         return try await api.getJSON(Spreadsheet.self, from: url)
     }
@@ -158,16 +160,81 @@ public struct SheetsClient: Sendable {
         )
     }
 
-    /// Adds a basic chart on its own new sheet and returns its numeric chart id.
+    /// Adds a chart and returns its numeric chart id.
     ///
     /// The first input column is the chart domain and every remaining column
-    /// becomes a series. The first row supplies the headers.
+    /// becomes a series (a pie chart uses only the first two columns). The first
+    /// row supplies the headers. By default the chart lands on its own new sheet;
+    /// pass `overlay` to float it over an existing sheet instead.
     public func addChart(
         spreadsheetId: String,
         title: String? = nil,
         type: BasicChartType = .column,
-        range: String
+        range: String,
+        pie: Bool = false,
+        overlay: ChartOverlay? = nil
     ) async throws -> Int {
+        let parsed = try validatedChartRange(range)
+        let metadata = try await spreadsheet(id: spreadsheetId)
+        let dataSheetId = try sheetId(from: metadata, name: parsed.sheetName)
+        let spec = chartSpec(parsed: parsed, sheetId: dataSheetId, type: type, title: title, pie: pie)
+
+        let position: EmbeddedObjectPosition
+        if let overlay {
+            let anchor = try A1Range.parse(overlay.anchor)
+            let anchorSheetId = try anchor.sheetName == nil
+                ? dataSheetId
+                : sheetId(from: metadata, name: anchor.sheetName)
+            position = EmbeddedObjectPosition(overlayPosition: OverlayPosition(
+                anchorCell: GridCoordinate(
+                    sheetId: anchorSheetId,
+                    rowIndex: anchor.startRowIndex,
+                    columnIndex: anchor.startColumnIndex),
+                widthPixels: overlay.widthPixels,
+                heightPixels: overlay.heightPixels))
+        } else {
+            position = EmbeddedObjectPosition(newSheet: true)
+        }
+
+        let request = SheetsBatchUpdateRequest.addChart(AddChartRequest(
+            chart: EmbeddedChart(spec: spec, position: position)))
+        let response = try await batchUpdate(spreadsheetId: spreadsheetId, requests: [request])
+        guard let chartId = response.replies?.first?.addChart?.chart?.chartId else {
+            throw GrahamError.invalidResponse("addChart returned no chartId")
+        }
+        return chartId
+    }
+
+    /// Replaces an existing chart's spec, rebuilt from `range` and `type`.
+    public func updateChart(
+        spreadsheetId: String,
+        chartId: Int,
+        title: String? = nil,
+        type: BasicChartType = .column,
+        range: String,
+        pie: Bool = false
+    ) async throws {
+        let parsed = try validatedChartRange(range)
+        let metadata = try await spreadsheet(id: spreadsheetId)
+        let dataSheetId = try sheetId(from: metadata, name: parsed.sheetName)
+        let spec = chartSpec(parsed: parsed, sheetId: dataSheetId, type: type, title: title, pie: pie)
+        _ = try await batchUpdate(
+            spreadsheetId: spreadsheetId,
+            requests: [.updateChartSpec(UpdateChartSpecRequest(chartId: chartId, spec: spec))])
+    }
+
+    /// Deletes an embedded chart by its numeric id.
+    public func deleteChart(spreadsheetId: String, chartId: Int) async throws {
+        _ = try await batchUpdate(
+            spreadsheetId: spreadsheetId,
+            requests: [.deleteEmbeddedObject(DeleteEmbeddedObjectRequest(objectId: chartId))])
+    }
+
+    // MARK: Chart building
+
+    /// Parses and range-checks a chart source range (at least 2 columns wide and
+    /// 2 rows tall — a header row plus a domain column plus a series column).
+    private func validatedChartRange(_ range: String) throws -> A1Range {
         let parsed = try A1Range.parse(range)
         guard parsed.endColumnIndex - parsed.startColumnIndex >= 2 else {
             throw GrahamError.invalidArgument(
@@ -177,27 +244,40 @@ public struct SheetsClient: Sendable {
             throw GrahamError.invalidArgument(
                 "chart range \"\(range)\" must be at least 2 rows tall")
         }
+        return parsed
+    }
 
-        let metadata = try await spreadsheet(id: spreadsheetId)
+    /// Resolves a sheet name to its numeric id within already-fetched metadata,
+    /// or the first sheet when `name` is nil.
+    private func sheetId(from metadata: Spreadsheet, name: String?) throws -> Int {
         let sheet: Sheet
-        if let sheetName = parsed.sheetName {
-            guard let matchingSheet = metadata.sheets?.first(where: {
-                $0.properties?.title == sheetName
+        if let name {
+            guard let match = metadata.sheets?.first(where: {
+                $0.properties?.title == name
             }) else {
-                throw GrahamError.invalidArgument(
-                    "spreadsheet has no sheet named \"\(sheetName)\"")
+                throw GrahamError.invalidArgument("spreadsheet has no sheet named \"\(name)\"")
             }
-            sheet = matchingSheet
+            sheet = match
         } else {
-            guard let firstSheet = metadata.sheets?.first else {
+            guard let first = metadata.sheets?.first else {
                 throw GrahamError.invalidResponse("the spreadsheet has no sheets")
             }
-            sheet = firstSheet
+            sheet = first
         }
-        guard let sheetId = sheet.properties?.sheetId else {
+        guard let id = sheet.properties?.sheetId else {
             throw GrahamError.invalidResponse("the selected sheet has no sheetId")
         }
+        return id
+    }
 
+    /// Builds a basic or pie chart spec from a parsed source range.
+    private func chartSpec(
+        parsed: A1Range,
+        sheetId: Int,
+        type: BasicChartType,
+        title: String?,
+        pie: Bool
+    ) -> ChartSpec {
         func data(forColumn column: Int) -> ChartData {
             ChartData(sourceRange: ChartSourceRange(sources: [GridRange(
                 sheetId: sheetId,
@@ -207,30 +287,23 @@ public struct SheetsClient: Sendable {
                 endColumnIndex: column + 1
             )]))
         }
-
-        let domain = BasicChartDomain(domain: data(forColumn: parsed.startColumnIndex))
+        let domainData = data(forColumn: parsed.startColumnIndex)
+        if pie {
+            return ChartSpec(title: title, pieChart: PieChartSpec(
+                legendPosition: "RIGHT_LEGEND",
+                domain: domainData,
+                series: data(forColumn: parsed.startColumnIndex + 1)))
+        }
+        let domain = BasicChartDomain(domain: domainData)
         let series = ((parsed.startColumnIndex + 1)..<parsed.endColumnIndex).map { column in
             BasicChartSeries(series: data(forColumn: column), targetAxis: "LEFT_AXIS")
         }
-        let request = SheetsBatchUpdateRequest.addChart(AddChartRequest(chart: EmbeddedChart(
-            spec: ChartSpec(
-                title: title,
-                basicChart: BasicChartSpec(
-                    chartType: type,
-                    legendPosition: "BOTTOM_LEGEND",
-                    headerCount: 1,
-                    domains: [domain],
-                    series: series
-                )
-            ),
-            position: EmbeddedObjectPosition(newSheet: true)
-        )))
-
-        let response = try await batchUpdate(spreadsheetId: spreadsheetId, requests: [request])
-        guard let chartId = response.replies?.first?.addChart?.chart?.chartId else {
-            throw GrahamError.invalidResponse("addChart returned no chartId")
-        }
-        return chartId
+        return ChartSpec(title: title, basicChart: BasicChartSpec(
+            chartType: type,
+            legendPosition: "BOTTOM_LEGEND",
+            headerCount: 1,
+            domains: [domain],
+            series: series))
     }
 
     // MARK: - Sheets (tabs)

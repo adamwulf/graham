@@ -687,6 +687,114 @@ final class SheetsWriteTests: XCTestCase {
         }
     }
 
+    // MARK: - Chart upgrades
+
+    func testAddChartOverlayEncodesOverlayPositionAndSize() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        stubSpreadsheet(transport, sheets: [(7, "Data")])
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"replies":[{"addChart":{"chart":{"chartId":1}}}]}"#)
+
+        _ = try await client.addChart(
+            spreadsheetId: "sheet-1", title: "Overlay", range: "A1:B4",
+            overlay: ChartOverlay(anchor: "C1", widthPixels: 300, heightPixels: 200))
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        let body = Self.bodyString(request)
+        XCTAssertTrue(
+            body.contains(
+                #""overlayPosition":{"anchorCell":{"columnIndex":2,"rowIndex":0,"sheetId":7},"heightPixels":200,"widthPixels":300}"#),
+            "unexpected body: \(body)")
+        XCTAssertFalse(body.contains("newSheet"), "overlay must not set newSheet: \(body)")
+    }
+
+    func testAddChartOverlayResolvesAnAnchorSheetName() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        stubSpreadsheet(transport, sheets: [(7, "Data"), (9, "Second")])
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"replies":[{"addChart":{"chart":{"chartId":1}}}]}"#)
+
+        _ = try await client.addChart(
+            spreadsheetId: "sheet-1", range: "Data!A1:B4",
+            overlay: ChartOverlay(anchor: "Second!A1"))
+
+        let body = Self.bodyString(try XCTUnwrap(
+            transport.requests(urlContains: ":batchUpdate").first))
+        // The anchor's sheet name resolves to sheet 9, not the data sheet 7.
+        XCTAssertTrue(
+            body.contains(#""anchorCell":{"columnIndex":0,"rowIndex":0,"sheetId":9}"#),
+            "unexpected body: \(body)")
+    }
+
+    func testAddChartPieBuildsAPieChartSpec() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        stubSpreadsheet(transport, sheets: [(7, "Data")])
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"replies":[{"addChart":{"chart":{"chartId":1}}}]}"#)
+
+        _ = try await client.addChart(
+            spreadsheetId: "sheet-1", title: "Pie", range: "A1:B4", pie: true)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"addChart":{"chart":{"position":{"newSheet":true},"spec":{"pieChart":{"domain":{"sourceRange":{"sources":[{"endColumnIndex":1,"endRowIndex":4,"sheetId":7,"startColumnIndex":0,"startRowIndex":0}]}},"legendPosition":"RIGHT_LEGEND","series":{"sourceRange":{"sources":[{"endColumnIndex":2,"endRowIndex":4,"sheetId":7,"startColumnIndex":1,"startRowIndex":0}]}}},"title":"Pie"}}}}]}"#
+        )
+    }
+
+    func testAddChartComboUsesTheComboType() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        stubSpreadsheet(transport, sheets: [(7, "Data")])
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"replies":[{"addChart":{"chart":{"chartId":1}}}]}"#)
+
+        _ = try await client.addChart(
+            spreadsheetId: "sheet-1", type: .combo, range: "A1:C4")
+
+        let body = Self.bodyString(try XCTUnwrap(
+            transport.requests(urlContains: ":batchUpdate").first))
+        XCTAssertTrue(body.contains(#""chartType":"COMBO""#), "unexpected body: \(body)")
+    }
+
+    func testUpdateChartEncodesUpdateChartSpec() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        stubSpreadsheet(transport, sheets: [(7, "Data")])
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        try await client.updateChart(
+            spreadsheetId: "sheet-1", chartId: 42, title: "New", type: .line, range: "A1:B4")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateChartSpec":{"chartId":42,"spec":{"basicChart":{"chartType":"LINE","domains":[{"domain":{"sourceRange":{"sources":[{"endColumnIndex":1,"endRowIndex":4,"sheetId":7,"startColumnIndex":0,"startRowIndex":0}]}}}],"headerCount":1,"legendPosition":"BOTTOM_LEGEND","series":[{"series":{"sourceRange":{"sources":[{"endColumnIndex":2,"endRowIndex":4,"sheetId":7,"startColumnIndex":1,"startRowIndex":0}]}},"targetAxis":"LEFT_AXIS"}]},"title":"New"}}}]}"#
+        )
+    }
+
+    func testDeleteChartEncodesTheObjectIdWithoutReadingMetadata() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        try await client.deleteChart(spreadsheetId: "sheet-1", chartId: 42)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"deleteEmbeddedObject":{"objectId":42}}]}"#)
+        // No metadata fetch is needed to delete by id.
+        XCTAssertTrue(transport.requests(urlContains: "/spreadsheets/sheet-1?").isEmpty)
+    }
+
     // MARK: - Helpers
 
     private func stubSpreadsheet(

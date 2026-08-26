@@ -95,7 +95,7 @@ final class SheetsLiveTestTests: XCTestCase {
 
         XCTAssertEqual(summary.steps.map(\.name), Self.expectedStepNames)
         XCTAssertEqual(summary.failed, 1)
-        XCTAssertEqual(summary.skipped, 8)
+        XCTAssertEqual(summary.skipped, 11)
         XCTAssertEqual(
             summary.steps.first(where: { $0.name == "set-values" })?.outcome,
             .fail(reason: "Google API error 400 (INVALID_ARGUMENT): values rejected"))
@@ -112,24 +112,38 @@ final class SheetsLiveTestTests: XCTestCase {
         XCTAssertEqual(
             summary.steps.first(where: { $0.name == "clear-read" })?.outcome,
             .skip(reason: "clear failed"))
+        // The chart follow-ups chain off chart-add, which skipped.
+        for name in ["chart-list", "chart-update", "chart-delete"] {
+            XCTAssertEqual(
+                summary.steps.first(where: { $0.name == name })?.outcome,
+                .skip(reason: "chart-add failed"), "unexpected outcome for \(name)")
+        }
         // The metadata read is independent of the value write and still passes.
         XCTAssertEqual(summary.steps.first(where: { $0.name == "get" })?.outcome, .pass)
         // The spreadsheet is still trashed.
         XCTAssertEqual(fixture.trashRequests.count, 1)
     }
 
-    func testChartAddFailureFailsOnlyThatStepButStillCleansUp() async {
+    func testChartAddFailureSkipsChartFollowupsButStillCleansUp() async {
         let fixture = SheetsLiveFixture(failChartAdd: true)
         let summary = await fixture.makeRunner().run()
 
         XCTAssertEqual(summary.steps.map(\.name), Self.expectedStepNames)
         XCTAssertEqual(summary.failed, 1)
-        XCTAssertEqual(summary.skipped, 0)
+        // chart-list, chart-update, and chart-delete chain off chart-add.
+        XCTAssertEqual(summary.skipped, 3)
         XCTAssertEqual(
             summary.steps.first(where: { $0.name == "chart-add" })?.outcome,
             .fail(reason: "Google API error 400 (INVALID_ARGUMENT): chart rejected"))
+        for name in ["chart-list", "chart-update", "chart-delete"] {
+            XCTAssertEqual(
+                summary.steps.first(where: { $0.name == name })?.outcome,
+                .skip(reason: "chart-add failed"), "unexpected outcome for \(name)")
+        }
         XCTAssertEqual(summary.steps.first(where: { $0.name == "values-read" })?.outcome, .pass)
         XCTAssertEqual(summary.steps.first(where: { $0.name == "get" })?.outcome, .pass)
+        // clear runs after the chart steps and is unaffected.
+        XCTAssertEqual(summary.steps.first(where: { $0.name == "clear" })?.outcome, .pass)
         XCTAssertEqual(fixture.trashRequests.count, 1)
     }
 
@@ -165,7 +179,7 @@ final class SheetsLiveTestTests: XCTestCase {
         "folder", "create-spreadsheet",
         "set-values", "values-read", "append", "append-read", "raw-read", "batch-get",
         "get", "tab-add", "tab-rename", "tab-delete", "freeze", "resize", "format",
-        "chart-add", "clear", "clear-read",
+        "chart-add", "chart-list", "chart-update", "chart-delete", "clear", "clear-read",
         "drive-trash-spreadsheet",
     ]
 }
@@ -208,6 +222,8 @@ private final class SheetsLiveFixture: @unchecked Sendable {
     private var sheets: [(id: Int, title: String, frozenRows: Int, frozenCols: Int)] =
         [(0, "Sheet1", 0, 0)]
     private var nextSheetId = 1
+    // The embedded charts, listed under the first sheet on a metadata read.
+    private var charts: [(id: Int, title: String)] = []
 
     init(
         existingFolder: Bool = true,
@@ -397,15 +413,23 @@ private final class SheetsLiveFixture: @unchecked Sendable {
             return batchUpdateResponse(request)
         }
         if path == "/v4/spreadsheets/sheet-1", request.method == "GET" {
-            let sheetJSON = sheets.map { sheet -> [String: Any] in
-                ["properties": [
-                    "sheetId": sheet.id,
-                    "title": sheet.title,
-                    "gridProperties": [
-                        "frozenRowCount": sheet.frozenRows,
-                        "frozenColumnCount": sheet.frozenCols,
+            let chartJSON = charts.map { chart in
+                ["chartId": chart.id, "spec": ["title": chart.title]]
+            }
+            let sheetJSON = sheets.enumerated().map { index, sheet -> [String: Any] in
+                var properties: [String: Any] = [
+                    "properties": [
+                        "sheetId": sheet.id,
+                        "title": sheet.title,
+                        "gridProperties": [
+                            "frozenRowCount": sheet.frozenRows,
+                            "frozenColumnCount": sheet.frozenCols,
+                        ],
                     ],
-                ]]
+                ]
+                // The charts are all listed under the first sheet.
+                if index == 0, !chartJSON.isEmpty { properties["charts"] = chartJSON }
+                return properties
             }
             return json([
                 "spreadsheetId": "sheet-1",
@@ -429,10 +453,25 @@ private final class SheetsLiveFixture: @unchecked Sendable {
         switch key {
         case "addChart":
             if failChartAdd { return googleError(message: "chart rejected") }
+            let spec = ((first["addChart"] as? [String: Any])?["chart"] as? [String: Any])?["spec"]
+                as? [String: Any]
+            charts.append((id: 314, title: spec?["title"] as? String ?? ""))
             return json([
                 "spreadsheetId": "sheet-1",
                 "replies": [["addChart": ["chart": ["chartId": 314]]]],
             ])
+        case "updateChartSpec":
+            let op = first["updateChartSpec"] as? [String: Any]
+            if let id = op?["chartId"] as? Int,
+               let title = (op?["spec"] as? [String: Any])?["title"] as? String,
+               let index = charts.firstIndex(where: { $0.id == id }) {
+                charts[index].title = title
+            }
+            return json(["spreadsheetId": "sheet-1", "replies": [[:]]])
+        case "deleteEmbeddedObject":
+            let id = (first["deleteEmbeddedObject"] as? [String: Any])?["objectId"] as? Int
+            charts.removeAll { $0.id == id }
+            return json(["spreadsheetId": "sheet-1", "replies": [[:]]])
         case "addSheet":
             let properties = (first["addSheet"] as? [String: Any])?["properties"] as? [String: Any]
             let title = properties?["title"] as? String ?? ""

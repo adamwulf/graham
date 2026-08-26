@@ -92,7 +92,7 @@ struct Sheets: AsyncParsableCommand {
 
     struct Get: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Show a spreadsheet's title and its sheets."
+            abstract: "Show a spreadsheet's title, its sheets, and any charts."
         )
 
         @Argument(help: "The spreadsheet ID.")
@@ -112,6 +112,14 @@ struct Sheets: AsyncParsableCommand {
                 print(title)
             }
             print(try OutputFormatter.render(spreadsheet.sheets ?? [], format: format))
+
+            // In table format, list any embedded charts under the sheets.
+            let charts = (spreadsheet.sheets ?? []).flatMap { $0.charts ?? [] }
+            if format == .table, !charts.isEmpty {
+                print("")
+                print("Charts:")
+                print(try OutputFormatter.render(charts, format: format))
+            }
         }
     }
 
@@ -579,16 +587,18 @@ struct Sheets: AsyncParsableCommand {
     struct Chart: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Work with embedded spreadsheet charts.",
-            subcommands: [Add.self]
+            subcommands: [Add.self, Update.self, Delete.self]
         )
 
         struct Add: AsyncParsableCommand {
             static let configuration = CommandConfiguration(
-                abstract: "Add a basic chart on its own sheet and print its chart id.",
+                abstract: "Add a chart and print its chart id.",
                 discussion: """
                     The first range column is the domain and each remaining
-                    column is a series. The first row supplies headers. The
-                    printed numeric chart id can be passed to
+                    column is a series (a pie chart uses the first two columns).
+                    The first row supplies headers. By default the chart lands on
+                    its own new sheet; pass --anchor to overlay it on an existing
+                    sheet. The printed numeric chart id can be passed to
                     `graham slides create chart --chart-id`.
                     """
             )
@@ -602,18 +612,94 @@ struct Sheets: AsyncParsableCommand {
             @Option(help: "The chart title.")
             var title: String?
 
-            @Option(help: "The chart type: column, bar, line, area, or scatter.")
+            @Option(help: "The chart type: column, bar, line, area, scatter, or combo.")
             var type: BasicChartType = .column
+
+            @Flag(help: "Make a pie chart (uses the first two columns; ignores --type).")
+            var pie = false
+
+            @Option(help: "Overlay the chart anchored to this A1 cell, e.g. 'Sheet2!D2'.")
+            var anchor: String?
+
+            @Option(help: "Overlay width in pixels (requires --anchor).")
+            var width: Int?
+
+            @Option(help: "Overlay height in pixels (requires --anchor).")
+            var height: Int?
+
+            func validate() throws {
+                if anchor == nil, width != nil || height != nil {
+                    throw ValidationError("--width and --height require --anchor.")
+                }
+            }
 
             func run() async throws {
                 let client = SheetsClient(api: try CLI.makeAPI())
+                let overlay = anchor.map {
+                    ChartOverlay(anchor: $0, widthPixels: width, heightPixels: height)
+                }
                 let chartId = try await client.addChart(
                     spreadsheetId: spreadsheetID,
                     title: title,
                     type: type,
-                    range: range
+                    range: range,
+                    pie: pie,
+                    overlay: overlay
                 )
                 print(chartId)
+            }
+        }
+
+        struct Update: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Replace a chart's spec, rebuilt from a range and type."
+            )
+
+            @Argument(help: "The spreadsheet ID.")
+            var spreadsheetID: String
+
+            @Option(help: "The numeric chart id to update.")
+            var chartId: Int
+
+            @Option(help: "The source range in bounded A1 notation.")
+            var range: String
+
+            @Option(help: "The chart title.")
+            var title: String?
+
+            @Option(help: "The chart type: column, bar, line, area, scatter, or combo.")
+            var type: BasicChartType = .column
+
+            @Flag(help: "Make a pie chart (uses the first two columns; ignores --type).")
+            var pie = false
+
+            func run() async throws {
+                let client = SheetsClient(api: try CLI.makeAPI())
+                try await client.updateChart(
+                    spreadsheetId: spreadsheetID,
+                    chartId: chartId,
+                    title: title,
+                    type: type,
+                    range: range,
+                    pie: pie
+                )
+            }
+        }
+
+        struct Delete: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Delete an embedded chart by its numeric id."
+            )
+
+            @Argument(help: "The spreadsheet ID.")
+            var spreadsheetID: String
+
+            @Option(help: "The numeric chart id to delete.")
+            var chartId: Int
+
+            func run() async throws {
+                let client = SheetsClient(api: try CLI.makeAPI())
+                try await client.deleteChart(spreadsheetId: spreadsheetID, chartId: chartId)
             }
         }
     }

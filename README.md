@@ -17,8 +17,9 @@ Named after Graham's number — a contrast to the googol that named Google.
   write cell values from comma rows, a JSON array, or tab-separated stdin; append
   rows after a table; clear a range; add, rename, and delete tabs; freeze rows
   or columns and resize them; format a range (bold, background, number pattern,
-  alignment); add a basic chart on its own sheet, and run a live end-to-end smoke
-  test of the Sheets command surface; read a document,
+  alignment); add, update, and delete charts (basic, pie, or combo; on a new
+  sheet or as an overlay) and list them; and run a live end-to-end smoke test of
+  the Sheets command surface; read a document,
   render it as Markdown,
   and list its block structure with index ranges; list or download its images;
   create a blank document; and through the shared `documents.batchUpdate` write
@@ -167,6 +168,12 @@ graham sheets format <spreadsheet-id> "Sheet1!A1:B1" --bold --background "#FFF2C
 graham sheets format <spreadsheet-id> "Sheet1!B2:B10" --number-format "#,##0.00"
 # Add a chart and print the chart id; pass it to `slides create chart --chart-id`.
 graham sheets chart add <spreadsheet-id> --range "Sheet1!A1:B3" --title "Sales" --type column
+# A pie chart, or an overlay chart floated over a sheet at an anchor cell.
+graham sheets chart add <spreadsheet-id> --range "Sheet1!A1:B7" --pie
+graham sheets chart add <spreadsheet-id> --range "Sheet1!A1:B7" --anchor "Sheet1!D2" --width 400 --height 300
+# Replace a chart's spec, or delete a chart, by its numeric id.
+graham sheets chart update <spreadsheet-id> --chart-id 12345 --range "Sheet1!A1:C7" --type line
+graham sheets chart delete <spreadsheet-id> --chart-id 12345
 # Exercise the live Sheets API surface (a value write and read-back, metadata,
 # and a chart add) inside the root-level "graham test" folder. The spreadsheet
 # is trashed afterward; --keep retains it. Any failed step exits nonzero.

@@ -5,7 +5,9 @@ For architecture and implementation conventions, see `CLAUDE.md`.
 
 **Google Docs is at practical 100%** — every `core` and `useful` operation is
 built and merged. Only the explicitly-deferred advanced items below remain.
-**Sheets** is the next major area (see the end of this file).
+**Google Sheets** has reached practical completeness too — the ranked build-out
+(values, tabs, grid shape, formatting, charts) is merged; only advanced polish
+remains (see the end of this file).
 
 ---
 
@@ -101,11 +103,14 @@ column counts), `values` (read a range, with a `valueRenderOption`),
 `batchUpdate` (the shared batch-write path), `addChart` (a basic chart on its own
 new sheet), the tab operations `addSheet` / `deleteSheet` / `renameSheet` (plus
 `sheetId(title:)` / `firstSheetId` resolution), the grid-shape operations
-`freeze` and `resizeDimension`, and `formatCells` (a `repeatCell` format slice).
-The CLI exposes these as `sheets get`, `sheets values` (`--raw` / `--formulas`,
-one or more ranges), `sheets set` (`--row` / `--json-rows` / `--tsv`),
-`sheets append`, `sheets clear`, `sheets tab add` / `delete` / `rename`,
-`sheets freeze`, `sheets resize`, `sheets format`, and `sheets chart add`.
+`freeze` and `resizeDimension`, `formatCells` (a `repeatCell` format slice), and
+the chart operations `addChart` (basic / pie / combo, on a new sheet or as an
+overlay), `updateChart`, and `deleteChart` (charts are also listed in the read
+model). The CLI exposes these as `sheets get`, `sheets values`
+(`--raw` / `--formulas`, one or more ranges), `sheets set`
+(`--row` / `--json-rows` / `--tsv`), `sheets append`, `sheets clear`,
+`sheets tab add` / `delete` / `rename`, `sheets freeze`, `sheets resize`,
+`sheets format`, and `sheets chart add` / `update` / `delete`.
 
 `graham sheets test` runs the live end-to-end Sheets smoke test over that surface
 (`SheetsLiveTest.swift`), with real value write / append / clear
@@ -133,11 +138,19 @@ grid indices are zero-based (dimension ranges are also half-open); the CLI shows
 and accepts one-based (inclusive for dimensions) and `GrahamKit` translates.
 Building a fields mask reuses the Slides `update*Properties` mask convention.
 
-### Phase 5 — Chart upgrades
+### Practical completeness reached
 
-- One unit each: overlay position with an anchor cell and pixel size; a
-  `pieChart` spec plus the `COMBO` type; `deleteEmbeddedObject` +
-  `updateChartSpec`; and listing `sheets.charts` in `sheets get` so charts are
-  listable.
-- Grow `sheets test`: add an overlay chart, list it through `get`, then update
-  and delete it.
+The ranked Sheets build-out (values completeness, tab management, grid shape,
+cell formatting, and chart upgrades) is built and merged, and `graham sheets
+test` exercises the whole surface. What remains is advanced polish, added only
+when a real need appears:
+
+- **More formatting** — clearing or toggling off a format (the `--bold` flag
+  only sets), number formats with an explicit type (`DATE`, `CURRENCY`, …),
+  text color / font, and cell borders via `updateBorders`.
+- **Structure** — `mergeCells` / `unmergeCells`, `sortRange`, `autoResize`
+  dimensions, and Sheets-side named ranges.
+- **Data tooling** — conditional formatting, data validation, basic filters and
+  filter views, and protected ranges.
+- **More chart types** — histogram, scorecard, and candlestick specs, and
+  editing a chart's position (`updateEmbeddedObjectPosition`).

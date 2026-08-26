@@ -34,7 +34,8 @@ final class ModelTests: XCTestCase {
             "sheets": [
                 {"properties": {"sheetId": 0, "title": "Tab A", "index": 0,
                     "gridProperties": {"rowCount": 100, "columnCount": 26,
-                        "frozenRowCount": 1, "frozenColumnCount": 2}}}
+                        "frozenRowCount": 1, "frozenColumnCount": 2}},
+                 "charts": [{"chartId": 314, "spec": {"title": "Sales"}}]}
             ]
         }
         """#
@@ -50,6 +51,11 @@ final class ModelTests: XCTestCase {
         // The row renders the frozen counts, defaulting an absent count to 0.
         XCTAssertEqual(
             spreadsheet.sheets?.first?.tableValues, ["0", "100", "26", "1", "2", "Tab A"])
+        // The embedded chart decodes and renders as a chart row.
+        let chart = spreadsheet.sheets?.first?.charts?.first
+        XCTAssertEqual(chart?.chartId, 314)
+        XCTAssertEqual(chart?.spec?.title, "Sales")
+        XCTAssertEqual(chart?.tableValues, ["314", "Sales"])
     }
 
     // MARK: - Docs
