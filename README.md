@@ -25,9 +25,10 @@ Named after Graham's number — a contrast to the googol that named Google.
   delete a positioned object), manage headers, footers, and footnotes
   (create and delete headers and footers, and create a footnote with optional
   text), fill templates with named ranges (create, list, delete, and replace
-  the content of a named range by id or name), and set document-wide page style
+  the content of a named range by id or name), set document-wide page style
   (page size, margins, first-page and even-page header/footer flags, background,
-  and page mode).
+  and page mode), and run a live end-to-end smoke test of the complete Docs
+  command surface.
 - **Slides** — read presentation text; list every page element with its type,
   geometry, text, links, and alt text; list or download every image, including
   images nested in groups; add, move, and delete slides through the shared
@@ -255,6 +256,12 @@ graham docs page-setup <document-id> --margin-top 72 --margin-bottom 72 --margin
 graham docs page-setup <document-id> --first-page-header-footer --background "#FFFFFF"
 graham docs page-setup <document-id> --margin-header 24 --margin-footer 24 --page-number-start 1
 graham docs page-setup <document-id> --mode pageless --flip-orientation
+# Exercise the complete live Docs API surface inside the root-level "graham test" folder.
+# The run creates a disposable document and exercises text, styling, lists, tables,
+# images, headers/footers/footnotes, named ranges, and page setup.
+# The created document is trashed afterward; --keep retains it. Any failed step exits nonzero.
+graham docs test
+graham docs test --keep --folder "graham test" --image-url https://example.com/image.png
 
 graham slides cat <presentation-id>
 # List every element; JSON includes raw geometry, links, alt text, and image URLs.
