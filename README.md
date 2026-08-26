@@ -114,6 +114,11 @@ graham sheets chart add <spreadsheet-id> --range "Sheet1!A1:B3" --title "Sales" 
 # Create a new, blank document from a title and print its id.
 graham docs create "My New Document"
 graham docs cat <document-id>
+# Render the document as GitHub-flavored Markdown: headings, bold/italic/strike,
+# links, ordered and unordered nested lists, pipe tables, horizontal rules,
+# page-break markers, footnotes, and inline images. --markdown and --json are
+# mutually exclusive.
+graham docs cat <document-id> --markdown
 # List the document's blocks with their zero-based UTF-16 index ranges, kind
 # (paragraph, heading, list item, table, section break, TOC), style, list id and
 # nesting, object ids, and a text preview. The indices are what the write
