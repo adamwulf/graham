@@ -1417,6 +1417,563 @@ final class DocsWriteTests: XCTestCase {
         }
     }
 
+    // MARK: - createNamedRange
+
+    func testCreateNamedRangePostsExactBodyAndReturnsNamedRangeId() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"documentId":"doc-1","replies":[{"createNamedRange":{"namedRangeId":"nr-1"}}]}"#
+        )
+
+        let result = try await client.createNamedRange(
+            documentId: "doc-1", name: "greeting", startIndex: 2, endIndex: 8)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(
+            request.url.absoluteString,
+            "https://docs.googleapis.com/v1/documents/doc-1:batchUpdate"
+        )
+        XCTAssertEqual(request.headers["Content-Type"], "application/json")
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"createNamedRange":{"name":"greeting","range":{"endIndex":8,"startIndex":2}}}]}"#
+        )
+        // The reply id is returned so the delete and fill ops can address it.
+        XCTAssertEqual(result.namedRangeId, "nr-1")
+        XCTAssertEqual(result.response.documentId, "doc-1")
+    }
+
+    func testCreateNamedRangeInSegmentCarriesSegmentIdAndAllowsIndexZero() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"replies":[{"createNamedRange":{"namedRangeId":"nr-2"}}]}"#
+        )
+
+        _ = try await client.createNamedRange(
+            documentId: "doc-1", name: "note", startIndex: 0, endIndex: 3,
+            segmentId: "kix.ftn1")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        // A named segment starts its content at index 0, and the segment id rides
+        // in the range (sorted keys put endIndex, segmentId, then startIndex).
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"createNamedRange":{"name":"note","range":{"endIndex":3,"segmentId":"kix.ftn1","startIndex":0}}}]}"#
+        )
+    }
+
+    func testCreateNamedRangeWithRequiredRevisionCarriesWriteControl() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"replies":[{"createNamedRange":{"namedRangeId":"nr-3"}}]}"#
+        )
+
+        _ = try await client.createNamedRange(
+            documentId: "doc-1", name: "greeting", startIndex: 2, endIndex: 8,
+            requiredRevisionId: "rev-1")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"createNamedRange":{"name":"greeting","range":{"endIndex":8,"startIndex":2}}}],"writeControl":{"requiredRevisionId":"rev-1"}}"#
+        )
+    }
+
+    func testCreateNamedRangeReturnsNilIdForEmptyReply() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: "{}")
+
+        let result = try await client.createNamedRange(
+            documentId: "doc-1", name: "greeting", startIndex: 2, endIndex: 8)
+
+        XCTAssertNil(result.namedRangeId)
+        XCTAssertNil(result.response.documentId)
+    }
+
+    func testCreateNamedRangeRejectsBadInputWithoutSendingARequest() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        // Empty name.
+        await assertInvalidArgument {
+            _ = try await client.createNamedRange(
+                documentId: "doc-1", name: "", startIndex: 1, endIndex: 5)
+        }
+        // Name longer than 256 UTF-16 code units.
+        await assertInvalidArgument {
+            _ = try await client.createNamedRange(
+                documentId: "doc-1", name: String(repeating: "a", count: 257),
+                startIndex: 1, endIndex: 5)
+        }
+        // endIndex must be greater than startIndex.
+        await assertInvalidArgument {
+            _ = try await client.createNamedRange(
+                documentId: "doc-1", name: "x", startIndex: 5, endIndex: 5)
+        }
+        // Body index 0 lands inside the initial section break.
+        await assertInvalidArgument {
+            _ = try await client.createNamedRange(
+                documentId: "doc-1", name: "x", startIndex: 0, endIndex: 3)
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testCreateNamedRangeMeasuresNameInUTF16CodeUnits() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"replies":[{"createNamedRange":{"namedRangeId":"nr-4"}}]}"#
+        )
+
+        // 128 emoji is 256 UTF-16 code units — exactly the maximum, so accepted.
+        let maxName = String(repeating: "😀", count: 128)
+        XCTAssertEqual(maxName.utf16.count, 256)
+        _ = try await client.createNamedRange(
+            documentId: "doc-1", name: maxName, startIndex: 1, endIndex: 5)
+        XCTAssertEqual(transport.requests(urlContains: ":batchUpdate").count, 1)
+
+        // 129 emoji is 258 UTF-16 code units — over the limit, so rejected even
+        // though it is only 129 Characters (this proves the count is UTF-16, not
+        // Characters).
+        let tooLong = String(repeating: "😀", count: 129)
+        XCTAssertEqual(tooLong.utf16.count, 258)
+        await assertInvalidArgument {
+            _ = try await client.createNamedRange(
+                documentId: "doc-1", name: tooLong, startIndex: 1, endIndex: 5)
+        }
+        // Still only the one accepted request went out.
+        XCTAssertEqual(transport.requests(urlContains: ":batchUpdate").count, 1)
+    }
+
+    func testCreateNamedRangePropagatesGoogleErrorEnvelope() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"error":{"code":400,"message":"Bad range","status":"INVALID_ARGUMENT"}}"#,
+            status: 400
+        )
+
+        await assertGoogleError(code: 400, status: "INVALID_ARGUMENT", message: "Bad range") {
+            _ = try await client.createNamedRange(
+                documentId: "doc-1", name: "greeting", startIndex: 2, endIndex: 8)
+        }
+    }
+
+    // MARK: - deleteNamedRange
+
+    func testDeleteNamedRangeByIdPostsExactBodyAndDecodesReply() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"documentId":"doc-1","replies":[{}]}"#
+        )
+
+        let response = try await client.deleteNamedRange(
+            documentId: "doc-1", namedRangeId: "nr-1")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(
+            request.url.absoluteString,
+            "https://docs.googleapis.com/v1/documents/doc-1:batchUpdate"
+        )
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"deleteNamedRange":{"namedRangeId":"nr-1"}}]}"#
+        )
+        // A delete replies with an empty object.
+        XCTAssertEqual(response.replies?.count, 1)
+    }
+
+    func testDeleteNamedRangeByNamePostsExactBody() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.deleteNamedRange(documentId: "doc-1", name: "greeting")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        // The name selector deletes every range sharing the name.
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"deleteNamedRange":{"name":"greeting"}}]}"#
+        )
+    }
+
+    func testDeleteNamedRangeWithRequiredRevisionCarriesWriteControl() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.deleteNamedRange(
+            documentId: "doc-1", namedRangeId: "nr-1", requiredRevisionId: "rev-2")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"deleteNamedRange":{"namedRangeId":"nr-1"}}],"writeControl":{"requiredRevisionId":"rev-2"}}"#
+        )
+    }
+
+    func testDeleteNamedRangeRejectsBadSelectorsWithoutSendingARequest() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        // Neither selector.
+        await assertInvalidArgument {
+            _ = try await client.deleteNamedRange(documentId: "doc-1")
+        }
+        // Both selectors.
+        await assertInvalidArgument {
+            _ = try await client.deleteNamedRange(
+                documentId: "doc-1", namedRangeId: "nr-1", name: "greeting")
+        }
+        // Empty id.
+        await assertInvalidArgument {
+            _ = try await client.deleteNamedRange(documentId: "doc-1", namedRangeId: "")
+        }
+        // Empty name.
+        await assertInvalidArgument {
+            _ = try await client.deleteNamedRange(documentId: "doc-1", name: "")
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testDeleteNamedRangePropagatesGoogleErrorEnvelope() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"error":{"code":404,"message":"No range","status":"NOT_FOUND"}}"#,
+            status: 404
+        )
+
+        await assertGoogleError(code: 404, status: "NOT_FOUND", message: "No range") {
+            _ = try await client.deleteNamedRange(documentId: "doc-1", namedRangeId: "nr-1")
+        }
+    }
+
+    // MARK: - replaceNamedRangeContent
+
+    func testReplaceNamedRangeContentByIdPostsExactBodyAndDecodesReply() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"documentId":"doc-1","replies":[{}]}"#
+        )
+
+        let response = try await client.replaceNamedRangeContent(
+            documentId: "doc-1", text: "World", namedRangeId: "nr-1")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(
+            request.url.absoluteString,
+            "https://docs.googleapis.com/v1/documents/doc-1:batchUpdate"
+        )
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"replaceNamedRangeContent":{"namedRangeId":"nr-1","text":"World"}}]}"#
+        )
+        XCTAssertEqual(response.replies?.count, 1)
+    }
+
+    func testReplaceNamedRangeContentByNameUsesNamedRangeNameField() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.replaceNamedRangeContent(
+            documentId: "doc-1", text: "Hi", name: "greeting")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        // The name selector uses the `namedRangeName` field (not `name`), matching
+        // the API's ReplaceNamedRangeContentRequest.
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"replaceNamedRangeContent":{"namedRangeName":"greeting","text":"Hi"}}]}"#
+        )
+    }
+
+    func testReplaceNamedRangeContentAllowsEmptyTextToClearTheRange() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.replaceNamedRangeContent(
+            documentId: "doc-1", text: "", namedRangeId: "nr-1")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        // An empty replacement clears the range and is allowed.
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"replaceNamedRangeContent":{"namedRangeId":"nr-1","text":""}}]}"#
+        )
+    }
+
+    func testReplaceNamedRangeContentWithRequiredRevisionCarriesWriteControl() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.replaceNamedRangeContent(
+            documentId: "doc-1", text: "World", namedRangeId: "nr-1",
+            requiredRevisionId: "rev-3")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"replaceNamedRangeContent":{"namedRangeId":"nr-1","text":"World"}}],"writeControl":{"requiredRevisionId":"rev-3"}}"#
+        )
+    }
+
+    func testReplaceNamedRangeContentRejectsBadSelectorsWithoutSendingARequest() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        // Neither selector.
+        await assertInvalidArgument {
+            _ = try await client.replaceNamedRangeContent(documentId: "doc-1", text: "x")
+        }
+        // Both selectors.
+        await assertInvalidArgument {
+            _ = try await client.replaceNamedRangeContent(
+                documentId: "doc-1", text: "x", namedRangeId: "nr-1", name: "greeting")
+        }
+        // Empty id.
+        await assertInvalidArgument {
+            _ = try await client.replaceNamedRangeContent(
+                documentId: "doc-1", text: "x", namedRangeId: "")
+        }
+        // Empty name.
+        await assertInvalidArgument {
+            _ = try await client.replaceNamedRangeContent(
+                documentId: "doc-1", text: "x", name: "")
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testReplaceNamedRangeContentPropagatesGoogleErrorEnvelope() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"error":{"code":400,"message":"Bad id","status":"INVALID_ARGUMENT"}}"#,
+            status: 400
+        )
+
+        await assertGoogleError(code: 400, status: "INVALID_ARGUMENT", message: "Bad id") {
+            _ = try await client.replaceNamedRangeContent(
+                documentId: "doc-1", text: "World", namedRangeId: "nr-1")
+        }
+    }
+
+    // MARK: - updateDocumentStyle
+
+    func testUpdateDocumentStyleWithAllOptionsPostsExactBodyAndMask() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"documentId":"doc-1","replies":[{}]}"#
+        )
+
+        let background = try DocsOptionalColor.parse("#FFFFFF")
+        _ = try await client.updateDocumentStyle(
+            documentId: "doc-1",
+            pageWidth: 612, pageHeight: 792,
+            marginTop: 72, marginBottom: 72, marginLeft: 90, marginRight: 90,
+            useFirstPageHeaderFooter: true, useEvenPageHeaderFooter: false,
+            background: background)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(
+            request.url.absoluteString,
+            "https://docs.googleapis.com/v1/documents/doc-1:batchUpdate"
+        )
+        // The fields mask is the fixed documented order; the documentStyle keys
+        // are sorted by the shared encoder. pageSize is one Size (width+height).
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateDocumentStyle":{"documentStyle":{"background":{"color":{"color":{"rgbColor":{"blue":1,"green":1,"red":1}}}},"marginBottom":{"magnitude":72,"unit":"PT"},"marginLeft":{"magnitude":90,"unit":"PT"},"marginRight":{"magnitude":90,"unit":"PT"},"marginTop":{"magnitude":72,"unit":"PT"},"pageSize":{"height":{"magnitude":792,"unit":"PT"},"width":{"magnitude":612,"unit":"PT"}},"useEvenPageHeaderFooter":false,"useFirstPageHeaderFooter":true},"fields":"pageSize,marginTop,marginBottom,marginLeft,marginRight,useFirstPageHeaderFooter,useEvenPageHeaderFooter,background"}}]}"#
+        )
+    }
+
+    func testUpdateDocumentStyleMarginsOnlyEmitsMinimalMaskAndBody() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.updateDocumentStyle(
+            documentId: "doc-1", marginTop: 36, marginLeft: 54)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        // Only the provided margins appear in the mask, in the fixed order
+        // (marginTop before marginLeft); absent fields are omitted entirely.
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateDocumentStyle":{"documentStyle":{"marginLeft":{"magnitude":54,"unit":"PT"},"marginTop":{"magnitude":36,"unit":"PT"}},"fields":"marginTop,marginLeft"}}]}"#
+        )
+    }
+
+    func testUpdateDocumentStyleHeaderFooterFlagsAndBackground() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        let background = try DocsOptionalColor.parse("#000000")
+        _ = try await client.updateDocumentStyle(
+            documentId: "doc-1",
+            useFirstPageHeaderFooter: true, useEvenPageHeaderFooter: true,
+            background: background)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateDocumentStyle":{"documentStyle":{"background":{"color":{"color":{"rgbColor":{"blue":0,"green":0,"red":0}}}},"useEvenPageHeaderFooter":true,"useFirstPageHeaderFooter":true},"fields":"useFirstPageHeaderFooter,useEvenPageHeaderFooter,background"}}]}"#
+        )
+    }
+
+    func testUpdateDocumentStyleWithRequiredRevisionCarriesWriteControl() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.updateDocumentStyle(
+            documentId: "doc-1", marginTop: 10, requiredRevisionId: "rev-1")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateDocumentStyle":{"documentStyle":{"marginTop":{"magnitude":10,"unit":"PT"}},"fields":"marginTop"}}],"writeControl":{"requiredRevisionId":"rev-1"}}"#
+        )
+    }
+
+    func testUpdateDocumentStyleDecodesEmptyReply() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: "{}")
+
+        let response = try await client.updateDocumentStyle(
+            documentId: "doc-1", marginTop: 36)
+
+        XCTAssertNil(response.documentId)
+        XCTAssertNil(response.replies)
+    }
+
+    func testUpdateDocumentStyleRejectsBadInputWithoutSendingARequest() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        // No option at all.
+        await assertInvalidArgument {
+            _ = try await client.updateDocumentStyle(documentId: "doc-1")
+        }
+        // A page width without a page height (the pair must be given together).
+        await assertInvalidArgument {
+            _ = try await client.updateDocumentStyle(documentId: "doc-1", pageWidth: 612)
+        }
+        // A page height without a page width.
+        await assertInvalidArgument {
+            _ = try await client.updateDocumentStyle(documentId: "doc-1", pageHeight: 792)
+        }
+        // A zero dimension.
+        await assertInvalidArgument {
+            _ = try await client.updateDocumentStyle(documentId: "doc-1", marginTop: 0)
+        }
+        // A negative dimension.
+        await assertInvalidArgument {
+            _ = try await client.updateDocumentStyle(documentId: "doc-1", marginLeft: -5)
+        }
+        // A non-positive page size dimension (both given, but one is zero).
+        await assertInvalidArgument {
+            _ = try await client.updateDocumentStyle(
+                documentId: "doc-1", pageWidth: 0, pageHeight: 792)
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testUpdateDocumentStylePropagatesGoogleErrorEnvelope() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"error":{"code":400,"message":"Bad style","status":"INVALID_ARGUMENT"}}"#,
+            status: 400
+        )
+
+        await assertGoogleError(code: 400, status: "INVALID_ARGUMENT", message: "Bad style") {
+            _ = try await client.updateDocumentStyle(documentId: "doc-1", marginTop: 36)
+        }
+    }
+
+    // MARK: - Named-range and document-style union discriminators
+
+    /// The two delete/replace selectors are a one-of: each dedicated init sets
+    /// exactly one field, so a dual-selector body is unrepresentable.
+    func testNamedRangeSelectorsAreMutuallyExclusiveByConstruction() {
+        let deleteById = DocsDeleteNamedRangeRequest(namedRangeId: "nr-1")
+        XCTAssertEqual(deleteById.namedRangeId, "nr-1")
+        XCTAssertNil(deleteById.name)
+
+        let deleteByName = DocsDeleteNamedRangeRequest(name: "greeting")
+        XCTAssertNil(deleteByName.namedRangeId)
+        XCTAssertEqual(deleteByName.name, "greeting")
+
+        let replaceById = DocsReplaceNamedRangeContentRequest(namedRangeId: "nr-1", text: "x")
+        XCTAssertEqual(replaceById.namedRangeId, "nr-1")
+        XCTAssertNil(replaceById.namedRangeName)
+
+        let replaceByName = DocsReplaceNamedRangeContentRequest(namedRangeName: "greeting", text: "x")
+        XCTAssertNil(replaceByName.namedRangeId)
+        XCTAssertEqual(replaceByName.namedRangeName, "greeting")
+    }
+
+    /// The union encodes each new case under its own JSON key, so a caller can mix
+    /// these operations in one batch. This locks the four discriminators.
+    func testEveryNamedRangeAndDocumentStyleRequestTypeEncodesUnderItsOwnKey() throws {
+        let cases: [(DocsBatchUpdateRequest, String)] = [
+            (
+                .createNamedRange(DocsCreateNamedRangeRequest(
+                    name: "greeting", range: DocsRange(startIndex: 2, endIndex: 8))),
+                #"{"createNamedRange":{"name":"greeting","range":{"endIndex":8,"startIndex":2}}}"#
+            ),
+            (
+                .deleteNamedRange(DocsDeleteNamedRangeRequest(namedRangeId: "nr-1")),
+                #"{"deleteNamedRange":{"namedRangeId":"nr-1"}}"#
+            ),
+            (
+                .replaceNamedRangeContent(DocsReplaceNamedRangeContentRequest(
+                    namedRangeName: "greeting", text: "Hi")),
+                #"{"replaceNamedRangeContent":{"namedRangeName":"greeting","text":"Hi"}}"#
+            ),
+            (
+                .updateDocumentStyle(DocsUpdateDocumentStyleRequest(
+                    documentStyle: DocsDocumentStyle(
+                        marginTop: DocsDimension(magnitude: 10, unit: .pt)),
+                    fields: "marginTop")),
+                #"{"updateDocumentStyle":{"documentStyle":{"marginTop":{"magnitude":10,"unit":"PT"}},"fields":"marginTop"}}"#
+            ),
+        ]
+        for (request, expected) in cases {
+            let data = try GoogleJSON.encoder.encode(request)
+            XCTAssertEqual(String(data: data, encoding: .utf8), expected)
+        }
+    }
+
     // MARK: - Helpers
 
     private func assertInvalidArgument(

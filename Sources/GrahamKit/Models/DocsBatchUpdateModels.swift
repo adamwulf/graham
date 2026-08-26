@@ -90,6 +90,15 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
     /// Creates a footnote and inserts its reference at a body location; the reply
     /// carries the new footnote segment id.
     case createFootnote(DocsCreateFootnoteRequest)
+    /// Names a range; the reply carries the new named-range id.
+    case createNamedRange(DocsCreateNamedRangeRequest)
+    /// Deletes a named range by its id, or every range sharing a name.
+    case deleteNamedRange(DocsDeleteNamedRangeRequest)
+    /// Replaces the content of a named range (by id or name) with text.
+    case replaceNamedRangeContent(DocsReplaceNamedRangeContentRequest)
+    /// Sets document-wide style (page size, margins, header/footer flags,
+    /// background); the `fields` mask decides which properties apply.
+    case updateDocumentStyle(DocsUpdateDocumentStyleRequest)
 
     private enum CodingKeys: String, CodingKey {
         case insertText
@@ -120,6 +129,10 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
         case deleteHeader
         case deleteFooter
         case createFootnote
+        case createNamedRange
+        case deleteNamedRange
+        case replaceNamedRangeContent
+        case updateDocumentStyle
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -181,6 +194,14 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
             try container.encode(request, forKey: .deleteFooter)
         case .createFootnote(let request):
             try container.encode(request, forKey: .createFootnote)
+        case .createNamedRange(let request):
+            try container.encode(request, forKey: .createNamedRange)
+        case .deleteNamedRange(let request):
+            try container.encode(request, forKey: .deleteNamedRange)
+        case .replaceNamedRangeContent(let request):
+            try container.encode(request, forKey: .replaceNamedRangeContent)
+        case .updateDocumentStyle(let request):
+            try container.encode(request, forKey: .updateDocumentStyle)
         }
     }
 }
@@ -1376,6 +1397,151 @@ public struct DocsCreateFootnoteRequest: Codable, Sendable, Equatable {
         location: nil, endOfSegmentLocation: DocsEndOfSegmentLocation())
 }
 
+// MARK: - Named ranges and document style
+//
+// These mirror the Docs v1 `createNamedRange`, `deleteNamedRange`,
+// `replaceNamedRangeContent`, and `updateDocumentStyle` operations, plus the
+// `DocumentStyle`, `Background`, and (reused) `Size` / `Dimension` sub-models.
+// A named range labels a zero-based UTF-16 range so a later write can fill it —
+// the template-filling primitive. The two range selectors on the delete and
+// replace operations are a Google `oneof`: each is modeled with two dedicated
+// inits (exactly one field set, the other nil and omitted when encoded), the
+// same discipline as ``DocsWriteControl`` and ``DocsInsertTextRequest``, so a
+// dual-selector body is unrepresentable. `updateDocumentStyle` follows the
+// styling `fields`-mask discipline: every style field is optional and the
+// request's mask, not the container, decides which properties the API applies.
+
+/// The `createNamedRange` operation. `name` is required and must be 1 to 256
+/// UTF-16 code units (names need not be unique); `range` is the zero-based
+/// UTF-16 span to name. The reply carries the new named-range id
+/// (``DocsCreateNamedRangeReply``).
+public struct DocsCreateNamedRangeRequest: Codable, Sendable, Equatable {
+    public let name: String
+    public let range: DocsRange
+
+    public init(name: String, range: DocsRange) {
+        self.name = name
+        self.range = range
+    }
+}
+
+/// The `deleteNamedRange` operation. The target is exactly one of a
+/// `namedRangeId` (deletes that one range) or a `name` (deletes every range
+/// sharing the name). The two inits keep those mutually exclusive — only the
+/// chosen one is set, and the other stays nil and is omitted when encoded, so a
+/// dual-selector body is unrepresentable.
+public struct DocsDeleteNamedRangeRequest: Codable, Sendable, Equatable {
+    public let namedRangeId: String?
+    public let name: String?
+
+    /// Deletes the single named range with this id.
+    public init(namedRangeId: String) {
+        self.namedRangeId = namedRangeId
+        self.name = nil
+    }
+
+    /// Deletes every named range sharing this name.
+    public init(name: String) {
+        self.namedRangeId = nil
+        self.name = name
+    }
+}
+
+/// The `replaceNamedRangeContent` operation. `text` replaces the named range's
+/// content (an empty string clears it); a discontinuous named range replaces
+/// only its first subrange. The target is exactly one of a `namedRangeId`
+/// (that one range) or a `namedRangeName` (every range sharing the name); the
+/// two inits keep those mutually exclusive — only the chosen one is set, and the
+/// other stays nil and is omitted when encoded. The API field for the name
+/// selector is `namedRangeName` (not `name`), unlike ``DocsDeleteNamedRangeRequest``.
+public struct DocsReplaceNamedRangeContentRequest: Codable, Sendable, Equatable {
+    public let namedRangeId: String?
+    public let namedRangeName: String?
+    public let text: String
+
+    /// Replaces the content of the single named range with this id.
+    public init(namedRangeId: String, text: String) {
+        self.namedRangeId = namedRangeId
+        self.namedRangeName = nil
+        self.text = text
+    }
+
+    /// Replaces the content of every named range sharing this name.
+    public init(namedRangeName: String, text: String) {
+        self.namedRangeId = nil
+        self.namedRangeName = namedRangeName
+        self.text = text
+    }
+}
+
+/// A Docs v1 `Background`: the background of a document. The API models it with
+/// a single ``DocsOptionalColor`` (a document background cannot be transparent,
+/// so graham always sets a solid color). The other appearance surfaces reuse
+/// ``DocsOptionalColor`` too, so this is a thin wrapper matching the API shape.
+public struct DocsBackground: Codable, Sendable, Equatable {
+    public let color: DocsOptionalColor?
+
+    public init(color: DocsOptionalColor? = nil) {
+        self.color = color
+    }
+}
+
+/// The writable subset of a Docs `DocumentStyle`.
+///
+/// Every field is optional; the request's `fields` mask, not this container,
+/// decides which properties the API applies. `pageSize` is a ``DocsSize`` whose
+/// width and height are ``DocsDimension`` values in points; the four margins are
+/// ``DocsDimension`` values in points; `useFirstPageHeaderFooter` and
+/// `useEvenPageHeaderFooter` toggle the first-page and even-page header/footer
+/// ids; `background` sets the document background color. The API's read-only
+/// fields (the header/footer ids, `useCustomHeaderFooterMargins`) and the
+/// advanced fields (`marginHeader`, `marginFooter`, `pageNumberStart`,
+/// `flipPageOrientation`, `documentFormat`) are out of this slice.
+public struct DocsDocumentStyle: Codable, Sendable, Equatable {
+    public let pageSize: DocsSize?
+    public let marginTop: DocsDimension?
+    public let marginBottom: DocsDimension?
+    public let marginLeft: DocsDimension?
+    public let marginRight: DocsDimension?
+    public let useFirstPageHeaderFooter: Bool?
+    public let useEvenPageHeaderFooter: Bool?
+    public let background: DocsBackground?
+
+    public init(
+        pageSize: DocsSize? = nil,
+        marginTop: DocsDimension? = nil,
+        marginBottom: DocsDimension? = nil,
+        marginLeft: DocsDimension? = nil,
+        marginRight: DocsDimension? = nil,
+        useFirstPageHeaderFooter: Bool? = nil,
+        useEvenPageHeaderFooter: Bool? = nil,
+        background: DocsBackground? = nil
+    ) {
+        self.pageSize = pageSize
+        self.marginTop = marginTop
+        self.marginBottom = marginBottom
+        self.marginLeft = marginLeft
+        self.marginRight = marginRight
+        self.useFirstPageHeaderFooter = useFirstPageHeaderFooter
+        self.useEvenPageHeaderFooter = useEvenPageHeaderFooter
+        self.background = background
+    }
+}
+
+/// The `updateDocumentStyle` operation. `fields` is a comma-separated field mask
+/// of the ``DocsDocumentStyle`` paths to apply, relative to the style root; at
+/// least one path is required. The style change is document-wide (Docs has no
+/// per-tab document style in this slice).
+public struct DocsUpdateDocumentStyleRequest: Codable, Sendable, Equatable {
+    public let documentStyle: DocsDocumentStyle
+    public let fields: String
+
+    public init(documentStyle: DocsDocumentStyle, fields: String) {
+        self.documentStyle = documentStyle
+        self.fields = fields
+    }
+}
+
 // MARK: - Responses
 
 /// The response of a `documents.batchUpdate` call.
@@ -1393,18 +1559,21 @@ public struct DocsBatchUpdateResponse: Codable, Sendable {
 /// One reply in a Docs batch-update response.
 ///
 /// Only some operations carry a payload: `replaceAllText` reports the number of
-/// occurrences changed, `insertInlineImage` returns the new object id, and
-/// `createHeader` / `createFooter` / `createFootnote` return the new segment id.
-/// The structure operations (`insertText`, `deleteContentRange`,
-/// `insertPageBreak`, `replaceImage`, `deletePositionedObject`,
-/// `insertSectionBreak`, `deleteHeader`, `deleteFooter`, and the table ops) reply
-/// with an empty object, so this decodes to a reply whose every field is nil.
+/// occurrences changed, `insertInlineImage` returns the new object id,
+/// `createHeader` / `createFooter` / `createFootnote` return the new segment id,
+/// and `createNamedRange` returns the new named-range id. The structure
+/// operations (`insertText`, `deleteContentRange`, `insertPageBreak`,
+/// `replaceImage`, `deletePositionedObject`, `insertSectionBreak`,
+/// `deleteHeader`, `deleteFooter`, `deleteNamedRange`, `replaceNamedRangeContent`,
+/// `updateDocumentStyle`, and the table ops) reply with an empty object, so this
+/// decodes to a reply whose every field is nil.
 public struct DocsBatchUpdateReply: Codable, Sendable {
     public let replaceAllText: DocsReplaceAllTextReply?
     public let insertInlineImage: DocsInsertInlineImageReply?
     public let createHeader: DocsCreateHeaderReply?
     public let createFooter: DocsCreateFooterReply?
     public let createFootnote: DocsCreateFootnoteReply?
+    public let createNamedRange: DocsCreateNamedRangeReply?
 }
 
 /// The reply of a `replaceAllText` operation.
@@ -1439,4 +1608,12 @@ public struct DocsCreateFooterReply: Codable, Sendable {
 public struct DocsCreateFootnoteReply: Codable, Sendable {
     /// The ID of the created footnote.
     public let footnoteId: String?
+}
+
+/// The reply of a `createNamedRange` operation, carrying the id of the newly
+/// created named range so a caller can address it with the delete and
+/// replace-content operations.
+public struct DocsCreateNamedRangeReply: Codable, Sendable {
+    /// The ID of the created named range.
+    public let namedRangeId: String?
 }
