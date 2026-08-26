@@ -58,7 +58,7 @@ final class SlidesLiveTestTests: XCTestCase {
         XCTAssertEqual(summary.skipped, 0)
         XCTAssertEqual(summary.passed, Self.expectedStepNames.count)
         XCTAssertEqual(
-            summary.steps.first(where: { $0.name == "sheets-chart-add" })?.createdIDs,
+            summary.steps.first(where: { $0.name == "chart-sheet-add" })?.createdIDs,
             ["314"])
         XCTAssertEqual(
             summary.steps.first(where: { $0.name == "create-chart" })?.createdIDs,
@@ -72,7 +72,7 @@ final class SlidesLiveTestTests: XCTestCase {
             return body.contains(#""createSheetsChart""#)
                 && body.contains(#""linkingMode":"LINKED""#)
         })
-        XCTAssertEqual(fixture.trashRequests.count, 3)
+        XCTAssertEqual(fixture.trashRequests.count, 2)
         XCTAssertEqual(fixture.deleteRequests.count, 1)
         XCTAssertTrue(fixture.copyRequests.allSatisfy {
             fixture.bodyString($0).contains(#""parents":["folder-1"]"#)
@@ -93,7 +93,7 @@ final class SlidesLiveTestTests: XCTestCase {
         XCTAssertEqual(summary.steps.first(where: { $0.name == "style-image" })?.outcome,
                        .skip(reason: "create-image failed"))
         XCTAssertEqual(summary.steps.first(where: { $0.name == "style-line" })?.outcome, .pass)
-        XCTAssertEqual(fixture.trashRequests.count, 3)
+        XCTAssertEqual(fixture.trashRequests.count, 2)
     }
 
     func testChartAddFailureSkipsChartDependentsButContinuesUnrelatedSteps() async {
@@ -104,21 +104,19 @@ final class SlidesLiveTestTests: XCTestCase {
         XCTAssertEqual(summary.failed, 1)
         XCTAssertEqual(summary.skipped, 3)
         XCTAssertEqual(
-            summary.steps.first(where: { $0.name == "sheets-chart-add" })?.outcome,
+            summary.steps.first(where: { $0.name == "chart-sheet-add" })?.outcome,
             .fail(reason: "Google API error 400 (INVALID_ARGUMENT): chart rejected"))
         XCTAssertEqual(
             summary.steps.first(where: { $0.name == "create-chart" })?.outcome,
-            .skip(reason: "sheets-chart-add failed"))
+            .skip(reason: "chart-sheet-add failed"))
         XCTAssertEqual(
             summary.steps.first(where: { $0.name == "chart-refresh" })?.outcome,
             .skip(reason: "create-chart failed"))
         XCTAssertEqual(
             summary.steps.first(where: { $0.name == "chart-verify" })?.outcome,
             .skip(reason: "create-chart failed"))
-        XCTAssertEqual(summary.steps.first(where: { $0.name == "sheets-get" })?.outcome, .pass)
-        XCTAssertEqual(summary.steps.first(where: { $0.name == "docs-cat" })?.outcome, .pass)
         XCTAssertEqual(summary.steps.first(where: { $0.name == "drive-copy" })?.outcome, .pass)
-        XCTAssertEqual(fixture.trashRequests.count, 3)
+        XCTAssertEqual(fixture.trashRequests.count, 2)
     }
 
     func testKeepSkipsCleanupWithoutSendingTrashRequests() async {
@@ -126,10 +124,10 @@ final class SlidesLiveTestTests: XCTestCase {
         let summary = await fixture.makeRunner(keep: true).run()
 
         XCTAssertEqual(summary.failed, 0)
-        XCTAssertEqual(summary.skipped, 3)
-        let cleanup = summary.steps.suffix(3)
+        XCTAssertEqual(summary.skipped, 2)
+        let cleanup = summary.steps.suffix(2)
         XCTAssertEqual(cleanup.map(\.name), [
-            "drive-trash-presentation", "drive-trash-sheet", "drive-trash-doc",
+            "drive-trash-presentation", "drive-trash-chart-sheet",
         ])
         XCTAssertTrue(cleanup.allSatisfy { $0.outcome == .skip(reason: "kept") })
         XCTAssertTrue(fixture.trashRequests.isEmpty)
@@ -153,10 +151,10 @@ final class SlidesLiveTestTests: XCTestCase {
         "text-unbullet", "text-delete", "text-insert-cell",
         "alt-text-set", "alt-text-verify", "alt-text-clear",
         "notes-set", "notes-verify", "notes-clear", "element-delete",
-        "sheets-create", "sheets-set-values", "sheets-chart-add", "sheets-get",
-        "docs-create", "docs-cat", "create-chart", "chart-refresh", "chart-verify",
+        "chart-sheet-create", "chart-sheet-values", "chart-sheet-add",
+        "create-chart", "chart-refresh", "chart-verify",
         "drive-copy", "drive-delete-copy",
-        "drive-trash-presentation", "drive-trash-sheet", "drive-trash-doc",
+        "drive-trash-presentation", "drive-trash-chart-sheet",
     ]
 }
 
@@ -260,7 +258,6 @@ private final class LiveTestFixture: @unchecked Sendable {
             drive: DriveClient(api: api),
             slides: SlidesClient(api: api),
             sheets: SheetsClient(api: api),
-            docs: DocsClient(api: api),
             folderName: folderName,
             keep: keep,
             label: "run-1",
@@ -305,9 +302,6 @@ private final class LiveTestFixture: @unchecked Sendable {
             if mime == DriveCreateType.sheets.mimeType {
                 return driveFile(id: "sheet-1", name: "sheet", mime: DriveCreateType.sheets.mimeType)
             }
-            if mime == DriveCreateType.docs.mimeType {
-                return driveFile(id: "doc-1", name: "doc", mime: DriveCreateType.docs.mimeType)
-            }
         }
         if path.hasSuffix("/copy"), request.method == "POST" {
             return driveFile(id: "copy-1", name: "copy", mime: DriveCreateType.slides.mimeType)
@@ -348,9 +342,6 @@ private final class LiveTestFixture: @unchecked Sendable {
                 "spreadsheetId": "sheet-1",
                 "replies": [["addChart": ["chart": ["chartId": 314]]]],
             ])
-        }
-        if path == "/v1/documents/doc-1" {
-            return json(["documentId": "doc-1", "title": "doc", "body": ["content": []]])
         }
         return HTTPResponse(statusCode: 599, body: Data("unmatched \(request.method) \(request.url)".utf8))
     }

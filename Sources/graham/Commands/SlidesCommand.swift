@@ -17,14 +17,16 @@ struct Slides: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Run the live end-to-end Slides smoke test.",
             discussion: """
-                Creates a presentation and companion files inside a folder in \
-                My Drive, exercises graham's API surface, and trashes the files \
-                afterward. The folder remains. Use --keep to retain the files \
-                for inspection. The command exits nonzero when any step fails.
+                Creates a presentation inside a folder in My Drive, exercises \
+                graham's Slides API surface, and trashes the files afterward. \
+                A small spreadsheet is also created as the source for a linked \
+                Sheets chart, which the deck embeds and refreshes. The folder \
+                remains. Use --keep to retain the files for inspection. The \
+                command exits nonzero when any step fails.
                 """
         )
 
-        @Flag(help: "Keep the presentation, spreadsheet, and document after the run.")
+        @Flag(help: "Keep the presentation and its chart spreadsheet after the run.")
         var keep = false
 
         @Option(help: "The root-level My Drive folder to find or create.")
@@ -42,7 +44,6 @@ struct Slides: AsyncParsableCommand {
                 drive: DriveClient(api: api),
                 slides: SlidesClient(api: api),
                 sheets: SheetsClient(api: api),
-                docs: DocsClient(api: api),
                 folderName: folder,
                 imageURL: imageURL,
                 keep: keep,
