@@ -9,7 +9,7 @@ struct Docs: AsyncParsableCommand {
             Create.self, Cat.self, Structure.self, Insert.self, Delete.self,
             Replace.self, Style.self, Paragraph.self, Heading.self, Bullets.self,
             Unbullet.self, Table.self, Images.self, PageBreak.self, Image.self,
-            Object.self, SectionBreak.self,
+            Object.self, SectionBreak.self, Header.self, Footer.self, Footnote.self,
         ]
     )
 
@@ -1656,6 +1656,227 @@ struct Docs: AsyncParsableCommand {
                 index: at, endOfSegment: end, requiredRevisionId: requireRevision)
             let destination = end ? "the end of the body" : "index \(at ?? 0)"
             print("Inserted a \(type.rawValue) section break at \(destination).")
+        }
+    }
+
+    struct Header: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "header",
+            abstract: "Create or delete a document header.",
+            discussion: """
+                A create returns the new header's segment id; pass it to \
+                `docs insert --segment <id>` (or the other segment-aware \
+                writes) to fill the header. A create can optionally scope the \
+                header to a section with --at, a zero-based UTF-16 body index \
+                at a section break. Only the DEFAULT header type is created; \
+                first-page and even-page headers are document-style flags, not \
+                a create option.
+                """,
+            subcommands: [Create.self, Delete.self]
+        )
+
+        struct Create: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "create",
+                abstract: "Create a header and print its segment id.",
+                discussion: """
+                    Creates a DEFAULT header and prints the new header segment \
+                    id. Pass --at, a zero-based UTF-16 body index at a section \
+                    break (minimum 1), to scope the header to that section; \
+                    omit it to apply the header to the whole document. Get \
+                    index ranges from `docs structure`.
+                    """
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "A zero-based UTF-16 body index at a section break to scope the header to (minimum 1). Omit for the whole document.")
+            var at: Int?
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                let result = try await client.createHeader(
+                    documentId: documentID, sectionBreakIndex: at,
+                    requiredRevisionId: requireRevision)
+                print(result.headerId ?? "")
+            }
+        }
+
+        struct Delete: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "delete",
+                abstract: "Delete a header by its segment id.",
+                discussion: """
+                    Deletes the header with segment id <header-id>. Get header \
+                    ids from a `docs header create` reply or `docs structure`.
+                    """
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Argument(help: "The header's segment id (from `docs header create` or `docs structure`).")
+            var headerID: String
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func validate() throws {
+                if headerID.isEmpty {
+                    throw ValidationError("The header id must not be empty.")
+                }
+            }
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                _ = try await client.deleteHeader(
+                    documentId: documentID, headerId: headerID,
+                    requiredRevisionId: requireRevision)
+                print("Deleted header \(headerID).")
+            }
+        }
+    }
+
+    struct Footer: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "footer",
+            abstract: "Create or delete a document footer.",
+            discussion: """
+                A create returns the new footer's segment id; pass it to \
+                `docs insert --segment <id>` (or the other segment-aware \
+                writes) to fill the footer. A create can optionally scope the \
+                footer to a section with --at, a zero-based UTF-16 body index \
+                at a section break. Only the DEFAULT footer type is created; \
+                first-page and even-page footers are document-style flags, not \
+                a create option.
+                """,
+            subcommands: [Create.self, Delete.self]
+        )
+
+        struct Create: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "create",
+                abstract: "Create a footer and print its segment id.",
+                discussion: """
+                    Creates a DEFAULT footer and prints the new footer segment \
+                    id. Pass --at, a zero-based UTF-16 body index at a section \
+                    break (minimum 1), to scope the footer to that section; \
+                    omit it to apply the footer to the whole document. Get \
+                    index ranges from `docs structure`.
+                    """
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "A zero-based UTF-16 body index at a section break to scope the footer to (minimum 1). Omit for the whole document.")
+            var at: Int?
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                let result = try await client.createFooter(
+                    documentId: documentID, sectionBreakIndex: at,
+                    requiredRevisionId: requireRevision)
+                print(result.footerId ?? "")
+            }
+        }
+
+        struct Delete: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "delete",
+                abstract: "Delete a footer by its segment id.",
+                discussion: """
+                    Deletes the footer with segment id <footer-id>. Get footer \
+                    ids from a `docs footer create` reply or `docs structure`.
+                    """
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Argument(help: "The footer's segment id (from `docs footer create` or `docs structure`).")
+            var footerID: String
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func validate() throws {
+                if footerID.isEmpty {
+                    throw ValidationError("The footer id must not be empty.")
+                }
+            }
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                _ = try await client.deleteFooter(
+                    documentId: documentID, footerId: footerID,
+                    requiredRevisionId: requireRevision)
+                print("Deleted footer \(footerID).")
+            }
+        }
+    }
+
+    struct Footnote: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "footnote",
+            abstract: "Create a footnote and print its segment id.",
+            discussion: """
+                Inserts a footnote reference in the document body at a \
+                zero-based UTF-16 index (--at) or at the end of the body \
+                (--end), and prints the new footnote segment id. Index 1 is \
+                the start of the body text. Footnote references are body-only, \
+                so there is no segment option. With --text, the text is \
+                inserted into the new footnote segment: because the footnote id \
+                is only known after the reference is created, this is a second \
+                write, and the footnote segment starts with an auto-inserted \
+                space and newline, so the text lands at index 1. Get index \
+                ranges from `docs structure`.
+                """
+        )
+
+        @Argument(help: "The document ID.")
+        var documentID: String
+
+        @Option(help: "The zero-based UTF-16 body index to insert the reference at (minimum 1). Not needed with --end.")
+        var at: Int?
+
+        @Flag(help: "Insert the reference at the end of the body. Mutually exclusive with --at; give exactly one.")
+        var end = false
+
+        @Option(help: "Footnote text to insert into the new footnote segment (a second write).")
+        var text: String?
+
+        @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+        var requireRevision: String?
+
+        func validate() throws {
+            if end && at != nil {
+                throw ValidationError(
+                    "Pass either --at <index> or --end, not both: --end inserts the "
+                    + "reference at the end of the body and takes no index.")
+            }
+            guard end || at != nil else {
+                throw ValidationError(
+                    "Provide --at <index>, or pass --end to insert at the end of the body.")
+            }
+            if let text, text.isEmpty {
+                throw ValidationError("--text must not be empty.")
+            }
+        }
+
+        func run() async throws {
+            let client = DocsClient(api: try CLI.makeAPI())
+            let result = try await client.createFootnote(
+                documentId: documentID, index: at, endOfBody: end, text: text,
+                requiredRevisionId: requireRevision)
+            print(result.footnoteId ?? "")
         }
     }
 }
