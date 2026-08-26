@@ -5,7 +5,10 @@ import GrahamKit
 struct Docs: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Work with Google Docs documents.",
-        subcommands: [Create.self, Cat.self, Structure.self, Insert.self, Delete.self, Replace.self, Images.self]
+        subcommands: [
+            Create.self, Cat.self, Structure.self, Insert.self, Delete.self,
+            Replace.self, Style.self, Paragraph.self, Heading.self, Images.self,
+        ]
     )
 
     struct Create: AsyncParsableCommand {
@@ -226,6 +229,264 @@ struct Docs: AsyncParsableCommand {
         }
     }
 
+    struct Style: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Style a range of text: bold, colors, font, link, and so on.",
+            discussion: """
+                Sets the character style of a zero-based UTF-16 range from --from
+                up to but not including --to; at least one style flag is required.
+                --bold, --italic, --underline, and --strike are toggles: pass the
+                flag to turn it on, or its --no- form (for example --no-bold) to
+                turn it off. Colors are a hex value like #FF0000. --size is in
+                points and --font names a family, with an optional --font-weight
+                (a multiple of 100 from 100 to 900). --baseline is super, sub, or
+                none. In a named segment (--segment) the content starts at index
+                0. Get index ranges from `docs structure`.
+                """
+        )
+
+        @Argument(help: "The document ID.")
+        var documentID: String
+
+        @Option(help: "The zero-based UTF-16 start index (inclusive).")
+        var from: Int
+
+        @Option(help: "The zero-based UTF-16 end index (exclusive).")
+        var to: Int
+
+        @Option(help: "A header, footer, or footnote segment id. Omit for the body.")
+        var segment: String?
+
+        @Flag(inversion: .prefixedNo, help: "Bold the text (--no-bold turns it off).")
+        var bold: Bool?
+
+        @Flag(inversion: .prefixedNo, help: "Italicize the text (--no-italic turns it off).")
+        var italic: Bool?
+
+        @Flag(inversion: .prefixedNo, help: "Underline the text (--no-underline turns it off).")
+        var underline: Bool?
+
+        @Flag(inversion: .prefixedNo, help: "Strike through the text (--no-strike turns it off).")
+        var strike: Bool?
+
+        @Option(help: "The text color as a hex value like #FF0000.")
+        var color: String?
+
+        @Option(help: "The background color as a hex value like #FF0000.")
+        var background: String?
+
+        @Option(
+            parsing: .unconditional,
+            help: "The font size in points; must be greater than zero."
+        )
+        var size: Double?
+
+        @Option(help: "The font family name, such as Arial.")
+        var font: String?
+
+        @Option(
+            parsing: .unconditional,
+            help: "The font weight, a multiple of 100 from 100 to 900; requires --font."
+        )
+        var fontWeight: Int?
+
+        @Option(help: "The baseline offset: super, sub, or none.")
+        var baseline: DocsBaselineArgument?
+
+        @Option(help: "Set a link to this URL.")
+        var link: String?
+
+        @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+        var requireRevision: String?
+
+        func validate() throws {
+            let hasStyle =
+                bold != nil || italic != nil || underline != nil || strike != nil
+                || color != nil || background != nil || size != nil || font != nil
+                || fontWeight != nil || baseline != nil || link != nil
+            guard hasStyle else {
+                throw ValidationError("Provide at least one style flag.")
+            }
+            if let fontWeight {
+                guard font != nil else {
+                    throw ValidationError("--font-weight requires --font.")
+                }
+                guard (100...900).contains(fontWeight), fontWeight % 100 == 0 else {
+                    throw ValidationError(
+                        "--font-weight must be a multiple of 100 from 100 to 900.")
+                }
+            }
+            if let size, size <= 0 {
+                throw ValidationError("--size must be greater than zero.")
+            }
+        }
+
+        func run() async throws {
+            let foreground = try color.map { try DocsOptionalColor.parse($0) }
+            let backgroundColor = try background.map { try DocsOptionalColor.parse($0) }
+            let client = DocsClient(api: try CLI.makeAPI())
+            _ = try await client.styleText(
+                documentId: documentID,
+                startIndex: from,
+                endIndex: to,
+                segmentId: segment,
+                bold: bold,
+                italic: italic,
+                underline: underline,
+                strikethrough: strike,
+                foregroundColor: foreground,
+                backgroundColor: backgroundColor,
+                fontSize: size,
+                fontFamily: font,
+                fontWeight: fontWeight,
+                baselineOffset: baseline?.baselineOffset,
+                linkURL: link,
+                requiredRevisionId: requireRevision
+            )
+            print("Styled text in [\(from), \(to)).")
+        }
+    }
+
+    struct Paragraph: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Style whole paragraphs: named style, alignment, spacing, and indents.",
+            discussion: """
+                Sets paragraph-level style across every paragraph the zero-based
+                UTF-16 range from --from up to but not including --to touches; at
+                least one style flag is required. --style is a named style:
+                normal-text, title, subtitle, or heading-1 through heading-6.
+                --align is start, center, end, or justified; --direction is ltr or
+                rtl. --line-spacing is a percent of normal, where 100 is single;
+                spacing and indents are in points. In a named segment (--segment)
+                the content starts at index 0. Get index ranges from `docs
+                structure`.
+                """
+        )
+
+        @Argument(help: "The document ID.")
+        var documentID: String
+
+        @Option(help: "The zero-based UTF-16 start index (inclusive).")
+        var from: Int
+
+        @Option(help: "The zero-based UTF-16 end index (exclusive).")
+        var to: Int
+
+        @Option(help: "A header, footer, or footnote segment id. Omit for the body.")
+        var segment: String?
+
+        @Option(help: "The named style: normal-text, title, subtitle, or heading-1..heading-6.")
+        var style: DocsNamedStyleArgument?
+
+        @Option(help: "The alignment: start, center, end, or justified.")
+        var align: DocsAlignmentArgument?
+
+        @Option(help: "The text direction: ltr or rtl.")
+        var direction: DocsDirectionArgument?
+
+        @Option(
+            parsing: .unconditional,
+            help: "The line spacing as a percent of normal; 100 is single."
+        )
+        var lineSpacing: Double?
+
+        @Option(parsing: .unconditional, help: "The space above each paragraph in points.")
+        var spaceAbove: Double?
+
+        @Option(parsing: .unconditional, help: "The space below each paragraph in points.")
+        var spaceBelow: Double?
+
+        @Option(parsing: .unconditional, help: "The start-edge indent in points.")
+        var indentStart: Double?
+
+        @Option(parsing: .unconditional, help: "The end-edge indent in points.")
+        var indentEnd: Double?
+
+        @Option(parsing: .unconditional, help: "The first-line indent in points.")
+        var indentFirstLine: Double?
+
+        @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+        var requireRevision: String?
+
+        func validate() throws {
+            let hasStyle =
+                style != nil || align != nil || direction != nil || lineSpacing != nil
+                || spaceAbove != nil || spaceBelow != nil || indentStart != nil
+                || indentEnd != nil || indentFirstLine != nil
+            guard hasStyle else {
+                throw ValidationError("Provide at least one style flag.")
+            }
+            if let lineSpacing, lineSpacing <= 0 {
+                throw ValidationError("--line-spacing must be greater than zero.")
+            }
+        }
+
+        func run() async throws {
+            let client = DocsClient(api: try CLI.makeAPI())
+            _ = try await client.styleParagraphs(
+                documentId: documentID,
+                startIndex: from,
+                endIndex: to,
+                segmentId: segment,
+                namedStyleType: style?.namedStyleType,
+                alignment: align?.alignment,
+                direction: direction?.direction,
+                lineSpacing: lineSpacing,
+                spaceAbove: spaceAbove,
+                spaceBelow: spaceBelow,
+                indentStart: indentStart,
+                indentEnd: indentEnd,
+                indentFirstLine: indentFirstLine,
+                requiredRevisionId: requireRevision
+            )
+            print("Styled paragraphs in [\(from), \(to)).")
+        }
+    }
+
+    struct Heading: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Set the named paragraph style (heading, title, or body) over a range.",
+            discussion: """
+                A thin shortcut for `docs paragraph --style`: it sets only the
+                named style of every paragraph the zero-based UTF-16 range from
+                --from up to but not including --to touches. <level> is 1 through 6
+                for a heading, or title, subtitle, or normal for the body styles.
+                Get index ranges from `docs structure`.
+                """
+        )
+
+        @Argument(help: "The document ID.")
+        var documentID: String
+
+        @Argument(help: "The heading level 1-6, or title, subtitle, or normal.")
+        var level: DocsHeadingLevelArgument
+
+        @Option(help: "The zero-based UTF-16 start index (inclusive).")
+        var from: Int
+
+        @Option(help: "The zero-based UTF-16 end index (exclusive).")
+        var to: Int
+
+        @Option(help: "A header, footer, or footnote segment id. Omit for the body.")
+        var segment: String?
+
+        @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+        var requireRevision: String?
+
+        func run() async throws {
+            let client = DocsClient(api: try CLI.makeAPI())
+            _ = try await client.styleParagraphs(
+                documentId: documentID,
+                startIndex: from,
+                endIndex: to,
+                segmentId: segment,
+                namedStyleType: level.namedStyleType,
+                requiredRevisionId: requireRevision
+            )
+            print("Set \(level.namedStyleType) in [\(from), \(to)).")
+        }
+    }
+
     struct Images: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "List every image in a document, or download them.",
@@ -297,6 +558,124 @@ struct Docs: AsyncParsableCommand {
                 + "\(totalBytes) bytes, into \(directory.path)"
             )
             return failed
+        }
+    }
+}
+
+// MARK: - Docs styling argument enums
+//
+// These CLI-facing enums map friendly, lower-kebab option values onto the Docs
+// v1 wire spellings. The named-style argument maps to the API's SCREAMING_SNAKE
+// string that ``DocsClient/styleParagraphs`` validates; the others map to the
+// typed ``GrahamKit`` styling enums.
+
+/// CLI-facing baseline-offset names mapping to the API ``DocsBaselineOffset``.
+/// `none` maps to the API's `NONE`, so a user resets the baseline with a word
+/// that reads naturally.
+enum DocsBaselineArgument: String, ExpressibleByArgument {
+    case superscript = "super"
+    case `subscript` = "sub"
+    case normal = "none"
+
+    /// The Docs API baseline offset this argument maps to.
+    var baselineOffset: DocsBaselineOffset {
+        switch self {
+        case .superscript: return .superscript
+        case .`subscript`: return .`subscript`
+        case .normal: return .none
+        }
+    }
+}
+
+/// CLI-facing named-style names, lower-kebab, mapping to the Docs v1
+/// `namedStyleType` wire values. The client validates the returned string, so
+/// this stays a thin spelling map.
+enum DocsNamedStyleArgument: String, ExpressibleByArgument {
+    case normalText = "normal-text"
+    case title
+    case subtitle
+    case heading1 = "heading-1"
+    case heading2 = "heading-2"
+    case heading3 = "heading-3"
+    case heading4 = "heading-4"
+    case heading5 = "heading-5"
+    case heading6 = "heading-6"
+
+    /// The Docs API `namedStyleType` this argument maps to.
+    var namedStyleType: String {
+        switch self {
+        case .normalText: return "NORMAL_TEXT"
+        case .title: return "TITLE"
+        case .subtitle: return "SUBTITLE"
+        case .heading1: return "HEADING_1"
+        case .heading2: return "HEADING_2"
+        case .heading3: return "HEADING_3"
+        case .heading4: return "HEADING_4"
+        case .heading5: return "HEADING_5"
+        case .heading6: return "HEADING_6"
+        }
+    }
+}
+
+/// CLI-facing heading-level names for the `docs heading` shortcut: a bare level
+/// 1-6, or the body-style words title, subtitle, and normal.
+enum DocsHeadingLevelArgument: String, ExpressibleByArgument {
+    case one = "1"
+    case two = "2"
+    case three = "3"
+    case four = "4"
+    case five = "5"
+    case six = "6"
+    case title
+    case subtitle
+    case normal
+
+    /// The Docs API `namedStyleType` this level maps to.
+    var namedStyleType: String {
+        switch self {
+        case .one: return "HEADING_1"
+        case .two: return "HEADING_2"
+        case .three: return "HEADING_3"
+        case .four: return "HEADING_4"
+        case .five: return "HEADING_5"
+        case .six: return "HEADING_6"
+        case .title: return "TITLE"
+        case .subtitle: return "SUBTITLE"
+        case .normal: return "NORMAL_TEXT"
+        }
+    }
+}
+
+/// CLI-facing paragraph-alignment names mapping to the API
+/// ``DocsParagraphAlignment``.
+enum DocsAlignmentArgument: String, ExpressibleByArgument {
+    case start
+    case center
+    case end
+    case justified
+
+    /// The Docs API paragraph alignment this argument maps to.
+    var alignment: DocsParagraphAlignment {
+        switch self {
+        case .start: return .start
+        case .center: return .center
+        case .end: return .end
+        case .justified: return .justified
+        }
+    }
+}
+
+/// CLI-facing text-direction names mapping to the API ``DocsContentDirection``.
+/// The user types the familiar `ltr`/`rtl` abbreviations.
+enum DocsDirectionArgument: String, ExpressibleByArgument {
+    case ltr
+    case rtl
+
+    /// The Docs API content direction this argument maps to.
+    var direction: DocsContentDirection {
+        switch self {
+        case .ltr: return .leftToRight
+        case .rtl: return .rightToLeft
         }
     }
 }
