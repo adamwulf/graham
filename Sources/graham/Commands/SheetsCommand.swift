@@ -8,6 +8,8 @@ struct Sheets: AsyncParsableCommand {
         subcommands: [
             Get.self, Values.self, Set.self, Append.self, Clear.self, Tab.self,
             Freeze.self, Resize.self, Format.self, Chart.self, Test.self,
+            ConditionalFormat.self, Validation.self, Filter.self, FilterView.self,
+            Protect.self,
         ]
     )
 
@@ -695,6 +697,299 @@ struct Sheets: AsyncParsableCommand {
             }
         }
     }
+
+    struct ConditionalFormat: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "conditional-format",
+            abstract: "Add or remove conditional-format rules on a sheet.",
+            subcommands: [Add.self, Delete.self]
+        )
+
+        struct Add: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Add a rule that colors cells matching a condition.",
+                discussion: """
+                    The rule covers the range and colors any cell that satisfies
+                    the condition. Give the condition operands with --value: none
+                    for BLANK/NOT_BLANK, two for the *_BETWEEN types, otherwise
+                    one or more. The sheet comes from the range's tab name, or the
+                    first sheet when the range names none.
+                    """
+            )
+
+            @Argument(help: "The spreadsheet ID.")
+            var spreadsheetID: String
+
+            @Argument(help: "The range the rule covers, e.g. 'Sheet1!A2:A100'.")
+            var range: String
+
+            @Option(help: "The condition type, e.g. NUMBER_GREATER or TEXT_CONTAINS.")
+            var type: SheetsConditionType
+
+            @Option(help: "A condition value. Repeat for the *_BETWEEN types (two values).")
+            var value: [String] = []
+
+            @Option(help: "The background color for a matched cell, as hex, e.g. #FFCC00.")
+            var background: String
+
+            @Option(help: "Zero-based insertion index within the sheet's rule list.")
+            var index: Int = 0
+
+            func run() async throws {
+                let client = SheetsClient(api: try CLI.makeAPI())
+                let color = try SheetsColor.parse(background)
+                try await client.addConditionalFormatRule(
+                    spreadsheetId: spreadsheetID,
+                    range: range,
+                    type: type,
+                    values: value,
+                    backgroundColor: color,
+                    index: index
+                )
+            }
+        }
+
+        struct Delete: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Delete a conditional-format rule by its index."
+            )
+
+            @Argument(help: "The spreadsheet ID.")
+            var spreadsheetID: String
+
+            @Option(help: "The zero-based index of the rule to delete.")
+            var index: Int
+
+            @Option(help: "The numeric sheet id to target.")
+            var sheetId: Int?
+
+            @Option(help: "The title of the sheet to target.")
+            var sheet: String?
+
+            func validate() throws {
+                try SheetTarget.validate(sheetId: sheetId, sheet: sheet)
+            }
+
+            func run() async throws {
+                let client = SheetsClient(api: try CLI.makeAPI())
+                let id = try await SheetTarget.resolve(
+                    client, spreadsheetID: spreadsheetID, sheetId: sheetId, sheet: sheet)
+                try await client.deleteConditionalFormatRule(
+                    spreadsheetId: spreadsheetID, sheetId: id, index: index)
+            }
+        }
+    }
+
+    struct Validation: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Set or clear data validation on a range.",
+            subcommands: [Set.self, Clear.self]
+        )
+
+        struct Set: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Set a data-validation rule on a range.",
+                discussion: """
+                    Give the condition operands with --value: none for
+                    BLANK/NOT_BLANK, two for the *_BETWEEN types, otherwise one or
+                    more (ONE_OF_LIST takes each allowed value). --strict rejects
+                    invalid input; --dropdown draws the in-cell chooser.
+                    """
+            )
+
+            @Argument(help: "The spreadsheet ID.")
+            var spreadsheetID: String
+
+            @Argument(help: "The range to validate, e.g. 'Sheet1!B2:B100'.")
+            var range: String
+
+            @Option(help: "The condition type, e.g. ONE_OF_LIST or NUMBER_BETWEEN.")
+            var type: SheetsConditionType
+
+            @Option(help: "A condition value. Repeat for a list or the *_BETWEEN types.")
+            var value: [String] = []
+
+            @Flag(help: "Reject input that fails the condition.")
+            var strict = false
+
+            @Flag(help: "Show the in-cell dropdown of allowed values.")
+            var dropdown = false
+
+            @Option(help: "The input hint shown when the cell is selected.")
+            var message: String?
+
+            func run() async throws {
+                let client = SheetsClient(api: try CLI.makeAPI())
+                try await client.setDataValidation(
+                    spreadsheetId: spreadsheetID,
+                    range: range,
+                    type: type,
+                    values: value,
+                    strict: strict ? true : nil,
+                    showCustomUi: dropdown ? true : nil,
+                    inputMessage: message
+                )
+            }
+        }
+
+        struct Clear: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Clear data validation from a range."
+            )
+
+            @Argument(help: "The spreadsheet ID.")
+            var spreadsheetID: String
+
+            @Argument(help: "The range to clear, e.g. 'Sheet1!B2:B100'.")
+            var range: String
+
+            func run() async throws {
+                let client = SheetsClient(api: try CLI.makeAPI())
+                try await client.clearDataValidation(spreadsheetId: spreadsheetID, range: range)
+            }
+        }
+    }
+
+    struct Filter: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Set or clear a sheet's basic filter.",
+            subcommands: [Set.self, Clear.self]
+        )
+
+        struct Set: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Set the basic filter over a range."
+            )
+
+            @Argument(help: "The spreadsheet ID.")
+            var spreadsheetID: String
+
+            @Argument(help: "The range the filter covers, e.g. 'Sheet1!A1:D100'.")
+            var range: String
+
+            func run() async throws {
+                let client = SheetsClient(api: try CLI.makeAPI())
+                try await client.setBasicFilter(spreadsheetId: spreadsheetID, range: range)
+            }
+        }
+
+        struct Clear: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Clear the basic filter from a sheet."
+            )
+
+            @Argument(help: "The spreadsheet ID.")
+            var spreadsheetID: String
+
+            @Option(help: "The numeric sheet id to target.")
+            var sheetId: Int?
+
+            @Option(help: "The title of the sheet to target.")
+            var sheet: String?
+
+            func validate() throws {
+                try SheetTarget.validate(sheetId: sheetId, sheet: sheet)
+            }
+
+            func run() async throws {
+                let client = SheetsClient(api: try CLI.makeAPI())
+                let id = try await SheetTarget.resolve(
+                    client, spreadsheetID: spreadsheetID, sheetId: sheetId, sheet: sheet)
+                try await client.clearBasicFilter(spreadsheetId: spreadsheetID, sheetId: id)
+            }
+        }
+    }
+
+    struct FilterView: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "filter-view",
+            abstract: "Manage saved filter views.",
+            subcommands: [Add.self]
+        )
+
+        struct Add: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Add a titled filter view and print its id."
+            )
+
+            @Argument(help: "The spreadsheet ID.")
+            var spreadsheetID: String
+
+            @Argument(help: "The range the view covers, e.g. 'Sheet1!A1:D100'.")
+            var range: String
+
+            @Option(help: "The title of the filter view.")
+            var title: String
+
+            func run() async throws {
+                let client = SheetsClient(api: try CLI.makeAPI())
+                let id = try await client.addFilterView(
+                    spreadsheetId: spreadsheetID, range: range, title: title)
+                print(id)
+            }
+        }
+    }
+
+    struct Protect: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Add or remove protected ranges.",
+            subcommands: [Add.self, Delete.self]
+        )
+
+        struct Add: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Protect a range and print its protected-range id.",
+                discussion: """
+                    By default edits to the range are blocked for everyone but the
+                    owner; pass --warning-only to warn on edits instead of blocking
+                    them.
+                    """
+            )
+
+            @Argument(help: "The spreadsheet ID.")
+            var spreadsheetID: String
+
+            @Argument(help: "The range to protect, e.g. 'Sheet1!A1:D10'.")
+            var range: String
+
+            @Option(help: "A description of the protection.")
+            var description: String?
+
+            @Flag(name: .customLong("warning-only"),
+                  help: "Warn on edits instead of blocking them.")
+            var warningOnly = false
+
+            func run() async throws {
+                let client = SheetsClient(api: try CLI.makeAPI())
+                let id = try await client.addProtectedRange(
+                    spreadsheetId: spreadsheetID,
+                    range: range,
+                    description: description,
+                    warningOnly: warningOnly ? true : nil
+                )
+                print(id)
+            }
+        }
+
+        struct Delete: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Delete a protected range by its id."
+            )
+
+            @Argument(help: "The spreadsheet ID.")
+            var spreadsheetID: String
+
+            @Option(name: .customLong("protected-range-id"),
+                    help: "The numeric protected-range id to delete.")
+            var protectedRangeId: Int
+
+            func run() async throws {
+                let client = SheetsClient(api: try CLI.makeAPI())
+                try await client.deleteProtectedRange(
+                    spreadsheetId: spreadsheetID, protectedRangeId: protectedRangeId)
+            }
+        }
+    }
 }
 
 extension BasicChartType: ExpressibleByArgument {
@@ -710,6 +1005,12 @@ extension SheetsDimension: ExpressibleByArgument {
 }
 
 extension SheetsHorizontalAlignment: ExpressibleByArgument {
+    public init?(argument: String) {
+        self.init(rawValue: argument.uppercased())
+    }
+}
+
+extension SheetsConditionType: ExpressibleByArgument {
     public init?(argument: String) {
         self.init(rawValue: argument.uppercased())
     }
