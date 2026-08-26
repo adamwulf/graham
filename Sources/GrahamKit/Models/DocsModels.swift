@@ -813,24 +813,32 @@ extension Document {
     ///
     /// The API keys both maps in an unordered dictionary, so within each group
     /// the rows are ordered by object id — this keeps the output deterministic,
-    /// the way the rest of graham's output is. The extraction lives here in
-    /// GrahamKit; the command only fetches and renders. See ``DocImageRow``.
+    /// the way the rest of graham's output is. Only objects that actually hold
+    /// image data are listed: an embedded object can instead be a drawing
+    /// (`embeddedDrawingProperties`) or linked content with no
+    /// `imageProperties`, and such a non-image object is skipped rather than
+    /// emitted as a bogus row. The extraction lives here in GrahamKit; the
+    /// command only fetches and renders. See ``DocImageRow``.
     public var imageRows: [DocImageRow] {
         var rows: [DocImageRow] = []
         for key in (inlineObjects ?? [:]).keys.sorted() {
-            guard let object = inlineObjects?[key] else { continue }
+            guard let object = inlineObjects?[key],
+                  let embedded = object.embeddedObject,
+                  embedded.imageProperties != nil else { continue }
             rows.append(DocImageRow(
                 objectId: object.objectId ?? key,
                 origin: .inline,
-                embeddedObject: object.embeddedObject
+                embeddedObject: embedded
             ))
         }
         for key in (positionedObjects ?? [:]).keys.sorted() {
-            guard let object = positionedObjects?[key] else { continue }
+            guard let object = positionedObjects?[key],
+                  let embedded = object.embeddedObject,
+                  embedded.imageProperties != nil else { continue }
             rows.append(DocImageRow(
                 objectId: object.objectId ?? key,
                 origin: .positioned,
-                embeddedObject: object.embeddedObject
+                embeddedObject: embedded
             ))
         }
         return rows

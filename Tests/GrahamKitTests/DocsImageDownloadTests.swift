@@ -88,6 +88,33 @@ final class DocsImageDownloadTests: XCTestCase {
         XCTAssertTrue(document.imageRows.isEmpty)
     }
 
+    /// An embedded object without `imageProperties` is a drawing or linked
+    /// content, not an image, and must not be listed — otherwise `docs images`
+    /// emits a bogus row for a drawing that has no URIs to download.
+    private static let drawingJSON = #"""
+    {
+      "documentId": "doc-1",
+      "inlineObjects": {
+        "img": {"objectId": "img", "inlineObjectProperties": {"embeddedObject": {
+          "imageProperties": {"contentUri": "https://c.example/img"}}}},
+        "drawing": {"objectId": "drawing", "inlineObjectProperties": {"embeddedObject": {
+          "embeddedDrawingProperties": {}}}}
+      },
+      "positionedObjects": {
+        "posdrawing": {"objectId": "posdrawing", "positionedObjectProperties": {"embeddedObject": {
+          "embeddedDrawingProperties": {}}}}
+      }
+    }
+    """#
+
+    func testImageRowsExcludesNonImageEmbeddedObjects() throws {
+        let document = try GoogleJSON.decoder.decode(
+            Document.self, from: Data(Self.drawingJSON.utf8))
+        // Only the object with image data is listed; the inline and positioned
+        // drawings (no imageProperties) are skipped.
+        XCTAssertEqual(document.imageRows.map(\.objectId), ["img"])
+    }
+
     func testImageRowRendersSizeInPoints() throws {
         let document = try GoogleJSON.decoder.decode(
             Document.self, from: Data(Self.extractionJSON.utf8))
@@ -285,7 +312,7 @@ final class DocsImageDownloadTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: pngURL), Self.png)
     }
 
-    func testDownloadImagesAvoidsCollisionsForColidingSanitizedNames() async throws {
+    func testDownloadImagesAvoidsCollisionsForCollidingSanitizedNames() async throws {
         let (client, _) = makeDownloadClient()
 
         let results = try await client.downloadImages(try imageRows(), to: tempDir)
@@ -350,6 +377,53 @@ final class DocsImageDownloadTests: XCTestCase {
 
         XCTAssertTrue(results.isEmpty)
         XCTAssertTrue(FileManager.default.fileExists(atPath: tempDir.path))
+    }
+
+    func testDownloadImagesRefusesToWriteThroughAPrePlantedSymlink() async throws {
+        // One inline image whose deterministic name is "001-inline-img-a.png".
+        let json = #"""
+        {
+          "documentId": "doc-1",
+          "inlineObjects": {
+            "img-a": {"objectId": "img-a", "inlineObjectProperties": {"embeddedObject": {
+              "imageProperties": {"contentUri": "https://c.example/png"}}}}
+          }
+        }
+        """#
+        let transport = StubTransport()
+        transport.stub(urlContains: "c.example/png", responses: [
+            HTTPResponse(statusCode: 200, body: Self.png),
+        ])
+        let client = DocsClient(
+            api: TestSupport.makeAPI(transport: transport),
+            downloadTransport: transport
+        )
+        let rows = try GoogleJSON.decoder.decode(Document.self, from: Data(json.utf8)).imageRows
+
+        // The directory must exist so the symlink can be planted before the run.
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let linkURL = tempDir.appendingPathComponent("001-inline-img-a.png")
+        // The symlink points OUTSIDE the target directory; if the write followed
+        // it, the bytes would land at `escapeTarget`.
+        let escapeTarget = tempDir.deletingLastPathComponent()
+            .appendingPathComponent("graham-docs-escape-\(ProcessInfo.processInfo.globallyUniqueString).png")
+        defer { try? FileManager.default.removeItem(at: escapeTarget) }
+        try FileManager.default.createSymbolicLink(at: linkURL, withDestinationURL: escapeTarget)
+
+        let results = try await client.downloadImages(rows, to: tempDir)
+
+        // The write is refused and recorded as a failure, not a crash.
+        guard case .failed = Self.outcome(results, "img-a") else {
+            return XCTFail(
+                "a symlinked target must fail: \(String(describing: Self.outcome(results, "img-a")))")
+        }
+        // Nothing was written through the link: the escape target never appears.
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: escapeTarget.path),
+            "the download must not follow the symlink out of the directory")
+        // The symlink itself is left in place, untouched.
+        let attributes = try FileManager.default.attributesOfItem(atPath: linkURL.path)
+        XCTAssertEqual(attributes[.type] as? FileAttributeType, .typeSymbolicLink)
     }
 
     // MARK: - API error propagation
