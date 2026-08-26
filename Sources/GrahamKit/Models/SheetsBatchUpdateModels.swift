@@ -15,9 +15,30 @@ import Foundation
 public enum SheetsBatchUpdateRequest: Encodable, Sendable, Equatable {
     /// Adds an embedded chart to the spreadsheet.
     case addChart(AddChartRequest)
+    /// Adds a new sheet (tab).
+    case addSheet(AddSheetRequest)
+    /// Deletes a sheet (tab) by its numeric id.
+    case deleteSheet(DeleteSheetRequest)
+    /// Updates sheet (tab) properties, e.g. its title, position, or freeze.
+    case updateSheetProperties(UpdateSheetPropertiesRequest)
+    /// Resizes a row or column dimension (its pixel size).
+    case updateDimensionProperties(UpdateDimensionPropertiesRequest)
+    /// Repeats one cell's format across a range.
+    case repeatCell(RepeatCellRequest)
+    /// Deletes an embedded object (such as a chart) by its object id.
+    case deleteEmbeddedObject(DeleteEmbeddedObjectRequest)
+    /// Replaces an embedded chart's spec.
+    case updateChartSpec(UpdateChartSpecRequest)
 
     private enum CodingKeys: String, CodingKey {
         case addChart
+        case addSheet
+        case deleteSheet
+        case updateSheetProperties
+        case updateDimensionProperties
+        case repeatCell
+        case deleteEmbeddedObject
+        case updateChartSpec
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -25,6 +46,20 @@ public enum SheetsBatchUpdateRequest: Encodable, Sendable, Equatable {
         switch self {
         case .addChart(let request):
             try container.encode(request, forKey: .addChart)
+        case .addSheet(let request):
+            try container.encode(request, forKey: .addSheet)
+        case .deleteSheet(let request):
+            try container.encode(request, forKey: .deleteSheet)
+        case .updateSheetProperties(let request):
+            try container.encode(request, forKey: .updateSheetProperties)
+        case .updateDimensionProperties(let request):
+            try container.encode(request, forKey: .updateDimensionProperties)
+        case .repeatCell(let request):
+            try container.encode(request, forKey: .repeatCell)
+        case .deleteEmbeddedObject(let request):
+            try container.encode(request, forKey: .deleteEmbeddedObject)
+        case .updateChartSpec(let request):
+            try container.encode(request, forKey: .updateChartSpec)
         }
     }
 }
@@ -50,6 +85,26 @@ public struct AddChartRequest: Codable, Sendable, Equatable {
     }
 }
 
+/// The `deleteEmbeddedObject` operation. `objectId` is the numeric chart id.
+public struct DeleteEmbeddedObjectRequest: Codable, Sendable, Equatable {
+    public let objectId: Int
+
+    public init(objectId: Int) {
+        self.objectId = objectId
+    }
+}
+
+/// The `updateChartSpec` operation: replaces the whole spec of chart `chartId`.
+public struct UpdateChartSpecRequest: Codable, Sendable, Equatable {
+    public let chartId: Int
+    public let spec: ChartSpec
+
+    public init(chartId: Int, spec: ChartSpec) {
+        self.chartId = chartId
+        self.spec = spec
+    }
+}
+
 /// A chart definition and its location in the spreadsheet.
 ///
 /// `chartId` is deliberately absent: Google assigns it when the chart is
@@ -64,26 +119,89 @@ public struct EmbeddedChart: Codable, Sendable, Equatable {
     }
 }
 
-/// Where an embedded object is placed.
-public struct EmbeddedObjectPosition: Codable, Sendable, Equatable {
-    /// When true, Google creates a new sheet containing only the object.
-    public let newSheet: Bool?
+/// A cell coordinate an overlay chart anchors to (all zero-based).
+public struct GridCoordinate: Codable, Sendable, Equatable {
+    public let sheetId: Int
+    public let rowIndex: Int
+    public let columnIndex: Int
 
-    /// Overlay positions anchored to a cell and positions on an existing
-    /// sheet are intentionally future work for this first write slice.
-    public init(newSheet: Bool? = nil) {
-        self.newSheet = newSheet
+    public init(sheetId: Int, rowIndex: Int, columnIndex: Int) {
+        self.sheetId = sheetId
+        self.rowIndex = rowIndex
+        self.columnIndex = columnIndex
     }
 }
 
-/// The visible configuration of a basic chart.
+/// A CLI-friendly overlay request for `SheetsClient.addChart`. The `anchor` is a
+/// single A1 cell (optionally sheet-qualified) the chart's top-left pins to; the
+/// client resolves the sheet id and translates the cell to a ``GridCoordinate``.
+public struct ChartOverlay: Sendable, Equatable {
+    public let anchor: String
+    public let widthPixels: Int?
+    public let heightPixels: Int?
+
+    public init(anchor: String, widthPixels: Int? = nil, heightPixels: Int? = nil) {
+        self.anchor = anchor
+        self.widthPixels = widthPixels
+        self.heightPixels = heightPixels
+    }
+}
+
+/// An overlay placement: the object floats over a sheet, anchored to a cell,
+/// sized in pixels.
+public struct OverlayPosition: Codable, Sendable, Equatable {
+    public let anchorCell: GridCoordinate
+    public let widthPixels: Int?
+    public let heightPixels: Int?
+
+    public init(anchorCell: GridCoordinate, widthPixels: Int? = nil, heightPixels: Int? = nil) {
+        self.anchorCell = anchorCell
+        self.widthPixels = widthPixels
+        self.heightPixels = heightPixels
+    }
+}
+
+/// Where an embedded object is placed: either on its own new sheet, or as an
+/// overlay anchored to a cell on an existing sheet.
+public struct EmbeddedObjectPosition: Codable, Sendable, Equatable {
+    /// When true, Google creates a new sheet containing only the object.
+    public let newSheet: Bool?
+    public let overlayPosition: OverlayPosition?
+
+    public init(newSheet: Bool? = nil, overlayPosition: OverlayPosition? = nil) {
+        self.newSheet = newSheet
+        self.overlayPosition = overlayPosition
+    }
+}
+
+/// The visible configuration of a chart: exactly one of `basicChart` (bar,
+/// line, area, column, scatter, combo) or `pieChart` is set.
 public struct ChartSpec: Codable, Sendable, Equatable {
     public let title: String?
-    public let basicChart: BasicChartSpec
+    public let basicChart: BasicChartSpec?
+    public let pieChart: PieChartSpec?
 
-    public init(title: String? = nil, basicChart: BasicChartSpec) {
+    public init(
+        title: String? = nil,
+        basicChart: BasicChartSpec? = nil,
+        pieChart: PieChartSpec? = nil
+    ) {
         self.title = title
         self.basicChart = basicChart
+        self.pieChart = pieChart
+    }
+}
+
+/// A pie chart: one domain column and one series column.
+public struct PieChartSpec: Codable, Sendable, Equatable {
+    public let legendPosition: String?
+    public let domain: ChartData
+    public let series: ChartData
+
+    public init(legendPosition: String? = nil, domain: ChartData, series: ChartData) {
+        self.legendPosition = legendPosition
+        self.domain = domain
+        self.series = series
     }
 }
 
@@ -94,6 +212,7 @@ public enum BasicChartType: String, Codable, Sendable, CaseIterable, Equatable {
     case area = "AREA"
     case column = "COLUMN"
     case scatter = "SCATTER"
+    case combo = "COMBO"
 }
 
 /// A basic chart with one domain column and one or more series columns.
@@ -180,6 +299,230 @@ public struct GridRange: Codable, Sendable, Equatable {
     }
 }
 
+// MARK: - Sheet (tab) requests
+
+/// The writable grid properties of a sheet: the frozen row / column counts.
+public struct GridPropertiesRequest: Codable, Sendable, Equatable {
+    public let frozenRowCount: Int?
+    public let frozenColumnCount: Int?
+
+    public init(frozenRowCount: Int? = nil, frozenColumnCount: Int? = nil) {
+        self.frozenRowCount = frozenRowCount
+        self.frozenColumnCount = frozenColumnCount
+    }
+}
+
+/// The writable subset of a sheet's properties used by the add and update
+/// operations. Every field is optional so a caller sets only what it changes.
+public struct SheetPropertiesRequest: Codable, Sendable, Equatable {
+    public let sheetId: Int?
+    public let title: String?
+    public let index: Int?
+    public let gridProperties: GridPropertiesRequest?
+
+    public init(
+        sheetId: Int? = nil,
+        title: String? = nil,
+        index: Int? = nil,
+        gridProperties: GridPropertiesRequest? = nil
+    ) {
+        self.sheetId = sheetId
+        self.title = title
+        self.index = index
+        self.gridProperties = gridProperties
+    }
+}
+
+/// The dimension a resize targets.
+public enum SheetsDimension: String, Sendable, CaseIterable, Equatable {
+    case rows = "ROWS"
+    case columns = "COLUMNS"
+}
+
+/// A zero-based, half-open span of rows or columns on one sheet.
+public struct DimensionRange: Codable, Sendable, Equatable {
+    public let sheetId: Int
+    public let dimension: String
+    public let startIndex: Int
+    public let endIndex: Int
+
+    public init(sheetId: Int, dimension: String, startIndex: Int, endIndex: Int) {
+        self.sheetId = sheetId
+        self.dimension = dimension
+        self.startIndex = startIndex
+        self.endIndex = endIndex
+    }
+}
+
+/// The writable properties of a row or column dimension.
+public struct DimensionProperties: Codable, Sendable, Equatable {
+    public let pixelSize: Int?
+
+    public init(pixelSize: Int? = nil) {
+        self.pixelSize = pixelSize
+    }
+}
+
+/// The `updateDimensionProperties` operation. `fields` is a mask relative to
+/// `properties` (for example `pixelSize`).
+public struct UpdateDimensionPropertiesRequest: Codable, Sendable, Equatable {
+    public let range: DimensionRange
+    public let properties: DimensionProperties
+    public let fields: String
+
+    public init(range: DimensionRange, properties: DimensionProperties, fields: String) {
+        self.range = range
+        self.properties = properties
+        self.fields = fields
+    }
+}
+
+/// The `addSheet` operation.
+public struct AddSheetRequest: Codable, Sendable, Equatable {
+    public let properties: SheetPropertiesRequest
+
+    public init(properties: SheetPropertiesRequest) {
+        self.properties = properties
+    }
+}
+
+/// The `deleteSheet` operation.
+public struct DeleteSheetRequest: Codable, Sendable, Equatable {
+    public let sheetId: Int
+
+    public init(sheetId: Int) {
+        self.sheetId = sheetId
+    }
+}
+
+/// The `updateSheetProperties` operation. `fields` is a mask of the property
+/// paths to update, relative to `properties` (for example `title` or `index`).
+public struct UpdateSheetPropertiesRequest: Codable, Sendable, Equatable {
+    public let properties: SheetPropertiesRequest
+    public let fields: String
+
+    public init(properties: SheetPropertiesRequest, fields: String) {
+        self.properties = properties
+        self.fields = fields
+    }
+}
+
+// MARK: - Cell formatting (repeatCell)
+
+/// An RGB color, each channel a float from 0 to 1. Sheets' `Color` also carries
+/// an optional alpha, which graham leaves at the opaque default.
+public struct SheetsColor: Codable, Sendable, Equatable {
+    public let red: Double
+    public let green: Double
+    public let blue: Double
+
+    public init(red: Double, green: Double, blue: Double) {
+        self.red = red
+        self.green = green
+        self.blue = blue
+    }
+
+    /// Parses a hex color, with an optional leading `#`, in either `RRGGBB` or
+    /// the short `RGB` form (each nibble doubled). Throws
+    /// ``GrahamError/invalidArgument(_:)`` naming the input on any other form.
+    public static func parse(_ input: String) throws -> SheetsColor {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hex = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
+        let normalized: String
+        switch hex.count {
+        case 3:
+            normalized = hex.map { "\($0)\($0)" }.joined()
+        case 6:
+            normalized = hex
+        default:
+            throw Self.parseError(input)
+        }
+        let digits = Array(normalized)
+        guard digits.allSatisfy({ $0.isASCII && $0.isHexDigit }) else {
+            throw Self.parseError(input)
+        }
+        func channel(_ start: Int) -> Double {
+            Double(Int(String(digits[start..<start + 2]), radix: 16) ?? 0) / 255
+        }
+        return SheetsColor(red: channel(0), green: channel(2), blue: channel(4))
+    }
+
+    private static func parseError(_ input: String) -> GrahamError {
+        GrahamError.invalidArgument(
+            "could not parse \"\(input)\" as a hex color; use #RRGGBB or #RGB")
+    }
+}
+
+/// Horizontal cell alignment.
+public enum SheetsHorizontalAlignment: String, Sendable, CaseIterable, Equatable {
+    case left = "LEFT"
+    case center = "CENTER"
+    case right = "RIGHT"
+}
+
+/// The writable text format of a cell used by graham's first formatting slice.
+public struct SheetsTextFormat: Codable, Sendable, Equatable {
+    public let bold: Bool?
+
+    public init(bold: Bool? = nil) {
+        self.bold = bold
+    }
+}
+
+/// A cell number format: a `type` (graham uses `NUMBER`) and a `pattern`.
+public struct SheetsNumberFormat: Codable, Sendable, Equatable {
+    public let type: String
+    public let pattern: String
+
+    public init(type: String, pattern: String) {
+        self.type = type
+        self.pattern = pattern
+    }
+}
+
+/// The writable subset of a cell's format that `sheets format` sets.
+public struct SheetsCellFormat: Codable, Sendable, Equatable {
+    public let backgroundColor: SheetsColor?
+    public let textFormat: SheetsTextFormat?
+    public let numberFormat: SheetsNumberFormat?
+    public let horizontalAlignment: String?
+
+    public init(
+        backgroundColor: SheetsColor? = nil,
+        textFormat: SheetsTextFormat? = nil,
+        numberFormat: SheetsNumberFormat? = nil,
+        horizontalAlignment: String? = nil
+    ) {
+        self.backgroundColor = backgroundColor
+        self.textFormat = textFormat
+        self.numberFormat = numberFormat
+        self.horizontalAlignment = horizontalAlignment
+    }
+}
+
+/// The `cell` payload of a `repeatCell`: the format to stamp across the range.
+public struct SheetsCellData: Codable, Sendable, Equatable {
+    public let userEnteredFormat: SheetsCellFormat
+
+    public init(userEnteredFormat: SheetsCellFormat) {
+        self.userEnteredFormat = userEnteredFormat
+    }
+}
+
+/// The `repeatCell` operation. `fields` is a mask of the cell paths to write
+/// (for example `userEnteredFormat.textFormat.bold`).
+public struct RepeatCellRequest: Codable, Sendable, Equatable {
+    public let range: GridRange
+    public let cell: SheetsCellData
+    public let fields: String
+
+    public init(range: GridRange, cell: SheetsCellData, fields: String) {
+        self.range = range
+        self.cell = cell
+        self.fields = fields
+    }
+}
+
 // MARK: - Responses
 
 /// The response of a `spreadsheets.batchUpdate` call.
@@ -189,9 +532,16 @@ public struct SheetsBatchUpdateResponse: Codable, Sendable {
     public let replies: [SheetsBatchUpdateReply]?
 }
 
-/// One reply in a Sheets batch-update response.
+/// One reply in a Sheets batch-update response. Operations such as
+/// `deleteSheet` and `updateSheetProperties` reply with an empty object.
 public struct SheetsBatchUpdateReply: Codable, Sendable {
     public let addChart: AddChartReply?
+    public let addSheet: AddSheetReply?
+}
+
+/// The reply of an `addSheet` operation, carrying the new sheet's properties.
+public struct AddSheetReply: Codable, Sendable {
+    public let properties: Sheet.Properties?
 }
 
 /// The reply of an `addChart` operation.
@@ -210,4 +560,25 @@ public struct UpdateValuesResponse: Codable, Sendable {
     public let updatedRows: Int?
     public let updatedColumns: Int?
     public let updatedCells: Int?
+}
+
+/// The response of a `spreadsheets.values.append` call. The write counts live in
+/// the nested `updates` object; `tableRange` reports the table the append found.
+public struct AppendValuesResponse: Codable, Sendable {
+    public let spreadsheetId: String?
+    public let tableRange: String?
+    public let updates: UpdateValuesResponse?
+}
+
+/// The response of a `spreadsheets.values.clear` call.
+public struct ClearValuesResponse: Codable, Sendable {
+    public let spreadsheetId: String?
+    public let clearedRange: String?
+}
+
+/// The response of a `spreadsheets.values.batchGet` call: one `ValueRange` per
+/// requested range, in request order.
+public struct BatchGetValuesResponse: Codable, Sendable {
+    public let spreadsheetId: String?
+    public let valueRanges: [ValueRange]?
 }

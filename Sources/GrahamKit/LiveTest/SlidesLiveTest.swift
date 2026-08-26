@@ -53,7 +53,6 @@ public struct SlidesLiveTest: Sendable {
     private let drive: DriveClient
     private let slides: SlidesClient
     private let sheets: SheetsClient
-    private let docs: DocsClient
     private let folderName: String
     private let imageURL: String
     private let keep: Bool
@@ -64,7 +63,6 @@ public struct SlidesLiveTest: Sendable {
         drive: DriveClient,
         slides: SlidesClient,
         sheets: SheetsClient,
-        docs: DocsClient,
         folderName: String = "graham test",
         imageURL: String = SlidesLiveTest.defaultImageURL,
         keep: Bool = false,
@@ -74,7 +72,6 @@ public struct SlidesLiveTest: Sendable {
         self.drive = drive
         self.slides = slides
         self.sheets = sheets
-        self.docs = docs
         self.folderName = folderName
         self.imageURL = imageURL
         self.keep = keep
@@ -566,16 +563,19 @@ public struct SlidesLiveTest: Sendable {
             }
         }
 
-        // Other Google Workspace services, all created in the test folder.
+        // The chart source. A linked Sheets chart is a Slides element, so the
+        // test builds a minimal spreadsheet chart here only to embed and refresh
+        // it below. This exercises Slides' createSheetsChart, not the Sheets
+        // surface itself — `graham sheets test` covers Sheets.
         let sheet = await valueStep(
-            "sheets-create", recorder: recorder, createdIDs: { [$0.id] }
+            "chart-sheet-create", recorder: recorder, createdIDs: { [$0.id] }
         ) {
             try await drive.create(
-                name: "graham test sheet \(label)", type: .sheets, parent: folderID)
+                name: "graham test chart sheet \(label)", type: .sheets, parent: folderID)
         }
         let sheetValuesSet = await actionStep(
-            "sheets-set-values", recorder: recorder,
-            skipReason: dependencyReason("sheets-create", value: sheet)
+            "chart-sheet-values", recorder: recorder,
+            skipReason: dependencyReason("chart-sheet-create", value: sheet)
         ) {
             let response = try await sheets.setValues(
                 spreadsheetId: sheet!.id,
@@ -592,9 +592,9 @@ public struct SlidesLiveTest: Sendable {
             }
         }
         let chartID = await valueStep(
-            "sheets-chart-add",
+            "chart-sheet-add",
             recorder: recorder,
-            skipReason: sheetValuesSet ? nil : "sheets-set-values failed",
+            skipReason: sheetValuesSet ? nil : "chart-sheet-values failed",
             createdIDs: { [String($0)] }
         ) {
             try await sheets.addChart(
@@ -604,36 +604,11 @@ public struct SlidesLiveTest: Sendable {
                 range: "A1:B4"
             )
         }
-        _ = await actionStep(
-            "sheets-get", recorder: recorder,
-            skipReason: dependencyReason("sheets-create", value: sheet)
-        ) {
-            let read = try await sheets.spreadsheet(id: sheet!.id)
-            guard read.spreadsheetId == sheet!.id else {
-                throw GrahamError.invalidResponse("spreadsheet id did not round-trip")
-            }
-        }
-        let document = await valueStep(
-            "docs-create", recorder: recorder, createdIDs: { [$0.id] }
-        ) {
-            try await drive.create(
-                name: "graham test doc \(label)", type: .docs, parent: folderID)
-        }
-        _ = await actionStep(
-            "docs-cat", recorder: recorder,
-            skipReason: dependencyReason("docs-create", value: document)
-        ) {
-            let read = try await docs.document(id: document!.id)
-            guard read.documentId == document!.id else {
-                throw GrahamError.invalidResponse("document id did not round-trip")
-            }
-            _ = read.plainText
-        }
         let chart = await valueStep(
             "create-chart",
             recorder: recorder,
             skipReason: firstFailed([
-                ("sheets-chart-add", chartID != nil),
+                ("chart-sheet-add", chartID != nil),
                 ("slides-add", primarySlide != nil),
             ]),
             createdIDs: { [$0] }
@@ -685,13 +660,9 @@ public struct SlidesLiveTest: Sendable {
             "drive-trash-presentation", fileID: presentationID,
             recorder: recorder, prerequisite: true)
         await cleanupStep(
-            "drive-trash-sheet", fileID: sheet?.id,
+            "drive-trash-chart-sheet", fileID: sheet?.id,
             recorder: recorder, prerequisite: sheet != nil,
-            dependency: "sheets-create")
-        await cleanupStep(
-            "drive-trash-doc", fileID: document?.id,
-            recorder: recorder, prerequisite: document != nil,
-            dependency: "docs-create")
+            dependency: "chart-sheet-create")
 
         return recorder.summary
     }

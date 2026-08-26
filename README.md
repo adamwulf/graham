@@ -12,8 +12,15 @@ Named after Graham's number — a contrast to the googol that named Google.
   search across all drives, and filter by type; get metadata; export and
   download files; create folders and empty Docs, Sheets, and Slides files; copy files;
   move files to trash; and permanently delete files.
-- **Sheets and Docs** — read a spreadsheet and its values; write cell values;
-  add a basic chart on its own sheet; read a document, render it as Markdown,
+- **Sheets and Docs** — read a spreadsheet (with frozen row / column counts) and
+  its values (formatted, raw, or as formulas, one range or several at once);
+  write cell values from comma rows, a JSON array, or tab-separated stdin; append
+  rows after a table; clear a range; add, rename, and delete tabs; freeze rows
+  or columns and resize them; format a range (bold, background, number pattern,
+  alignment); add, update, and delete charts (basic, pie, or combo; on a new
+  sheet or as an overlay) and list them; and run a live end-to-end smoke test of
+  the Sheets command surface; read a document,
+  render it as Markdown,
   and list its block structure with index ranges; list or download its images;
   create a blank document; and through the shared `documents.batchUpdate` write
   path insert, delete, and replace text, style text and paragraphs, manage
@@ -133,10 +140,45 @@ graham drive delete <file-id> --force
 
 graham sheets get <spreadsheet-id>
 graham sheets values <spreadsheet-id> "Sheet1!A1:C10"
-# Write comma-separated rows (commas cannot be escaped in this first version).
+# Read raw (unformatted) values or cell formulas.
+graham sheets values <spreadsheet-id> "Sheet1!A1:C10" --raw
+graham sheets values <spreadsheet-id> "Sheet1!A1:C10" --formulas
+# Read several ranges at once (batchGet); each block is headed by '# <range>'.
+graham sheets values <spreadsheet-id> "Sheet1!A1:B2" "Sheet2!A1:B2"
+# Write rows. --row splits on commas (no escaping); --json-rows and --tsv keep
+# commas inside a cell, so a `values | set` round trip works.
 graham sheets set <spreadsheet-id> "Sheet1!A1:B3" --row "Label,Value" --row "A,10" --row "B,20"
+graham sheets set <spreadsheet-id> "Sheet1!A1:B2" --json-rows '[["Label","Value"],["A, B","10"]]'
+graham sheets values <spreadsheet-id> "Sheet1!A1:B3" | graham sheets set <spreadsheet-id> "Sheet2!A1:B3" --tsv
+# Append rows after the table found within a range (no next-free-row math).
+graham sheets append <spreadsheet-id> "Sheet1!A1" --row "C,30" --row "D,40"
+# Clear a range's values, leaving formatting intact.
+graham sheets clear <spreadsheet-id> "Sheet1!A1:B10"
+# Manage tabs: add one (printing its numeric sheet id), rename it, or delete it.
+# Positions are one-based; select an existing tab by --sheet-id or --sheet <title>.
+graham sheets tab add <spreadsheet-id> "Q3" --index 2
+graham sheets tab rename <spreadsheet-id> --sheet "Q3" --to "Q3 2026"
+graham sheets tab delete <spreadsheet-id> --sheet-id 1234567
+# Freeze rows and/or columns; omit the selector to target the first sheet.
+graham sheets freeze <spreadsheet-id> --rows 1 --columns 1
+# Resize rows or columns to a pixel size (--from/--to are one-based inclusive).
+graham sheets resize <spreadsheet-id> --dimension columns --from 1 --to 3 --pixels 120
+# Format a range: bold, a hex background, a number pattern, and/or alignment.
+graham sheets format <spreadsheet-id> "Sheet1!A1:B1" --bold --background "#FFF2CC" --align center
+graham sheets format <spreadsheet-id> "Sheet1!B2:B10" --number-format "#,##0.00"
 # Add a chart and print the chart id; pass it to `slides create chart --chart-id`.
 graham sheets chart add <spreadsheet-id> --range "Sheet1!A1:B3" --title "Sales" --type column
+# A pie chart, or an overlay chart floated over a sheet at an anchor cell.
+graham sheets chart add <spreadsheet-id> --range "Sheet1!A1:B7" --pie
+graham sheets chart add <spreadsheet-id> --range "Sheet1!A1:B7" --anchor "Sheet1!D2" --width 400 --height 300
+# Replace a chart's spec, or delete a chart, by its numeric id.
+graham sheets chart update <spreadsheet-id> --chart-id 12345 --range "Sheet1!A1:C7" --type line
+graham sheets chart delete <spreadsheet-id> --chart-id 12345
+# Exercise the live Sheets API surface (a value write and read-back, metadata,
+# and a chart add) inside the root-level "graham test" folder. The spreadsheet
+# is trashed afterward; --keep retains it. Any failed step exits nonzero.
+graham sheets test
+graham sheets test --keep --folder "graham test"
 
 # Create a new, blank document with `graham drive create doc` (above); every
 # create path lives under `drive`. Then work with the document by its id.

@@ -19,6 +19,8 @@ public struct Sheet: Codable, Sendable {
         public struct GridProperties: Codable, Sendable {
             public let rowCount: Int?
             public let columnCount: Int?
+            public let frozenRowCount: Int?
+            public let frozenColumnCount: Int?
         }
 
         public let sheetId: Int?
@@ -28,16 +30,45 @@ public struct Sheet: Codable, Sendable {
     }
 
     public let properties: Properties?
+    public let charts: [SheetChart]?
+}
+
+/// One embedded chart, as read from `sheets.charts`.
+public struct SheetChart: Codable, Sendable, Equatable {
+    public struct Spec: Codable, Sendable, Equatable {
+        public let title: String?
+    }
+
+    public let chartId: Int?
+    public let spec: Spec?
+}
+
+extension SheetChart: GrahamRow {
+    public static var tableColumns: [String] { ["CHART_ID", "TITLE"] }
+
+    public var tableValues: [String] {
+        [chartId.map(String.init) ?? "", spec?.title ?? ""]
+    }
+
+    public var idValue: String {
+        chartId.map(String.init) ?? ""
+    }
 }
 
 extension Sheet: GrahamRow {
-    public static var tableColumns: [String] { ["SHEET_ID", "ROWS", "COLS", "TITLE"] }
+    public static var tableColumns: [String] {
+        ["SHEET_ID", "ROWS", "COLS", "FROZEN_R", "FROZEN_C", "TITLE"]
+    }
 
     public var tableValues: [String] {
-        [
+        let grid = properties?.gridProperties
+        return [
             properties?.sheetId.map(String.init) ?? "",
-            properties?.gridProperties?.rowCount.map(String.init) ?? "",
-            properties?.gridProperties?.columnCount.map(String.init) ?? "",
+            grid?.rowCount.map(String.init) ?? "",
+            grid?.columnCount.map(String.init) ?? "",
+            // The API omits a zero freeze count, so absence reads as 0.
+            String(grid?.frozenRowCount ?? 0),
+            String(grid?.frozenColumnCount ?? 0),
             properties?.title ?? "",
         ]
     }
@@ -52,6 +83,15 @@ public struct ValueRange: Codable, Sendable {
     public let range: String?
     public let majorDimension: String?
     public let values: [[CellValue]]?
+}
+
+/// How a values read renders each cell. The default `FORMATTED_VALUE` returns
+/// strings as shown in the UI; `UNFORMATTED_VALUE` returns the raw typed value;
+/// `FORMULA` returns the underlying formula for formula cells.
+public enum SheetsValueRenderOption: String, Sendable, CaseIterable, Equatable {
+    case formatted = "FORMATTED_VALUE"
+    case unformatted = "UNFORMATTED_VALUE"
+    case formula = "FORMULA"
 }
 
 /// One cell value. With the default render option (`FORMATTED_VALUE`) all

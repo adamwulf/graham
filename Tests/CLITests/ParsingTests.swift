@@ -58,7 +58,7 @@ final class ParsingTests: XCTestCase {
     func testSheetsValuesParsesArguments() throws {
         let command = try Sheets.Values.parse(["sheet-id", "Tab!A1:C10", "--json"])
         XCTAssertEqual(command.spreadsheetID, "sheet-id")
-        XCTAssertEqual(command.range, "Tab!A1:C10")
+        XCTAssertEqual(command.ranges, ["Tab!A1:C10"])
         XCTAssertTrue(command.json)
     }
 

@@ -5,7 +5,9 @@ For architecture and implementation conventions, see `CLAUDE.md`.
 
 **Google Docs is at practical 100%** — every `core` and `useful` operation is
 built and merged. Only the explicitly-deferred advanced items below remain.
-**Sheets** is the next major area (see the end of this file).
+**Google Sheets** has reached practical completeness too — the ranked build-out
+(values, tabs, grid shape, formatting, charts) is merged; only advanced polish
+remains (see the end of this file).
 
 ---
 
@@ -88,33 +90,20 @@ ids are not writable and are intentionally omitted.
 
 ---
 
-## Sheets — deferred until Docs is complete
+## Sheets — advanced polish (deferred)
 
-Ranked; each item is one unit of work in the repo pattern (typed batch-update
-case + high-level client method + offline StubTransport tests + thin CLI
-command). See the built Sheets surface in `SheetsClient.swift`.
+The ranked Sheets build-out (values, tabs, grid shape, formatting, charts) is
+built and merged; see `README.md` for the command surface and `CLAUDE.md` for
+the write-endpoint recipe and index conventions. Only the advanced items below
+remain, added when a real need appears.
 
-1. **`values.append` -> `sheets append`** *(quick win)* — add rows without first
-   finding the next free row. One endpoint (POST
-   `.../values/{range}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`),
-   reuses `UpdateValuesRequestBody`, no batch-update case, no index math.
-2. **Tab management** — `addSheet` + `deleteSheet` + rename
-   (`updateSheetProperties`), as a `sheets tab` group. `SheetProperties.index`
-   is zero-based; the CLI accepts one-based and translates. `deleteSheet` takes a
-   numeric `sheetId`; resolve a title to its id via `spreadsheet(id:)`.
-3. **`values.clear` -> `sheets clear`** — POST `:clear` with an empty body; very
-   small, can ride with item 1.
-4. **Freeze and resize** — `updateSheetProperties.gridProperties` +
-   `updateDimensionProperties`, reusing the Slides fields-mask convention.
-   Dimension ranges are zero-based, half-open; the CLI takes one-based inclusive.
-5. **First formatting slice** — `repeatCell` with a small `CellFormat`:
-   `sheets format <range> --bold --background <color> --number-format <pattern>
-   --align <h>`. `A1Range.parse` already yields the `GridRange`.
-6. **Chart upgrades** (one unit each) — overlay position with anchor cell and
-   pixel size; `pieChart` spec + `COMBO` type; `deleteEmbeddedObject` +
-   `updateChartSpec`, plus `sheets.charts` in `sheets get` so charts are
-   listable.
-7. **Read options + `batchGet`** — `--raw` and `--formulas` on `sheets values`,
-   multi-range reads, and `frozenRowCount`/`frozenColumnCount` in `sheets get`.
-8. **`sheets set` input escaping** — accept TSV on stdin or a `--json` rows
-   argument so cells can contain commas and a `values | set` round trip works.
+- **More formatting** — clearing or toggling off a format (the `--bold` flag
+  only sets), number formats with an explicit type (`DATE`, `CURRENCY`, …),
+  text color / font, cell borders via `updateBorders`, and the non-deprecated
+  `backgroundColorStyle` in place of `backgroundColor`.
+- **Structure** — `mergeCells` / `unmergeCells`, `sortRange`, `autoResize`
+  dimensions, and Sheets-side named ranges.
+- **Data tooling** — conditional formatting, data validation, basic filters and
+  filter views, and protected ranges.
+- **More chart types** — histogram, scorecard, and candlestick specs, and
+  editing a chart's position (`updateEmbeddedObjectPosition`).
