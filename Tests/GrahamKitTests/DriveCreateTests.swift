@@ -47,6 +47,8 @@ final class DriveCreateTests: XCTestCase {
         let request = try XCTUnwrap(transport.requests(urlContains: "/drive/v3/files").first)
         // The same fields as a metadata fetch, so JSON/table output is populated.
         XCTAssertTrue(request.url.absoluteString.contains("fields=id,name,mimeType"))
+        // Spans shared drives, so `create --parent <shared-drive-folder>` works.
+        XCTAssertTrue(request.url.absoluteString.contains("supportsAllDrives=true"))
     }
 
     func testCreateMapsEachTypeToItsMime() async throws {

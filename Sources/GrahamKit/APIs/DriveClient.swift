@@ -178,7 +178,7 @@ public struct DriveClient: Sendable {
     ) async throws -> DriveFile {
         let url = try GoogleURL.build(
             "\(Self.baseURL)/files",
-            query: [("fields", Self.fileFields)]
+            query: [("fields", Self.fileFields), ("supportsAllDrives", "true")]
         )
         let body = DriveFileCreateRequest(
             name: name,
@@ -325,30 +325,34 @@ public struct DriveClient: Sendable {
         try await api.sendNoContent(method: "DELETE", url: url)
     }
 
-    /// Gets the metadata of one file.
+    /// Gets the metadata of one file. Spans shared drives, so a shared-drive
+    /// file resolves instead of 404-ing (`files.get` scopes to My Drive without
+    /// `supportsAllDrives`). `move` relies on this to read a file's parents.
     public func file(id: String) async throws -> DriveFile {
         let url = try GoogleURL.build(
             "\(Self.baseURL)/files/\(GoogleURL.escapePathComponent(id))",
-            query: [("fields", Self.fileFields)]
+            query: [("fields", Self.fileFields), ("supportsAllDrives", "true")]
         )
         return try await api.getJSON(DriveFile.self, from: url)
     }
 
     /// Exports a Google Workspace file (Doc, Sheet, Slides) to another format,
-    /// for example `text/plain` or `application/pdf`.
+    /// for example `text/plain` or `application/pdf`. Spans shared drives.
     public func export(id: String, mimeType: String) async throws -> Data {
         let url = try GoogleURL.build(
             "\(Self.baseURL)/files/\(GoogleURL.escapePathComponent(id))/export",
-            query: [("mimeType", mimeType)]
+            query: [("mimeType", mimeType), ("supportsAllDrives", "true")]
         )
         return try await api.getData(from: url)
     }
 
-    /// Downloads the content of a binary file.
+    /// Downloads the content of a binary file. Spans shared drives (this is
+    /// `files.get` with `alt=media`, which needs `supportsAllDrives` to reach a
+    /// shared-drive file).
     public func download(id: String) async throws -> Data {
         let url = try GoogleURL.build(
             "\(Self.baseURL)/files/\(GoogleURL.escapePathComponent(id))",
-            query: [("alt", "media")]
+            query: [("alt", "media"), ("supportsAllDrives", "true")]
         )
         return try await api.getData(from: url)
     }

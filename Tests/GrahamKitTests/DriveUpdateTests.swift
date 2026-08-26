@@ -114,8 +114,10 @@ final class DriveUpdateTests: XCTestCase {
 
         let requests = transport.requests(urlContains: "/drive/v3/files/f1")
         XCTAssertEqual(requests.count, 2)
-        // The first call reads the current parents.
+        // The first call reads the current parents, and spans shared drives so a
+        // shared-drive file resolves instead of 404-ing before the move.
         XCTAssertEqual(requests[0].method, "GET")
+        XCTAssertTrue(requests[0].url.absoluteString.contains("supportsAllDrives=true"))
         // The second call is the reparenting PATCH.
         let patch = requests[1]
         XCTAssertEqual(patch.method, "PATCH")

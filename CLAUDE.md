@@ -227,6 +227,11 @@ write. Tests remain offline and exercise the real encoding path.
   MIME (`SharedDrive.asDriveFile`). `DriveClient.browse` holds the `drive list`
   routing (id → contents, no id + no query + all/folders → roots, else global
   search); the CLI just calls `browse` so all the routing is unit-tested.
+  Every single-file operation sets `supportsAllDrives=true` too — `file(id:)`
+  (so `drive get` and `move`'s parent-read resolve a shared-drive file instead
+  of 404-ing), `create`, `copy`, `trash`, `untrash`, the `update` family
+  (rename/star/move), `createShortcut`, `download`, and `export`. A single-file
+  method that omits it silently scopes to My Drive and 404s on shared-drive ids.
 - `DriveFileType` lives in `GrahamKit` (no ArgumentParser import). Its
   `ExpressibleByArgument` conformance lives in the CLI target next to
   `OutputFormat`'s. Building a Drive `q` goes through `DriveClient.buildQuery`,
