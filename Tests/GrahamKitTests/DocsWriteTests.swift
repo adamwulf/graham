@@ -1977,6 +1977,123 @@ final class DocsWriteTests: XCTestCase {
         }
     }
 
+    // MARK: - updateDocumentStyle: page number, header/footer margins, flip
+
+    func testUpdateDocumentStylePageNumberStartAlone() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.updateDocumentStyle(documentId: "doc-1", pageNumberStart: 3)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateDocumentStyle":{"documentStyle":{"pageNumberStart":3},"fields":"pageNumberStart"}}]}"#
+        )
+    }
+
+    /// Setting both header and footer margins implies useCustomHeaderFooterMargins,
+    /// which the API needs for the custom margins to take effect; the mask lists
+    /// marginHeader, marginFooter, then the implied flag.
+    func testUpdateDocumentStyleHeaderFooterMarginsImplyUseCustomFlag() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.updateDocumentStyle(
+            documentId: "doc-1", marginHeader: 24, marginFooter: 24)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateDocumentStyle":{"documentStyle":{"marginFooter":{"magnitude":24,"unit":"PT"},"marginHeader":{"magnitude":24,"unit":"PT"},"useCustomHeaderFooterMargins":true},"fields":"marginHeader,marginFooter,useCustomHeaderFooterMargins"}}]}"#
+        )
+    }
+
+    /// A single header margin still implies the flag.
+    func testUpdateDocumentStyleMarginHeaderOnlyImpliesUseCustomFlag() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.updateDocumentStyle(documentId: "doc-1", marginHeader: 18)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateDocumentStyle":{"documentStyle":{"marginHeader":{"magnitude":18,"unit":"PT"},"useCustomHeaderFooterMargins":true},"fields":"marginHeader,useCustomHeaderFooterMargins"}}]}"#
+        )
+    }
+
+    func testUpdateDocumentStyleFlipOrientationAlone() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.updateDocumentStyle(documentId: "doc-1", flipPageOrientation: true)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateDocumentStyle":{"documentStyle":{"flipPageOrientation":true},"fields":"flipPageOrientation"}}]}"#
+        )
+    }
+
+    /// The new fields are appended after the existing entries, so a marginTop
+    /// (existing) plus the new fields locks the mask order
+    /// `marginTop,pageNumberStart,marginHeader,useCustomHeaderFooterMargins,`
+    /// `flipPageOrientation`.
+    func testUpdateDocumentStyleNewFieldsAfterExistingKeepFixedMaskOrder() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.updateDocumentStyle(
+            documentId: "doc-1", marginTop: 36, pageNumberStart: 5,
+            marginHeader: 12, flipPageOrientation: false)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateDocumentStyle":{"documentStyle":{"flipPageOrientation":false,"marginHeader":{"magnitude":12,"unit":"PT"},"marginTop":{"magnitude":36,"unit":"PT"},"pageNumberStart":5,"useCustomHeaderFooterMargins":true},"fields":"marginTop,pageNumberStart,marginHeader,useCustomHeaderFooterMargins,flipPageOrientation"}}]}"#
+        )
+    }
+
+    func testUpdateDocumentStyleRejectsPageNumberStartBelowOne() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            _ = try await client.updateDocumentStyle(documentId: "doc-1", pageNumberStart: 0)
+        }
+        await assertInvalidArgument {
+            _ = try await client.updateDocumentStyle(documentId: "doc-1", pageNumberStart: -1)
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testUpdateDocumentStyleRejectsBadHeaderFooterMarginsWithoutSendingARequest() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        // Non-positive header/footer margins.
+        await assertInvalidArgument {
+            _ = try await client.updateDocumentStyle(documentId: "doc-1", marginHeader: 0)
+        }
+        await assertInvalidArgument {
+            _ = try await client.updateDocumentStyle(documentId: "doc-1", marginFooter: -5)
+        }
+        // Non-finite header/footer margins are rejected before the JSON encoder.
+        await assertInvalidArgument {
+            _ = try await client.updateDocumentStyle(documentId: "doc-1", marginHeader: .nan)
+        }
+        await assertInvalidArgument {
+            _ = try await client.updateDocumentStyle(documentId: "doc-1", marginFooter: .infinity)
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
     // MARK: - Named-range and document-style union discriminators
 
     /// The document-mode raw values match the discovery document exactly, so the

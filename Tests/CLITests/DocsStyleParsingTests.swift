@@ -111,6 +111,19 @@ final class DocsStyleParsingTests: XCTestCase {
         XCTAssertEqual(none.baseline, .normal)
     }
 
+    func testDocsStyleParsesSmallCaps() throws {
+        // --small-caps alone also satisfies the "at least one style flag" check.
+        let on = try Docs.Style.parse(["doc-1", "--from", "1", "--to", "5", "--small-caps"])
+        XCTAssertEqual(on.smallCaps, true)
+        let off = try Docs.Style.parse(["doc-1", "--from", "1", "--to", "5", "--no-small-caps"])
+        XCTAssertEqual(off.smallCaps, false)
+    }
+
+    func testDocsStyleLeavesSmallCapsNilWhenAbsent() throws {
+        let command = try Docs.Style.parse(["doc-1", "--from", "1", "--to", "5", "--bold"])
+        XCTAssertNil(command.smallCaps)
+    }
+
     // MARK: - docs paragraph
 
     func testDocsParagraphParsesRangeAndFlags() throws {
@@ -175,6 +188,68 @@ final class DocsStyleParsingTests: XCTestCase {
         XCTAssertEqual(DocsAlignmentArgument.justified.alignment.rawValue, "JUSTIFIED")
         XCTAssertEqual(DocsDirectionArgument.ltr.direction.rawValue, "LEFT_TO_RIGHT")
         XCTAssertEqual(DocsDirectionArgument.rtl.direction.rawValue, "RIGHT_TO_LEFT")
+    }
+
+    func testDocsParagraphParsesPaginationShadingAndSpacingFlags() throws {
+        let command = try Docs.Paragraph.parse([
+            "doc-1", "--from", "1", "--to", "9",
+            "--keep-lines-together", "--keep-with-next", "--avoid-widows",
+            "--page-break-before", "--shading", "#FFFF00", "--spacing-mode", "collapse-lists",
+        ])
+        XCTAssertEqual(command.keepLinesTogether, true)
+        XCTAssertEqual(command.keepWithNext, true)
+        XCTAssertEqual(command.avoidWidows, true)
+        XCTAssertEqual(command.pageBreakBefore, true)
+        XCTAssertEqual(command.shading, "#FFFF00")
+        XCTAssertEqual(command.spacingMode, .collapseLists)
+    }
+
+    func testDocsParagraphParsesNoFormsOfThePaginationFlags() throws {
+        let command = try Docs.Paragraph.parse([
+            "doc-1", "--from", "1", "--to", "9",
+            "--no-keep-lines-together", "--no-keep-with-next",
+            "--no-avoid-widows", "--no-page-break-before",
+        ])
+        XCTAssertEqual(command.keepLinesTogether, false)
+        XCTAssertEqual(command.keepWithNext, false)
+        XCTAssertEqual(command.avoidWidows, false)
+        XCTAssertEqual(command.pageBreakBefore, false)
+    }
+
+    func testDocsParagraphNewFlagsSatisfyTheAtLeastOneCheck() throws {
+        // --spacing-mode alone is enough to pass the "at least one style" check.
+        let byMode = try Docs.Paragraph.parse([
+            "doc-1", "--from", "1", "--to", "9", "--spacing-mode", "never-collapse",
+        ])
+        XCTAssertEqual(byMode.spacingMode, .neverCollapse)
+        // --shading alone is enough too.
+        let byShading = try Docs.Paragraph.parse([
+            "doc-1", "--from", "1", "--to", "9", "--shading", "#00FF00",
+        ])
+        XCTAssertEqual(byShading.shading, "#00FF00")
+    }
+
+    func testDocsParagraphLeavesNewFlagsNilWhenAbsent() throws {
+        let command = try Docs.Paragraph.parse(["doc-1", "--from", "1", "--to", "9", "--align", "center"])
+        XCTAssertNil(command.keepLinesTogether)
+        XCTAssertNil(command.keepWithNext)
+        XCTAssertNil(command.avoidWidows)
+        XCTAssertNil(command.pageBreakBefore)
+        XCTAssertNil(command.shading)
+        XCTAssertNil(command.spacingMode)
+    }
+
+    func testDocsSpacingModeArgumentMapsToTheWireValue() {
+        XCTAssertEqual(DocsSpacingModeArgument.neverCollapse.spacingMode.rawValue, "NEVER_COLLAPSE")
+        XCTAssertEqual(DocsSpacingModeArgument.collapseLists.spacingMode.rawValue, "COLLAPSE_LISTS")
+    }
+
+    func testDocsParagraphRejectsAnInvalidSpacingMode() {
+        XCTAssertThrowsError(
+            try Docs.Paragraph.parse([
+                "doc-1", "--from", "1", "--to", "9", "--spacing-mode", "always",
+            ])
+        )
     }
 
     // MARK: - docs heading

@@ -254,4 +254,57 @@ final class DocsNamedRangeParsingTests: XCTestCase {
             "doc-1", "--page-width", "inf", "--page-height", "792",
         ]))
     }
+
+    func testPageSetupParsesPageNumberMarginsAndFlip() throws {
+        let command = try Docs.PageSetup.parse([
+            "doc-1",
+            "--page-number-start", "3",
+            "--margin-header", "24", "--margin-footer", "18",
+            "--flip-orientation",
+        ])
+        XCTAssertEqual(command.pageNumberStart, 3)
+        XCTAssertEqual(command.marginHeader, 24)
+        XCTAssertEqual(command.marginFooter, 18)
+        XCTAssertEqual(command.flipOrientation, true)
+    }
+
+    func testPageSetupParsesNoFlipOrientation() throws {
+        let command = try Docs.PageSetup.parse(["doc-1", "--no-flip-orientation"])
+        XCTAssertEqual(command.flipOrientation, false)
+    }
+
+    func testPageSetupNewOptionsSatisfyTheAtLeastOneCheck() throws {
+        // Each new option alone is enough to pass the "at least one option" check.
+        XCTAssertEqual(
+            try Docs.PageSetup.parse(["doc-1", "--page-number-start", "1"]).pageNumberStart, 1)
+        XCTAssertEqual(
+            try Docs.PageSetup.parse(["doc-1", "--margin-header", "24"]).marginHeader, 24)
+        XCTAssertEqual(
+            try Docs.PageSetup.parse(["doc-1", "--margin-footer", "24"]).marginFooter, 24)
+        XCTAssertEqual(
+            try Docs.PageSetup.parse(["doc-1", "--flip-orientation"]).flipOrientation, true)
+    }
+
+    func testPageSetupDefaultsNewOptionsToNil() throws {
+        let command = try Docs.PageSetup.parse(["doc-1", "--margin-top", "72"])
+        XCTAssertNil(command.pageNumberStart)
+        XCTAssertNil(command.marginHeader)
+        XCTAssertNil(command.marginFooter)
+        XCTAssertNil(command.flipOrientation)
+    }
+
+    func testPageSetupRejectsPageNumberStartBelowOne() {
+        XCTAssertThrowsError(try Docs.PageSetup.parse(["doc-1", "--page-number-start", "0"]))
+        XCTAssertThrowsError(try Docs.PageSetup.parse(["doc-1", "--page-number-start", "-1"]))
+    }
+
+    func testPageSetupRejectsNonPositiveHeaderFooterMargins() {
+        XCTAssertThrowsError(try Docs.PageSetup.parse(["doc-1", "--margin-header", "0"]))
+        XCTAssertThrowsError(try Docs.PageSetup.parse(["doc-1", "--margin-footer", "-5"]))
+    }
+
+    func testPageSetupRejectsNonFiniteHeaderFooterMargins() {
+        XCTAssertThrowsError(try Docs.PageSetup.parse(["doc-1", "--margin-header", "inf"]))
+        XCTAssertThrowsError(try Docs.PageSetup.parse(["doc-1", "--margin-footer", "nan"]))
+    }
 }

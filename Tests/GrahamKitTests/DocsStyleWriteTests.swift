@@ -223,6 +223,41 @@ final class DocsStyleWriteTests: XCTestCase {
         }
     }
 
+    // MARK: - updateTextStyle: smallCaps
+
+    func testStyleTextSmallCapsAlonePostsExactBodyAndMask() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.styleText(
+            documentId: "doc-1", startIndex: 1, endIndex: 5, smallCaps: true)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateTextStyle":{"fields":"smallCaps","range":{"endIndex":5,"startIndex":1},"textStyle":{"smallCaps":true}}}]}"#
+        )
+    }
+
+    /// smallCaps is appended after the existing entries, so a bold + link +
+    /// smallCaps call locks the mask order `bold,link,smallCaps`.
+    func testStyleTextSmallCapsFollowsExistingFieldsInTheMask() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.styleText(
+            documentId: "doc-1", startIndex: 2, endIndex: 8,
+            bold: true, linkURL: "https://example.com", smallCaps: false)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateTextStyle":{"fields":"bold,link,smallCaps","range":{"endIndex":8,"startIndex":2},"textStyle":{"bold":true,"link":{"url":"https:\/\/example.com"},"smallCaps":false}}}]}"#
+        )
+    }
+
     // MARK: - updateParagraphStyle
 
     func testStyleParagraphsPostsExactBodyAndDecodesReply() async throws {
@@ -393,6 +428,90 @@ final class DocsStyleWriteTests: XCTestCase {
             _ = try await client.styleParagraphs(
                 documentId: "doc-1", startIndex: 1, endIndex: 10, alignment: .center)
         }
+    }
+
+    // MARK: - updateParagraphStyle: pagination, shading, and spacing
+
+    func testStyleParagraphsKeepLinesTogetherAlonePostsExactBodyAndMask() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.styleParagraphs(
+            documentId: "doc-1", startIndex: 1, endIndex: 10, keepLinesTogether: true)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateParagraphStyle":{"fields":"keepLinesTogether","paragraphStyle":{"keepLinesTogether":true},"range":{"endIndex":10,"startIndex":1}}}]}"#
+        )
+    }
+
+    /// The new fields are appended after the existing entries, so an alignment
+    /// (existing) plus every new field locks the mask order
+    /// `alignment,keepLinesTogether,keepWithNext,avoidWidowAndOrphan,`
+    /// `pageBreakBefore,shading,spacingMode`.
+    func testStyleParagraphsEmitsEveryNewFieldAfterExistingInTheMask() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.styleParagraphs(
+            documentId: "doc-1",
+            startIndex: 1,
+            endIndex: 10,
+            alignment: .center,
+            keepLinesTogether: true,
+            keepWithNext: true,
+            avoidWidowAndOrphan: false,
+            pageBreakBefore: true,
+            shadingBackgroundColor: try DocsOptionalColor.parse("#FF0000"),
+            spacingMode: .collapseLists
+        )
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateParagraphStyle":{"fields":"alignment,keepLinesTogether,keepWithNext,avoidWidowAndOrphan,pageBreakBefore,shading,spacingMode","paragraphStyle":{"alignment":"CENTER","avoidWidowAndOrphan":false,"keepLinesTogether":true,"keepWithNext":true,"pageBreakBefore":true,"shading":{"backgroundColor":{"color":{"rgbColor":{"blue":0,"green":0,"red":1}}}},"spacingMode":"COLLAPSE_LISTS"},"range":{"endIndex":10,"startIndex":1}}}]}"#
+        )
+    }
+
+    func testStyleParagraphsShadingAloneWrapsTheColorInAShading() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.styleParagraphs(
+            documentId: "doc-1", startIndex: 1, endIndex: 10,
+            shadingBackgroundColor: try DocsOptionalColor.parse("#00FF00"))
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateParagraphStyle":{"fields":"shading","paragraphStyle":{"shading":{"backgroundColor":{"color":{"rgbColor":{"blue":0,"green":1,"red":0}}}}},"range":{"endIndex":10,"startIndex":1}}}]}"#
+        )
+    }
+
+    func testStyleParagraphsSpacingModeEmitsTheWireSpelling() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.styleParagraphs(
+            documentId: "doc-1", startIndex: 1, endIndex: 10, spacingMode: .neverCollapse)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateParagraphStyle":{"fields":"spacingMode","paragraphStyle":{"spacingMode":"NEVER_COLLAPSE"},"range":{"endIndex":10,"startIndex":1}}}]}"#
+        )
+    }
+
+    /// The spacing-mode raw values match the discovery document exactly, so the
+    /// enum never drifts from the wire spelling.
+    func testSpacingModeRawValuesMatchTheWireSpellings() {
+        XCTAssertEqual(DocsSpacingMode.neverCollapse.rawValue, "NEVER_COLLAPSE")
+        XCTAssertEqual(DocsSpacingMode.collapseLists.rawValue, "COLLAPSE_LISTS")
     }
 
     // MARK: - Color hex -> rgbColor conversion
