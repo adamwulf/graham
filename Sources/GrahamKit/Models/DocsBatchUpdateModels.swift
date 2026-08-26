@@ -64,6 +64,19 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
     /// Sets the column width (fixed or evenly distributed) of listed columns, or
     /// every column.
     case updateTableColumnProperties(DocsUpdateTableColumnPropertiesRequest)
+    /// Inserts a page break plus a newline at a body location or the end of the
+    /// body.
+    case insertPageBreak(DocsInsertPageBreakRequest)
+    /// Inserts an inline image from a URI at a location or the end of a segment;
+    /// the reply carries the new object id.
+    case insertInlineImage(DocsInsertInlineImageRequest)
+    /// Replaces an existing image, in place, with a new image from a URI.
+    case replaceImage(DocsReplaceImageRequest)
+    /// Deletes a positioned object by its object id.
+    case deletePositionedObject(DocsDeletePositionedObjectRequest)
+    /// Inserts a continuous or next-page section break at a body location or the
+    /// end of the body.
+    case insertSectionBreak(DocsInsertSectionBreakRequest)
 
     private enum CodingKeys: String, CodingKey {
         case insertText
@@ -84,6 +97,11 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
         case updateTableCellStyle
         case updateTableRowStyle
         case updateTableColumnProperties
+        case insertPageBreak
+        case insertInlineImage
+        case replaceImage
+        case deletePositionedObject
+        case insertSectionBreak
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -125,6 +143,16 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
             try container.encode(request, forKey: .updateTableRowStyle)
         case .updateTableColumnProperties(let request):
             try container.encode(request, forKey: .updateTableColumnProperties)
+        case .insertPageBreak(let request):
+            try container.encode(request, forKey: .insertPageBreak)
+        case .insertInlineImage(let request):
+            try container.encode(request, forKey: .insertInlineImage)
+        case .replaceImage(let request):
+            try container.encode(request, forKey: .replaceImage)
+        case .deletePositionedObject(let request):
+            try container.encode(request, forKey: .deletePositionedObject)
+        case .insertSectionBreak(let request):
+            try container.encode(request, forKey: .insertSectionBreak)
         }
     }
 }
@@ -1038,6 +1066,157 @@ public struct DocsUpdateTableColumnPropertiesRequest: Codable, Sendable, Equatab
     }
 }
 
+// MARK: - Structure and images
+//
+// These mirror the Docs v1 structure and image operations: `insertPageBreak`,
+// `insertInlineImage`, `replaceImage`, `deletePositionedObject`, and
+// `insertSectionBreak`. Page breaks and section breaks are body-only in the API
+// (their location's segment id must be empty), so those two requests carry no
+// segment. Inline images may go in the body, a header, or a footer (not a
+// footnote), so they reuse the shared ``DocsLocation`` /
+// ``DocsEndOfSegmentLocation`` segment handling. The two enums carry the exact
+// API spellings as raw values and are prefixed `Docs` to stay clear of the
+// Slides write models in this single module.
+
+/// A Docs v1 `Size`: the width and height an object should appear as. Both are
+/// ``DocsDimension`` values in points and both are optional — the API computes a
+/// missing dimension from the image's resolution and the other dimension. graham
+/// only ever sets an image's `objectSize`, so this is used solely by
+/// ``DocsInsertInlineImageRequest``.
+public struct DocsSize: Codable, Sendable, Equatable {
+    public let height: DocsDimension?
+    public let width: DocsDimension?
+
+    public init(height: DocsDimension? = nil, width: DocsDimension? = nil) {
+        self.height = height
+        self.width = width
+    }
+}
+
+/// A Docs v1 `InsertSectionBreakRequest.sectionType` / `SectionType`: whether an
+/// inserted section starts immediately after the previous section
+/// (`CONTINUOUS`) or on the next page (`NEXT_PAGE`). The cases are the writable
+/// values; the API's `SECTION_TYPE_UNSPECIFIED` sentinel is never sent.
+public enum DocsSectionType: String, Codable, Sendable, Equatable {
+    case continuous = "CONTINUOUS"
+    case nextPage = "NEXT_PAGE"
+}
+
+/// A Docs v1 `ReplaceImageRequest.imageReplaceMethod` / `ImageReplaceMethod`:
+/// how a replacement image is fitted. The API defines exactly one usable value,
+/// `CENTER_CROP` (scale-and-center, cropping to fill the original bounds); the
+/// `IMAGE_REPLACE_METHOD_UNSPECIFIED` sentinel must not be used, so the only
+/// case is `centerCrop` and ``DocsClient/replaceImage(documentId:imageObjectId:uri:requiredRevisionId:)``
+/// always sends it.
+public enum DocsImageReplaceMethod: String, Codable, Sendable, Equatable {
+    case centerCrop = "CENTER_CROP"
+}
+
+/// The `insertPageBreak` operation. The destination is exactly one of a
+/// ``DocsLocation`` (an explicit body index) or a ``DocsEndOfSegmentLocation``
+/// (the end of the body). Page breaks are body-only in the API — the location's
+/// segment id must be empty — so neither init sets a segment id. The two inits
+/// keep the destinations mutually exclusive: only the chosen one is set, and the
+/// other stays nil and is omitted when encoded.
+public struct DocsInsertPageBreakRequest: Codable, Sendable, Equatable {
+    public let location: DocsLocation?
+    public let endOfSegmentLocation: DocsEndOfSegmentLocation?
+
+    public init(location: DocsLocation) {
+        self.location = location
+        self.endOfSegmentLocation = nil
+    }
+
+    public init(endOfSegmentLocation: DocsEndOfSegmentLocation) {
+        self.location = nil
+        self.endOfSegmentLocation = endOfSegmentLocation
+    }
+}
+
+/// The `insertInlineImage` operation. The `uri` is required and must be a
+/// publicly fetchable image (< 50MB, <= 25 megapixels, PNG/JPEG/GIF). The
+/// destination is exactly one of a ``DocsLocation`` (an explicit index, in the
+/// body or a header/footer segment) or a ``DocsEndOfSegmentLocation`` (append to
+/// the end of the body or a segment). `objectSize` is optional; when omitted the
+/// API sizes the image from its resolution. The two inits keep the destinations
+/// mutually exclusive: only the chosen one is set, and the other stays nil and is
+/// omitted when encoded. The reply carries the new object id
+/// (``DocsInsertInlineImageReply``).
+public struct DocsInsertInlineImageRequest: Codable, Sendable, Equatable {
+    public let uri: String
+    public let location: DocsLocation?
+    public let endOfSegmentLocation: DocsEndOfSegmentLocation?
+    public let objectSize: DocsSize?
+
+    public init(uri: String, location: DocsLocation, objectSize: DocsSize? = nil) {
+        self.uri = uri
+        self.location = location
+        self.endOfSegmentLocation = nil
+        self.objectSize = objectSize
+    }
+
+    public init(
+        uri: String, endOfSegmentLocation: DocsEndOfSegmentLocation, objectSize: DocsSize? = nil
+    ) {
+        self.uri = uri
+        self.location = nil
+        self.endOfSegmentLocation = endOfSegmentLocation
+        self.objectSize = objectSize
+    }
+}
+
+/// The `replaceImage` operation. `imageObjectId` names the existing image to
+/// replace, `uri` is the new image (same fetch rules as `insertInlineImage`),
+/// and `imageReplaceMethod` is the fit method — all required by the API. The
+/// only usable method is ``DocsImageReplaceMethod/centerCrop``.
+public struct DocsReplaceImageRequest: Codable, Sendable, Equatable {
+    public let imageObjectId: String
+    public let uri: String
+    public let imageReplaceMethod: DocsImageReplaceMethod
+
+    public init(imageObjectId: String, uri: String, imageReplaceMethod: DocsImageReplaceMethod) {
+        self.imageObjectId = imageObjectId
+        self.uri = uri
+        self.imageReplaceMethod = imageReplaceMethod
+    }
+}
+
+/// The `deletePositionedObject` operation. `objectId` names the positioned
+/// object to delete (positioned objects cannot be created through the API, only
+/// deleted). Required by the API.
+public struct DocsDeletePositionedObjectRequest: Codable, Sendable, Equatable {
+    public let objectId: String
+
+    public init(objectId: String) {
+        self.objectId = objectId
+    }
+}
+
+/// The `insertSectionBreak` operation. `sectionType` is required. The
+/// destination is exactly one of a ``DocsLocation`` (an explicit body index) or
+/// a ``DocsEndOfSegmentLocation`` (the end of the body). Section breaks are
+/// body-only in the API — the location's segment id must be empty — so neither
+/// init sets a segment id. The two inits keep the destinations mutually
+/// exclusive: only the chosen one is set, and the other stays nil and is omitted
+/// when encoded.
+public struct DocsInsertSectionBreakRequest: Codable, Sendable, Equatable {
+    public let sectionType: DocsSectionType
+    public let location: DocsLocation?
+    public let endOfSegmentLocation: DocsEndOfSegmentLocation?
+
+    public init(sectionType: DocsSectionType, location: DocsLocation) {
+        self.sectionType = sectionType
+        self.location = location
+        self.endOfSegmentLocation = nil
+    }
+
+    public init(sectionType: DocsSectionType, endOfSegmentLocation: DocsEndOfSegmentLocation) {
+        self.sectionType = sectionType
+        self.location = nil
+        self.endOfSegmentLocation = endOfSegmentLocation
+    }
+}
+
 // MARK: - Responses
 
 /// The response of a `documents.batchUpdate` call.
@@ -1054,15 +1233,26 @@ public struct DocsBatchUpdateResponse: Codable, Sendable {
 
 /// One reply in a Docs batch-update response.
 ///
-/// Only `replaceAllText` carries a payload; `insertText` and
-/// `deleteContentRange` reply with an empty object, so this decodes to a reply
-/// whose every field is nil.
+/// Only some operations carry a payload: `replaceAllText` reports the number of
+/// occurrences changed, and `insertInlineImage` returns the new object id. The
+/// structure operations (`insertText`, `deleteContentRange`, `insertPageBreak`,
+/// `replaceImage`, `deletePositionedObject`, `insertSectionBreak`, and the table
+/// ops) reply with an empty object, so this decodes to a reply whose every field
+/// is nil.
 public struct DocsBatchUpdateReply: Codable, Sendable {
     public let replaceAllText: DocsReplaceAllTextReply?
+    public let insertInlineImage: DocsInsertInlineImageReply?
 }
 
 /// The reply of a `replaceAllText` operation.
 public struct DocsReplaceAllTextReply: Codable, Sendable {
     /// The number of occurrences that were replaced.
     public let occurrencesChanged: Int?
+}
+
+/// The reply of an `insertInlineImage` operation, carrying the id of the newly
+/// created inline object so a caller can address the image afterwards.
+public struct DocsInsertInlineImageReply: Codable, Sendable {
+    /// The ID of the created inline object.
+    public let objectId: String?
 }

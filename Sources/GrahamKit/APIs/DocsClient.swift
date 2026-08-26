@@ -1164,6 +1164,250 @@ public struct DocsClient: Sendable {
             requiredRevisionId: requiredRevisionId)
     }
 
+    // MARK: - Structure and images
+    //
+    // Page breaks and section breaks are body-only in the API (their location's
+    // segment id must be empty), so those two methods take no segment and apply
+    // the body guard `index >= 1` (index 0 lands inside the initial section
+    // break the body cannot edit). Inline images may go in the body, a header,
+    // or a footer (not a footnote), so `insertInlineImage` normalizes an empty
+    // segment id to the body and uses the shared per-segment index rules (body
+    // >= 1, a named segment >= 0), exactly like the text and table inserts.
+    // Indices stay zero-based UTF-16, matching the API. Replies are empty for
+    // every op except `insertInlineImage`, whose reply carries the new object id.
+
+    /// Inserts a page break plus a newline in the document body.
+    ///
+    /// The destination is exactly one of an explicit body `index` (a
+    /// ``DocsLocation``) or the end of the body (`endOfSegment`). Page breaks are
+    /// body-only in the Docs API, so there is no segment option.
+    ///
+    /// - Parameters:
+    ///   - index: the zero-based UTF-16 body index to insert at. Required unless
+    ///     `endOfSegment` is set. The body's first editable index is 1 (index 0
+    ///     lands inside the initial section break).
+    ///   - endOfSegment: append the page break to the end of the body without
+    ///     computing an index. `index` is ignored, and no index guard applies.
+    public func insertPageBreak(
+        documentId: String,
+        index: Int? = nil,
+        endOfSegment: Bool = false,
+        requiredRevisionId: String? = nil
+    ) async throws -> DocsBatchUpdateResponse {
+        let insert: DocsInsertPageBreakRequest
+        if endOfSegment {
+            insert = DocsInsertPageBreakRequest(
+                endOfSegmentLocation: DocsEndOfSegmentLocation())
+        } else {
+            guard let index else {
+                throw GrahamError.invalidArgument(
+                    "provide an index to insert at, or append to the end of the body")
+            }
+            guard index >= 1 else {
+                throw GrahamError.invalidArgument(
+                    "index must be 1 or greater; the document body starts at index 1")
+            }
+            insert = DocsInsertPageBreakRequest(location: DocsLocation(index: index))
+        }
+        let request = DocsBatchUpdateRequest.insertPageBreak(insert)
+        return try await batchUpdate(
+            documentId: documentId, requests: [request],
+            requiredRevisionId: requiredRevisionId)
+    }
+
+    /// Inserts an inline image from a `uri` and returns the batch response plus
+    /// the new image's object id (from the reply).
+    ///
+    /// The `uri` must be publicly fetchable by Google at insertion time
+    /// (< 50MB, <= 25 megapixels, PNG/JPEG/GIF); Google fetches it once and
+    /// stores a copy. The destination is exactly one of an explicit `index` (a
+    /// ``DocsLocation``) or the end of the body or a segment (`endOfSegment`).
+    ///
+    /// - Parameters:
+    ///   - uri: the image URI; must not be empty.
+    ///   - index: the zero-based UTF-16 index to insert at. Required unless
+    ///     `endOfSegment` is set. The body's first editable index is 1; a named
+    ///     segment starts at 0.
+    ///   - endOfSegment: append to the end of the body (or the segment named by
+    ///     `segmentId`) without computing an index. `index` is ignored, and no
+    ///     index guard applies.
+    ///   - segmentId: a header or footer segment (an inline image cannot go in a
+    ///     footnote); nil or an empty string targets the body.
+    ///   - width / height: the optional display size in points; each must be
+    ///     greater than zero when given. Omitting both lets the API size the
+    ///     image from its resolution; giving one lets the API compute the other
+    ///     to preserve the aspect ratio.
+    public func insertInlineImage(
+        documentId: String,
+        uri: String,
+        index: Int? = nil,
+        endOfSegment: Bool = false,
+        segmentId: String? = nil,
+        width: Double? = nil,
+        height: Double? = nil,
+        requiredRevisionId: String? = nil
+    ) async throws -> (response: DocsBatchUpdateResponse, objectId: String?) {
+        guard !uri.isEmpty else {
+            throw GrahamError.invalidArgument("the image URI must not be empty")
+        }
+        if let width {
+            guard width > 0 else {
+                throw GrahamError.invalidArgument(
+                    "image width must be greater than zero, got \(width)")
+            }
+        }
+        if let height {
+            guard height > 0 else {
+                throw GrahamError.invalidArgument(
+                    "image height must be greater than zero, got \(height)")
+            }
+        }
+        // A size is sent only when a width or height is given; an omitted size
+        // lets the API size the image from its resolution.
+        var objectSize: DocsSize?
+        if width != nil || height != nil {
+            objectSize = DocsSize(
+                height: height.map { DocsDimension(magnitude: $0, unit: .pt) },
+                width: width.map { DocsDimension(magnitude: $0, unit: .pt) })
+        }
+        // The Docs API reads an empty segment id as the document body, so
+        // normalize "" to nil before choosing the guard and building the target.
+        let segmentId = segmentId.flatMap { $0.isEmpty ? nil : $0 }
+        let insert: DocsInsertInlineImageRequest
+        if endOfSegment {
+            insert = DocsInsertInlineImageRequest(
+                uri: uri,
+                endOfSegmentLocation: DocsEndOfSegmentLocation(segmentId: segmentId),
+                objectSize: objectSize)
+        } else {
+            guard let index else {
+                throw GrahamError.invalidArgument(
+                    "provide an index to insert at, or append to the end of the segment")
+            }
+            if segmentId == nil {
+                guard index >= 1 else {
+                    throw GrahamError.invalidArgument(
+                        "index must be 1 or greater; the document body starts at index 1")
+                }
+            } else {
+                guard index >= 0 else {
+                    throw GrahamError.invalidArgument(
+                        "index must be 0 or greater in a segment")
+                }
+            }
+            insert = DocsInsertInlineImageRequest(
+                uri: uri,
+                location: DocsLocation(index: index, segmentId: segmentId),
+                objectSize: objectSize)
+        }
+        let request = DocsBatchUpdateRequest.insertInlineImage(insert)
+        let response = try await batchUpdate(
+            documentId: documentId, requests: [request],
+            requiredRevisionId: requiredRevisionId)
+        let objectId = response.replies?.first?.insertInlineImage?.objectId
+        return (response, objectId)
+    }
+
+    /// Replaces an existing image, in place, with a new image from `uri`.
+    ///
+    /// The only replace method the API defines is
+    /// ``DocsImageReplaceMethod/centerCrop`` (scale-and-center, cropping to fill
+    /// the original bounds), so the client always sends it. The new `uri` follows
+    /// the same fetch rules as ``insertInlineImage(documentId:uri:index:endOfSegment:segmentId:width:height:requiredRevisionId:)``.
+    ///
+    /// - Parameters:
+    ///   - imageObjectId: the id of the existing image to replace; must not be
+    ///     empty.
+    ///   - uri: the new image URI; must not be empty.
+    public func replaceImage(
+        documentId: String,
+        imageObjectId: String,
+        uri: String,
+        requiredRevisionId: String? = nil
+    ) async throws -> DocsBatchUpdateResponse {
+        guard !imageObjectId.isEmpty else {
+            throw GrahamError.invalidArgument("the image object id must not be empty")
+        }
+        guard !uri.isEmpty else {
+            throw GrahamError.invalidArgument("the image URI must not be empty")
+        }
+        let request = DocsBatchUpdateRequest.replaceImage(DocsReplaceImageRequest(
+            imageObjectId: imageObjectId, uri: uri, imageReplaceMethod: .centerCrop))
+        return try await batchUpdate(
+            documentId: documentId, requests: [request],
+            requiredRevisionId: requiredRevisionId)
+    }
+
+    /// Deletes a positioned object by its object id.
+    ///
+    /// Positioned objects cannot be created through the Docs API, only deleted;
+    /// the id comes from a document read (`docs images` lists positioned images).
+    ///
+    /// - Parameter objectId: the id of the positioned object to delete; must not
+    ///   be empty.
+    public func deletePositionedObject(
+        documentId: String,
+        objectId: String,
+        requiredRevisionId: String? = nil
+    ) async throws -> DocsBatchUpdateResponse {
+        guard !objectId.isEmpty else {
+            throw GrahamError.invalidArgument("the object id must not be empty")
+        }
+        let request = DocsBatchUpdateRequest.deletePositionedObject(
+            DocsDeletePositionedObjectRequest(objectId: objectId))
+        return try await batchUpdate(
+            documentId: documentId, requests: [request],
+            requiredRevisionId: requiredRevisionId)
+    }
+
+    /// Inserts a section break (with a preceding newline) in the document body.
+    ///
+    /// The destination is exactly one of an explicit body `index` (a
+    /// ``DocsLocation``) or the end of the body (`endOfSegment`). Section breaks
+    /// are body-only in the Docs API, so there is no segment option.
+    ///
+    /// - Parameters:
+    ///   - sectionType: the section-type spelling (case-insensitive), `CONTINUOUS`
+    ///     or `NEXT_PAGE`. A value outside that set is rejected before any request
+    ///     goes out.
+    ///   - index: the zero-based UTF-16 body index to insert at. Required unless
+    ///     `endOfSegment` is set. The body's first editable index is 1 (index 0
+    ///     lands inside the initial section break).
+    ///   - endOfSegment: append the section break to the end of the body without
+    ///     computing an index. `index` is ignored, and no index guard applies.
+    public func insertSectionBreak(
+        documentId: String,
+        sectionType: String,
+        index: Int? = nil,
+        endOfSegment: Bool = false,
+        requiredRevisionId: String? = nil
+    ) async throws -> DocsBatchUpdateResponse {
+        guard let type = DocsSectionType(rawValue: sectionType.uppercased()) else {
+            throw GrahamError.invalidArgument(
+                "unknown section type \"\(sectionType)\"; use CONTINUOUS or NEXT_PAGE")
+        }
+        let insert: DocsInsertSectionBreakRequest
+        if endOfSegment {
+            insert = DocsInsertSectionBreakRequest(
+                sectionType: type, endOfSegmentLocation: DocsEndOfSegmentLocation())
+        } else {
+            guard let index else {
+                throw GrahamError.invalidArgument(
+                    "provide an index to insert at, or append to the end of the body")
+            }
+            guard index >= 1 else {
+                throw GrahamError.invalidArgument(
+                    "index must be 1 or greater; the document body starts at index 1")
+            }
+            insert = DocsInsertSectionBreakRequest(
+                sectionType: type, location: DocsLocation(index: index))
+        }
+        let request = DocsBatchUpdateRequest.insertSectionBreak(insert)
+        return try await batchUpdate(
+            documentId: documentId, requests: [request],
+            requiredRevisionId: requiredRevisionId)
+    }
+
     // MARK: - Image download
 
     /// Downloads the bytes at an image `contentUri`.
