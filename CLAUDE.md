@@ -251,11 +251,15 @@ write. Tests remain offline and exercise the real encoding path.
   listing-only `DriveFileType`) and routes through the shared `Drive.Create.create`
   helper into `DriveClient.create`. The name and Google Workspace MIME type go in
   a JSON body, not the URL. `--parent` places the file in a folder; without it,
-  new files land in My Drive. There is deliberately no `docs create` command: the
-  Docs `documents.create` endpoint (title-only, always My Drive) still lives in
-  the library as `DocsClient.create` and is covered by the Docs live test's
-  `docs-create` step, but the CLI exposes creation only under `drive` so the
-  caller has one clear path. A shortcut is also a create: `drive create shortcut
+  new files land in My Drive. `drive create` is the ONLY document-creation path,
+  for every service. The CLI is the only client, so the service clients carry no
+  document-level create endpoint of their own: there is no `DocsClient.create`
+  (`documents.create`), no `SheetsClient` spreadsheet create, and no
+  `SlidesClient` presentation create — the per-service `documents.create`,
+  `spreadsheets.create`, and `presentations.create` endpoints are all superseded
+  by `drive create doc|sheet|slides`, which sets the Google Workspace MIME on a
+  Drive `files.create`. The service clients only read and edit documents that
+  already exist. A shortcut is also a create: `drive create shortcut
   <target-id> --name` routes through `DriveClient.createShortcut`, which posts a
   file with the `application/vnd.google-apps.shortcut` MIME and a
   `shortcutDetails.targetId`.

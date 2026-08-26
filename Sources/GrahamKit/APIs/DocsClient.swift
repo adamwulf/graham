@@ -32,26 +32,6 @@ public struct DocsClient: Sendable {
         return try await api.getJSON(Document.self, from: url)
     }
 
-    /// Creates a new, blank document from a `title` via `documents.create`,
-    /// returning the created ``Document`` (whose `documentId` identifies it).
-    /// This is the native Docs create endpoint (title-only, always My Drive); the
-    /// CLI creates documents through `drive create doc` instead, so this method
-    /// has no 1:1 command, but the Docs live test's `docs-create` step covers it.
-    /// The new document's body is empty until a
-    /// later ``batchUpdate(documentId:requests:requiredRevisionId:)`` fills it.
-    ///
-    /// The title is carried in a JSON request body, not in the URL, so it is
-    /// encoded safely no matter what characters it holds.
-    public func create(title: String) async throws -> Document {
-        let url = try GoogleURL.build("\(Self.baseURL)/documents")
-        return try await api.sendJSON(
-            Document.self,
-            method: "POST",
-            url: url,
-            body: DocsCreateRequest(title: title)
-        )
-    }
-
     // MARK: - Writes
 
     /// Sends one `documents.batchUpdate` call with `requests`, in order.

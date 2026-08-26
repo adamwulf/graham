@@ -153,25 +153,6 @@ public struct DocsLiveTest: Sendable {
             _ = try await docs.document(id: documentID).imageRows
         }
 
-        // documents.create: a second, throwaway document created directly through
-        // DocsClient (not Drive), verified by its id and — through a read-back —
-        // its title, then trashed in cleanup. The main disposable document above
-        // stays folder-parented; this one lands in My Drive.
-        let createdDocID = await valueStep(
-            "docs-create", recorder: recorder, createdIDs: { [$0] }
-        ) {
-            let title = "graham docs-create \(label)"
-            let created = try await docs.create(title: title)
-            guard let id = created.documentId, !id.isEmpty else {
-                throw GrahamError.invalidResponse("docs.create returned no document id")
-            }
-            let read = try await docs.document(id: id)
-            guard read.documentId == id, read.title == title else {
-                throw GrahamError.invalidResponse("the created document did not round-trip")
-            }
-            return id
-        }
-
         // Text. One explicit-index insert seeds the body with several marker
         // paragraphs; the rest read those paragraphs back to target the edit.
         let insertedText = await actionStep("text-insert", recorder: recorder) {
@@ -623,10 +604,6 @@ public struct DocsLiveTest: Sendable {
             }
         }
 
-        await cleanupStep(
-            "trash-created-doc", fileID: createdDocID,
-            recorder: recorder, prerequisite: createdDocID != nil,
-            dependency: "docs-create")
         await cleanupStep(
             "trash-doc", fileID: documentID, recorder: recorder, prerequisite: true)
 
