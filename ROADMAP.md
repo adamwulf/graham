@@ -51,23 +51,7 @@ keep the styling change reviewable:
   `docs paragraph` border flags. Same fields-mask discipline and exact-string
   tests.
 
-### Phase 5 — Table styling (next up)
-
-Table structure is done: `docs table create/add-row/add-column/delete-row/
-delete-column/merge/unmerge/pin-headers`. Three styling operations remain, each
-with a `fields` mask (same discipline as the text/paragraph styling). All
-address cells by the table's zero-based start index (from `docs structure`);
-CLI rows and columns stay one-based and GrahamKit subtracts one.
-
-- **`updateTableCellStyle`** *(useful)* — style a `DocsTableRange` or a whole
-  table (background, borders, padding, alignment); `fields` mask. CLI
-  `docs table style`.
-- **`updateTableRowStyle`** *(useful)* — row height / header / overflow for
-  listed `rowIndices`. CLI `docs table row-style`.
-- **`updateTableColumnProperties`** *(useful)* — column width (`FIXED_WIDTH`
-  >= 5pt) for listed `columnIndices`. CLI `docs table column-width`.
-
-### Phase 6 — Structure and images
+### Phase 6 — Structure and images (next up)
 
 - **`insertPageBreak`** *(core)* — insert a page break plus newline; body only.
   CLI `docs page-break`. Zero-based UTF-16, body index >= 1, or end-of-segment.
