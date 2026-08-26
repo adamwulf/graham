@@ -36,3 +36,27 @@ enum CLI {
         print(String(data: data, encoding: .utf8) ?? "{}")
     }
 }
+
+/// ANSI colouring for a live-test status word: PASS green, SKIP yellow, FAIL
+/// red. Only the leading status word is coloured; the rest of the line stays
+/// plain. Colour is applied only when stdout is a terminal, so redirected or
+/// piped output stays plain text. Shared by the `slides test` and `docs test`
+/// commands.
+enum StatusColor {
+    case green, yellow, red
+
+    private var code: String {
+        switch self {
+        case .green: return "32"
+        case .yellow: return "33"
+        case .red: return "31"
+        }
+    }
+
+    private static let stdoutIsTerminal = isatty(STDOUT_FILENO) != 0
+
+    func wrap(_ text: String) -> String {
+        guard StatusColor.stdoutIsTerminal else { return text }
+        return "\u{1B}[\(code)m\(text)\u{1B}[0m"
+    }
+}

@@ -10,9 +10,68 @@ struct Docs: AsyncParsableCommand {
             Replace.self, Style.self, Paragraph.self, Heading.self, Bullets.self,
             Unbullet.self, Table.self, Images.self, PageBreak.self, Image.self,
             Object.self, SectionBreak.self, Header.self, Footer.self, Footnote.self,
-            NamedRange.self, PageSetup.self,
+            NamedRange.self, PageSetup.self, Test.self,
         ]
     )
+
+    struct Test: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Run the live end-to-end Docs smoke test.",
+            discussion: """
+                Creates a document inside a folder in My Drive, exercises \
+                graham's Docs API surface (text, styling, lists, tables, images, \
+                headers/footers/footnotes, named ranges, and page setup), and \
+                trashes the document afterward. The folder remains. Use --keep to \
+                retain the document for inspection. The command exits nonzero \
+                when any step fails.
+                """
+        )
+
+        @Flag(help: "Keep the document after the run.")
+        var keep = false
+
+        @Option(help: "The root-level My Drive folder to find or create.")
+        var folder = "graham test"
+
+        @Option(name: .customLong("image-url"), help: "The public image URL used by image-insert.")
+        var imageURL = DocsLiveTest.defaultImageURL
+
+        func run() async throws {
+            let api = try CLI.makeAPI()
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime]
+            let label = formatter.string(from: Date())
+            let runner = DocsLiveTest(
+                drive: DriveClient(api: api),
+                docs: DocsClient(api: api),
+                folderName: folder,
+                imageURL: imageURL,
+                keep: keep,
+                label: label,
+                onStep: { step in
+                    let ids = step.createdIDs.isEmpty
+                        ? ""
+                        : " [\(step.createdIDs.joined(separator: ", "))]"
+                    switch step.outcome {
+                    case .pass:
+                        print("\(StatusColor.green.wrap("PASS")) \(step.name)\(ids)")
+                    case .fail(let reason):
+                        print("\(StatusColor.red.wrap("FAIL")) \(step.name): \(reason)\(ids)")
+                    case .skip(let reason):
+                        print("\(StatusColor.yellow.wrap("SKIP")) \(step.name): \(reason)\(ids)")
+                    }
+                }
+            )
+            let summary = await runner.run()
+            print(
+                "Summary: \(summary.passed) passed, \(summary.failed) failed, "
+                    + "\(summary.skipped) skipped"
+            )
+            if summary.failed > 0 {
+                throw ExitCode.failure
+            }
+        }
+    }
 
     struct Create: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
