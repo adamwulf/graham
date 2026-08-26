@@ -29,6 +29,23 @@ final class SheetsRowInputTests: XCTestCase {
         assertInvalidArgument { _ = try SheetsRowInput.fromJSON(#"[["ok"],[]]"#) }
     }
 
+    // MARK: - Comma rows
+
+    func testFromCommaRowsSplitsEachRowOnCommas() throws {
+        XCTAssertEqual(
+            try SheetsRowInput.fromCommaRows(["Label,Value", "A,10"]),
+            [["Label", "Value"], ["A", "10"]])
+    }
+
+    func testFromCommaRowsKeepsEmptyCellsAndSingleCells() throws {
+        XCTAssertEqual(try SheetsRowInput.fromCommaRows(["A,,C"]), [["A", "", "C"]])
+        XCTAssertEqual(try SheetsRowInput.fromCommaRows(["solo"]), [["solo"]])
+    }
+
+    func testFromCommaRowsRejectsNoRows() {
+        assertInvalidArgument { _ = try SheetsRowInput.fromCommaRows([]) }
+    }
+
     // MARK: - TSV
 
     func testFromTSVSplitsRowsOnNewlinesAndCellsOnTabs() throws {

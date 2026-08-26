@@ -35,6 +35,20 @@ struct Sheets: AsyncParsableCommand {
         }
     }
 
+    /// Resolves the rows a `set` / `append` command writes from its chosen input
+    /// mode. The parsing lives in `SheetsRowInput`; only the stdin read is a CLI
+    /// concern. The command's `validate()` guarantees exactly one mode is set.
+    static func rowsInput(row: [String], jsonRows: String?, tsv: Bool) throws -> [[String]] {
+        if let jsonRows {
+            return try SheetsRowInput.fromJSON(jsonRows)
+        }
+        if tsv {
+            let data = FileHandle.standardInput.readDataToEndOfFile()
+            return try SheetsRowInput.fromTSV(String(decoding: data, as: UTF8.self))
+        }
+        return try SheetsRowInput.fromCommaRows(row)
+    }
+
     struct Test: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Run the live end-to-end Sheets smoke test.",
@@ -238,18 +252,7 @@ struct Sheets: AsyncParsableCommand {
         }
 
         func run() async throws {
-            let rows: [[String]]
-            if let jsonRows {
-                rows = try SheetsRowInput.fromJSON(jsonRows)
-            } else if tsv {
-                let data = FileHandle.standardInput.readDataToEndOfFile()
-                rows = try SheetsRowInput.fromTSV(String(decoding: data, as: UTF8.self))
-            } else {
-                rows = row.map { encodedRow in
-                    encodedRow.split(separator: ",", omittingEmptySubsequences: false)
-                        .map(String.init)
-                }
-            }
+            let rows = try Sheets.rowsInput(row: row, jsonRows: jsonRows, tsv: tsv)
             let client = SheetsClient(api: try CLI.makeAPI())
             let response = try await client.setValues(
                 spreadsheetId: spreadsheetID,
@@ -296,18 +299,7 @@ struct Sheets: AsyncParsableCommand {
         }
 
         func run() async throws {
-            let rows: [[String]]
-            if let jsonRows {
-                rows = try SheetsRowInput.fromJSON(jsonRows)
-            } else if tsv {
-                let data = FileHandle.standardInput.readDataToEndOfFile()
-                rows = try SheetsRowInput.fromTSV(String(decoding: data, as: UTF8.self))
-            } else {
-                rows = row.map { encodedRow in
-                    encodedRow.split(separator: ",", omittingEmptySubsequences: false)
-                        .map(String.init)
-                }
-            }
+            let rows = try Sheets.rowsInput(row: row, jsonRows: jsonRows, tsv: tsv)
             let client = SheetsClient(api: try CLI.makeAPI())
             let response = try await client.appendValues(
                 spreadsheetId: spreadsheetID,

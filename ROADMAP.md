@@ -90,64 +90,17 @@ ids are not writable and are intentionally omitted.
 
 ---
 
-## Sheets — the active build-out
+## Sheets — advanced polish (deferred)
 
-This is the next major area. Docs is at practical 100%, so work now moves here.
-
-### What is built today
-
-`SheetsClient.swift` holds: `spreadsheet` (get metadata, including frozen row /
-column counts), `values` (read a range, with a `valueRenderOption`),
-`batchGetValues` (multi-range read), `setValues` (write a range, `USER_ENTERED`),
-`appendValues` (append rows after a table), `clearValues` (clear a range),
-`batchUpdate` (the shared batch-write path), `addChart` (a basic chart on its own
-new sheet), the tab operations `addSheet` / `deleteSheet` / `renameSheet` (plus
-`sheetId(title:)` / `firstSheetId` resolution), the grid-shape operations
-`freeze` and `resizeDimension`, `formatCells` (a `repeatCell` format slice), and
-the chart operations `addChart` (basic / pie / combo, on a new sheet or as an
-overlay), `updateChart`, and `deleteChart` (charts are also listed in the read
-model). The CLI exposes these as `sheets get`, `sheets values`
-(`--raw` / `--formulas`, one or more ranges), `sheets set`
-(`--row` / `--json-rows` / `--tsv`), `sheets append`, `sheets clear`,
-`sheets tab add` / `delete` / `rename`, `sheets freeze`, `sheets resize`,
-`sheets format`, and `sheets chart add` / `update` / `delete`.
-
-`graham sheets test` runs the live end-to-end Sheets smoke test over that surface
-(`SheetsLiveTest.swift`), with real value write / append / clear
-read-back round-trips. It is the Sheets analog of `graham docs test` and
-`graham slides test`; the Slides test keeps only a minimal chart-source
-spreadsheet, so each test exercises its own service.
-
-### How each item ships
-
-Every item is one unit of work in the repo pattern:
-
-1. Typed request/response models under `Models/` (a new `SheetsBatchUpdateRequest`
-   case where the operation is a batch write).
-2. A high-level `SheetsClient` method that owns the endpoint, escaped path, HTTP
-   method, and body.
-3. Offline `StubTransport` tests (exact method, URL, encoded body, decoded
-   reply, empty reply, and Google-error propagation).
-4. A thin CLI subcommand.
-5. **Grow `sheets test`** to cover the new operation, with a read-back where
-   practical — the live surface test must keep pace with the client surface.
-
-Index conventions (apply throughout): A1 ranges parse through `A1Range.parse`
-(never hand-build a `GridRange`). `SheetProperties.index`, dimension ranges, and
-grid indices are zero-based (dimension ranges are also half-open); the CLI shows
-and accepts one-based (inclusive for dimensions) and `GrahamKit` translates.
-Building a fields mask reuses the Slides `update*Properties` mask convention.
-
-### Practical completeness reached
-
-The ranked Sheets build-out (values completeness, tab management, grid shape,
-cell formatting, and chart upgrades) is built and merged, and `graham sheets
-test` exercises the whole surface. What remains is advanced polish, added only
-when a real need appears:
+The ranked Sheets build-out (values, tabs, grid shape, formatting, charts) is
+built and merged; see `README.md` for the command surface and `CLAUDE.md` for
+the write-endpoint recipe and index conventions. Only the advanced items below
+remain, added when a real need appears.
 
 - **More formatting** — clearing or toggling off a format (the `--bold` flag
   only sets), number formats with an explicit type (`DATE`, `CURRENCY`, …),
-  text color / font, and cell borders via `updateBorders`.
+  text color / font, cell borders via `updateBorders`, and the non-deprecated
+  `backgroundColorStyle` in place of `backgroundColor`.
 - **Structure** — `mergeCells` / `unmergeCells`, `sortRange`, `autoResize`
   dimensions, and Sheets-side named ranges.
 - **Data tooling** — conditional formatting, data validation, basic filters and

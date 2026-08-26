@@ -19,6 +19,17 @@ public enum SheetsRowInput {
         return rows
     }
 
+    /// Parses rows from the legacy comma-separated `--row` form: each element is
+    /// one row, split on commas with no escaping (every comma starts the next
+    /// cell). This is the form `--json-rows` and `--tsv` exist to escape.
+    public static func fromCommaRows(_ rows: [String]) throws -> [[String]] {
+        let parsed = rows.map { row in
+            row.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
+        }
+        try validate(parsed)
+        return parsed
+    }
+
     /// Parses rows from tab-separated text: rows split on newlines and cells on
     /// tabs. A trailing newline and any blank lines are dropped, so piping a
     /// `graham sheets values` read straight back in round-trips.
