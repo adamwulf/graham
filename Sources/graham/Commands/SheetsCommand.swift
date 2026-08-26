@@ -709,18 +709,26 @@ struct Sheets: AsyncParsableCommand {
     struct Chart: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Work with embedded spreadsheet charts.",
-            subcommands: [Add.self, Update.self, Delete.self]
+            subcommands: [Add.self, Update.self, Move.self, Delete.self]
         )
 
         struct Add: AsyncParsableCommand {
             static let configuration = CommandConfiguration(
                 abstract: "Add a chart and print its chart id.",
                 discussion: """
-                    The first range column is the domain and each remaining
-                    column is a series (a pie chart uses the first two columns).
-                    The first row supplies headers. By default the chart lands on
-                    its own new sheet; pass --anchor to overlay it on an existing
-                    sheet. The printed numeric chart id can be passed to
+                    --kind selects the chart shape (default column). For column,
+                    bar, line, area, scatter, and combo the first range column is
+                    the domain and each remaining column is a series; pie uses the
+                    first two columns; histogram turns every column into a series;
+                    scorecard reads a key value (and optional baseline) from the
+                    first one or two columns; candlestick reads exactly five
+                    columns as domain, open, high, low, close. The first row
+                    supplies headers. --type and --pie still work as aliases for
+                    the matching --kind (a set --kind wins). --bucket-size and
+                    --outlier-percentile tune a histogram; --aggregate sets a
+                    scorecard aggregation. By default the chart lands on its own
+                    new sheet; pass --anchor to overlay it on an existing sheet.
+                    The printed numeric chart id can be passed to
                     `graham slides create chart --chart-id`.
                     """
             )
@@ -734,11 +742,27 @@ struct Sheets: AsyncParsableCommand {
             @Option(help: "The chart title.")
             var title: String?
 
-            @Option(help: "The chart type: column, bar, line, area, scatter, or combo.")
+            @Option(help: """
+                The chart kind: column, bar, line, area, scatter, combo, pie, \
+                histogram, scorecard, or candlestick. Overrides --type/--pie.
+                """)
+            var kind: SheetsChartKind?
+
+            @Option(help: "The basic chart type: column, bar, line, area, scatter, or combo.")
             var type: BasicChartType = .column
 
             @Flag(help: "Make a pie chart (uses the first two columns; ignores --type).")
             var pie = false
+
+            @Option(name: .customLong("bucket-size"), help: "Histogram bucket size.")
+            var bucketSize: Double?
+
+            @Option(name: .customLong("outlier-percentile"),
+                    help: "Histogram outlier percentile (0-1).")
+            var outlierPercentile: Double?
+
+            @Option(help: "Scorecard aggregation: average, count, max, median, min, or sum.")
+            var aggregate: SheetsChartAggregateType?
 
             @Option(help: "Overlay the chart anchored to this A1 cell, e.g. 'Sheet2!D2'.")
             var anchor: String?
@@ -766,6 +790,10 @@ struct Sheets: AsyncParsableCommand {
                     type: type,
                     range: range,
                     pie: pie,
+                    kind: kind,
+                    bucketSize: bucketSize,
+                    outlierPercentile: outlierPercentile,
+                    aggregate: aggregate,
                     overlay: overlay
                 )
                 print(chartId)
@@ -774,7 +802,13 @@ struct Sheets: AsyncParsableCommand {
 
         struct Update: AsyncParsableCommand {
             static let configuration = CommandConfiguration(
-                abstract: "Replace a chart's spec, rebuilt from a range and type."
+                abstract: "Replace a chart's spec, rebuilt from a range and kind.",
+                discussion: """
+                    --kind selects the chart shape, exactly as `chart add`;
+                    --type and --pie remain aliases (a set --kind wins).
+                    --bucket-size/--outlier-percentile tune a histogram and
+                    --aggregate sets a scorecard aggregation.
+                    """
             )
 
             @Argument(help: "The spreadsheet ID.")
@@ -789,11 +823,27 @@ struct Sheets: AsyncParsableCommand {
             @Option(help: "The chart title.")
             var title: String?
 
-            @Option(help: "The chart type: column, bar, line, area, scatter, or combo.")
+            @Option(help: """
+                The chart kind: column, bar, line, area, scatter, combo, pie, \
+                histogram, scorecard, or candlestick. Overrides --type/--pie.
+                """)
+            var kind: SheetsChartKind?
+
+            @Option(help: "The basic chart type: column, bar, line, area, scatter, or combo.")
             var type: BasicChartType = .column
 
             @Flag(help: "Make a pie chart (uses the first two columns; ignores --type).")
             var pie = false
+
+            @Option(name: .customLong("bucket-size"), help: "Histogram bucket size.")
+            var bucketSize: Double?
+
+            @Option(name: .customLong("outlier-percentile"),
+                    help: "Histogram outlier percentile (0-1).")
+            var outlierPercentile: Double?
+
+            @Option(help: "Scorecard aggregation: average, count, max, median, min, or sum.")
+            var aggregate: SheetsChartAggregateType?
 
             func run() async throws {
                 let client = SheetsClient(api: try CLI.makeAPI())
@@ -803,7 +853,65 @@ struct Sheets: AsyncParsableCommand {
                     title: title,
                     type: type,
                     range: range,
-                    pie: pie
+                    pie: pie,
+                    kind: kind,
+                    bucketSize: bucketSize,
+                    outlierPercentile: outlierPercentile,
+                    aggregate: aggregate
+                )
+            }
+        }
+
+        struct Move: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Move or resize an embedded chart.",
+                discussion: """
+                    Choose exactly one placement: --anchor overlays the chart on
+                    an existing sheet at an A1 cell (optionally sized with --width
+                    and --height), or --new-sheet moves it onto its own new sheet.
+                    The anchor's sheet comes from its tab name, or the first sheet
+                    when it names none.
+                    """
+            )
+
+            @Argument(help: "The spreadsheet ID.")
+            var spreadsheetID: String
+
+            @Option(help: "The numeric chart id to move.")
+            var chartId: Int
+
+            @Option(help: "Overlay the chart anchored to this A1 cell, e.g. 'Sheet2!D2'.")
+            var anchor: String?
+
+            @Option(help: "Overlay width in pixels (requires --anchor).")
+            var width: Int?
+
+            @Option(help: "Overlay height in pixels (requires --anchor).")
+            var height: Int?
+
+            @Flag(help: "Move the chart onto its own new sheet.")
+            var newSheet = false
+
+            func validate() throws {
+                let placements = [anchor != nil, newSheet].filter { $0 }.count
+                guard placements == 1 else {
+                    throw ValidationError(
+                        "Choose exactly one placement: --anchor or --new-sheet.")
+                }
+                if newSheet, width != nil || height != nil {
+                    throw ValidationError("--width and --height require --anchor.")
+                }
+            }
+
+            func run() async throws {
+                let client = SheetsClient(api: try CLI.makeAPI())
+                try await client.moveChart(
+                    spreadsheetId: spreadsheetID,
+                    chartId: chartId,
+                    anchor: anchor,
+                    width: width,
+                    height: height,
+                    newSheet: newSheet
                 )
             }
         }
@@ -1321,6 +1429,18 @@ struct Sheets: AsyncParsableCommand {
 }
 
 extension BasicChartType: ExpressibleByArgument {
+    public init?(argument: String) {
+        self.init(rawValue: argument.uppercased())
+    }
+}
+
+extension SheetsChartKind: ExpressibleByArgument {
+    public init?(argument: String) {
+        self.init(rawValue: argument.uppercased())
+    }
+}
+
+extension SheetsChartAggregateType: ExpressibleByArgument {
     public init?(argument: String) {
         self.init(rawValue: argument.uppercased())
     }
