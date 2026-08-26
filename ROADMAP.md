@@ -51,19 +51,7 @@ keep the styling change reviewable:
   `docs paragraph` border flags. Same fields-mask discipline and exact-string
   tests.
 
-### Phase 4 — Lists (next up)
-
-- **`createParagraphBullets`** *(core)* — turn the paragraphs overlapping a range
-  into a list using a `bulletPreset` (16 presets, e.g.
-  `BULLET_DISC_CIRCLE_SQUARE`, `BULLET_CHECKBOX`,
-  `NUMBERED_DECIMAL_ALPHA_ROMAN`). Nesting comes from leading tab characters.
-  Request case + preset enum; CLI `docs bullets <id> --from --to --preset`.
-  Zero-based UTF-16 range.
-- **`deleteParagraphBullets`** *(core)* — remove bullets from paragraphs
-  overlapping a range, preserving visual nesting via indents. CLI
-  `docs bullets --remove` (or `docs unbullet`). Zero-based UTF-16 range.
-
-### Phase 5 — Tables
+### Phase 5 — Tables (next up)
 
 All table operations locate the table by its zero-based start index (from
 `docs structure`) and address cells through `DocsTableCellLocation`. CLI rows
