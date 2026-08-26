@@ -13,10 +13,12 @@ Named after Graham's number — a contrast to the googol that named Google.
   download files; create folders and empty Docs, Sheets, and Slides files; copy files;
   move files to trash; and permanently delete files.
 - **Sheets and Docs** — read a spreadsheet and its values; write cell values;
-  add a basic chart on its own sheet; read a document and list its block
-  structure with index ranges; create a blank document; and insert, delete, and
-  replace text in a document through the shared `documents.batchUpdate` write
-  path.
+  add a basic chart on its own sheet; read a document, render it as Markdown,
+  and list its block structure with index ranges; list or download its images;
+  create a blank document; and through the shared `documents.batchUpdate` write
+  path insert, delete, and replace text, style text and paragraphs, manage
+  bulleted and numbered lists, and edit table structure (insert and delete rows
+  and columns, merge and unmerge cells, and pin header rows).
 - **Slides** — read presentation text; list every page element with its type,
   geometry, text, links, and alt text; list or download every image, including
   images nested in groups; add, move, and delete slides through the shared
@@ -152,6 +154,20 @@ graham docs heading <document-id> 2 --from 1 --to 20
 graham docs bullets <document-id> --from 1 --to 20 --preset disc-circle-square
 # Remove the bullets from the paragraphs a range touches (nesting is kept as indents).
 graham docs unbullet <document-id> --from 1 --to 20
+# Edit table structure. A table is located by its zero-based start index (from
+# `docs structure`); cell --row/--column are one-based. `create` prints the new
+# table's start index (the API inserts a newline, so it is --at + 1).
+graham docs table create <document-id> --rows 3 --columns 4 --at 1
+graham docs table create <document-id> --rows 3 --columns 4 --end
+graham docs table add-row <document-id> --table 5 --row 1 --column 1 --below
+graham docs table add-column <document-id> --table 5 --row 1 --column 1 --right
+graham docs table delete-row <document-id> --table 5 --row 2 --column 1
+graham docs table delete-column <document-id> --table 5 --row 1 --column 2
+# Merge/unmerge a rectangular range from a head cell across one-based spans.
+graham docs table merge <document-id> --table 5 --row 1 --column 1 --row-span 1 --column-span 2
+graham docs table unmerge <document-id> --table 5 --row 1 --column 1 --row-span 1 --column-span 2
+# Pin the first N rows as headers; 0 unpins.
+graham docs table pin-headers <document-id> --table 5 --count 1
 # Any write can require the document be at a known revision (optimistic concurrency);
 # the write fails instead of overwriting a concurrent edit.
 graham docs insert <document-id> --text "Hello" --at 1 --require-revision <revision-id>
