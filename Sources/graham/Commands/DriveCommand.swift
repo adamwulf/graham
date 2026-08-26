@@ -5,7 +5,10 @@ import GrahamKit
 struct Drive: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Work with Google Drive files.",
-        subcommands: [List.self, Get.self, Create.self, Copy.self, Trash.self, Delete.self, Export.self]
+        subcommands: [
+            List.self, Get.self, Create.self, Copy.self, Move.self, Rename.self,
+            Star.self, Trash.self, Untrash.self, Delete.self, Download.self, Export.self,
+        ]
     )
 
     struct List: AsyncParsableCommand {
@@ -58,22 +61,92 @@ struct Drive: AsyncParsableCommand {
 
     struct Create: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Create a new, empty Doc, Sheet, Slides file, or folder."
+            abstract: "Create a new, empty Doc, Sheet, Slides file, folder, or shortcut.",
+            subcommands: [Doc.self, Sheet.self, Slides.self, Folder.self, Shortcut.self]
         )
 
-        @Argument(help: "The name of the new file.")
-        var name: String
+        /// The name, parent, and format shared by every `drive create` subcommand.
+        /// Each subcommand supplies only the `DriveCreateType` these options build.
+        struct Options: ParsableArguments {
+            @Argument(help: "The name of the new file.")
+            var name: String
 
-        @Option(help: "The file type to create: docs, sheets, slides, or folder.")
-        var type: DriveCreateType
+            @Option(help: "The ID of the folder to create the file in. Without it, the file lands in My Drive.")
+            var parent: String?
 
-        @Option(help: "The output format: table, json, jsonl, or id.")
-        var format: OutputFormat = .id
+            @Option(help: "The output format: table, json, jsonl, or id.")
+            var format: OutputFormat = .id
+        }
 
-        func run() async throws {
+        /// The one create path all four subcommands route through, so the
+        /// endpoint, parenting, and rendering live in a single place.
+        static func create(type: DriveCreateType, options: Options) async throws {
             let client = DriveClient(api: try CLI.makeAPI())
-            let file = try await client.create(name: name, type: type)
-            print(try OutputFormatter.render([file], format: format))
+            let file = try await client.create(name: options.name, type: type, parent: options.parent)
+            print(try OutputFormatter.render([file], format: options.format))
+        }
+
+        struct Doc: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "doc", abstract: "Create a new, empty Google Doc.")
+
+            @OptionGroup var options: Options
+
+            func run() async throws { try await Create.create(type: .docs, options: options) }
+        }
+
+        struct Sheet: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "sheet", abstract: "Create a new, empty Google Sheet.")
+
+            @OptionGroup var options: Options
+
+            func run() async throws { try await Create.create(type: .sheets, options: options) }
+        }
+
+        struct Slides: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "slides", abstract: "Create a new, empty Google Slides presentation.")
+
+            @OptionGroup var options: Options
+
+            func run() async throws { try await Create.create(type: .slides, options: options) }
+        }
+
+        struct Folder: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "folder", abstract: "Create a new folder.")
+
+            @OptionGroup var options: Options
+
+            func run() async throws { try await Create.create(type: .folder, options: options) }
+        }
+
+        /// Shortcut creation takes a target id and a `--name` instead of the
+        /// shared `Options`, so it does not join the name-first group above.
+        struct Shortcut: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "shortcut",
+                abstract: "Create a shortcut that points to an existing file.")
+
+            @Argument(help: "The Drive file ID the shortcut points to.")
+            var targetID: String
+
+            @Option(help: "The name of the new shortcut.")
+            var name: String
+
+            @Option(help: "The ID of the folder to create the shortcut in. Without it, it lands in My Drive.")
+            var parent: String?
+
+            @Option(help: "The output format: table, json, jsonl, or id.")
+            var format: OutputFormat = .id
+
+            func run() async throws {
+                let client = DriveClient(api: try CLI.makeAPI())
+                let file = try await client.createShortcut(
+                    name: name, targetId: targetID, parent: parent)
+                print(try OutputFormatter.render([file], format: format))
+            }
         }
     }
 
@@ -95,6 +168,60 @@ struct Drive: AsyncParsableCommand {
         }
     }
 
+    struct Move: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Move a file into another folder."
+        )
+
+        @Argument(help: "The Drive file ID to move.")
+        var fileID: String
+
+        @Option(help: "The ID of the destination folder.")
+        var to: String
+
+        func run() async throws {
+            let client = DriveClient(api: try CLI.makeAPI())
+            let file = try await client.move(fileId: fileID, to: to)
+            print(file.id)
+        }
+    }
+
+    struct Rename: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Rename a file."
+        )
+
+        @Argument(help: "The Drive file ID to rename.")
+        var fileID: String
+
+        @Argument(help: "The new name.")
+        var name: String
+
+        func run() async throws {
+            let client = DriveClient(api: try CLI.makeAPI())
+            let file = try await client.rename(fileId: fileID, name: name)
+            print(file.id)
+        }
+    }
+
+    struct Star: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Star a file (mark it a favorite), or unstar it with --off."
+        )
+
+        @Argument(help: "The Drive file ID to star.")
+        var fileID: String
+
+        @Flag(help: "Remove the star instead of adding it.")
+        var off = false
+
+        func run() async throws {
+            let client = DriveClient(api: try CLI.makeAPI())
+            let file = try await client.setStarred(fileId: fileID, starred: !off)
+            print(file.id)
+        }
+    }
+
     struct Trash: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Move a file to the trash. Reversible in the Drive UI."
@@ -106,6 +233,21 @@ struct Drive: AsyncParsableCommand {
         func run() async throws {
             let client = DriveClient(api: try CLI.makeAPI())
             let file = try await client.trash(fileId: fileID)
+            print(file.id)
+        }
+    }
+
+    struct Untrash: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Restore a file from the trash."
+        )
+
+        @Argument(help: "The Drive file ID to restore.")
+        var fileID: String
+
+        func run() async throws {
+            let client = DriveClient(api: try CLI.makeAPI())
+            let file = try await client.untrash(fileId: fileID)
             print(file.id)
         }
     }
@@ -154,6 +296,33 @@ struct Drive: AsyncParsableCommand {
         func run() async throws {
             let client = DriveClient(api: try CLI.makeAPI())
             let data = try await client.export(id: fileID, mimeType: mime)
+            if let output {
+                try data.write(to: URL(fileURLWithPath: output))
+            } else {
+                FileHandle.standardOutput.write(data)
+            }
+        }
+    }
+
+    struct Download: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Download the raw content of a binary file.",
+            discussion: """
+                Downloads the file's bytes as stored. For Google Workspace files \
+                (Docs, Sheets, Slides), which have no binary content, use \
+                `graham drive export` to convert them to another format instead.
+                """
+        )
+
+        @Argument(help: "The Drive file ID.")
+        var fileID: String
+
+        @Option(name: [.short, .long], help: "Write the content to this file instead of stdout.")
+        var output: String?
+
+        func run() async throws {
+            let client = DriveClient(api: try CLI.makeAPI())
+            let data = try await client.download(id: fileID)
             if let output {
                 try data.write(to: URL(fileURLWithPath: output))
             } else {

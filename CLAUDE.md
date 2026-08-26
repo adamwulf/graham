@@ -227,6 +227,11 @@ write. Tests remain offline and exercise the real encoding path.
   MIME (`SharedDrive.asDriveFile`). `DriveClient.browse` holds the `drive list`
   routing (id → contents, no id + no query + all/folders → roots, else global
   search); the CLI just calls `browse` so all the routing is unit-tested.
+  Every single-file operation sets `supportsAllDrives=true` too — `file(id:)`
+  (so `drive get` and `move`'s parent-read resolve a shared-drive file instead
+  of 404-ing), `create`, `copy`, `trash`, `untrash`, the `update` family
+  (rename/star/move), `createShortcut`, `download`, and `export`. A single-file
+  method that omits it silently scopes to My Drive and 404s on shared-drive ids.
 - `DriveFileType` lives in `GrahamKit` (no ArgumentParser import). Its
   `ExpressibleByArgument` conformance lives in the CLI target next to
   `OutputFormat`'s. Building a Drive `q` goes through `DriveClient.buildQuery`,
@@ -240,10 +245,33 @@ write. Tests remain offline and exercise the real encoding path.
   weekly). If a write feature only needs files graham creates or opens, adding
   a `drive.file` scope (not restricted) to `GoogleScope` avoids both problems.
 
-- `drive create` uses `DriveCreateType`, not the broader listing-only
-  `DriveFileType`. It sends the name and Google Workspace MIME type in a JSON
-  body through `DriveClient.create`; it does not put names in URLs. Without a
-  parent, new files land in My Drive.
+- `drive create` is the one home for file creation. Each Google Workspace type
+  is a subcommand — `drive create doc|sheet|slides|folder <name> [--parent]` —
+  and every subcommand maps to a `DriveCreateType` case (not the broader
+  listing-only `DriveFileType`) and routes through the shared `Drive.Create.create`
+  helper into `DriveClient.create`. The name and Google Workspace MIME type go in
+  a JSON body, not the URL. `--parent` places the file in a folder; without it,
+  new files land in My Drive. There is deliberately no `docs create` command: the
+  Docs `documents.create` endpoint (title-only, always My Drive) still lives in
+  the library as `DocsClient.create` and is covered by the Docs live test's
+  `docs-create` step, but the CLI exposes creation only under `drive` so the
+  caller has one clear path. A shortcut is also a create: `drive create shortcut
+  <target-id> --name` routes through `DriveClient.createShortcut`, which posts a
+  file with the `application/vnd.google-apps.shortcut` MIME and a
+  `shortcutDetails.targetId`.
+- `drive rename`, `drive star`/`--off`, `drive move`, and `drive untrash` all
+  ride the one `files.update` PATCH. Rename and star carry their field in a JSON
+  body (`DriveUpdateRequest`, whose optional fields drop out when nil, so a pure
+  move sends `{}`); `untrash` mirrors `trash` with `DriveTrashRequest(trashed:
+  false)`. The private `DriveClient.update` owns the endpoint; the public
+  `rename`/`setStarred`/`move` are thin wrappers. `move` is the subtle one: Drive
+  reparents by `addParents`/`removeParents` **query** params (never body), so
+  `move` first reads the file's current parents, adds the destination, and removes
+  the rest — filtering the destination out of `removeParents` so the same id is
+  never added and removed in one request.
+- `drive download` exposes `DriveClient.download` (raw `alt=media` bytes) for
+  binary files; `drive export` converts a Workspace file instead. Both write to
+  `-o/--output` or stdout. A Workspace file has no bytes to download.
 - Slides batch updates use zero-based insertion indices based on the slide order
   before a move, while graham displays and accepts final slide positions as
   one-based. Resolve the source index and translate at the high-level client

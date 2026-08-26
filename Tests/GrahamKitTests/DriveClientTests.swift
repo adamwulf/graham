@@ -72,6 +72,9 @@ final class DriveClientTests: XCTestCase {
 
         XCTAssertEqual(file.name, "Report")
         XCTAssertEqual(file.shortType, "doc")
+        // Spans shared drives, so a shared-drive file resolves instead of 404-ing.
+        let url = try XCTUnwrap(transport.requests(urlContains: "/drive/v3/files/f1").first).url.absoluteString
+        XCTAssertTrue(url.contains("supportsAllDrives=true"))
     }
 
     func testExportRequestsTheMimeType() async throws {
@@ -86,6 +89,22 @@ final class DriveClientTests: XCTestCase {
         XCTAssertEqual(String(data: data, encoding: .utf8), "plain text")
         let url = try XCTUnwrap(transport.requests(urlContains: "/export").first).url.absoluteString
         XCTAssertTrue(url.contains("mimeType=text/plain"))
+        XCTAssertTrue(url.contains("supportsAllDrives=true"))
+    }
+
+    func testDownloadRequestsRawMediaAcrossSharedDrives() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: "/drive/v3/files/f1", responses: [
+            HTTPResponse(statusCode: 200, body: Data("raw bytes".utf8)),
+        ])
+
+        let data = try await client.download(id: "f1")
+
+        XCTAssertEqual(String(data: data, encoding: .utf8), "raw bytes")
+        let url = try XCTUnwrap(transport.requests(urlContains: "/drive/v3/files/f1").first).url.absoluteString
+        XCTAssertTrue(url.contains("alt=media"))
+        XCTAssertTrue(url.contains("supportsAllDrives=true"))
     }
 
     // MARK: - Navigation and filters

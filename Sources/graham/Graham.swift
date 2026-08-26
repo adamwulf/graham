@@ -35,7 +35,6 @@ struct Graham: AsyncParsableCommand {
 
 extension OutputFormat: ExpressibleByArgument {}
 extension DriveFileType: ExpressibleByArgument {}
-extension DriveCreateType: ExpressibleByArgument {}
 
 extension VideoSource: ExpressibleByArgument {
     public init?(argument: String) {

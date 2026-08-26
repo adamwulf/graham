@@ -85,15 +85,66 @@ public struct DriveFileCopyRequest: Codable, Sendable, Equatable {
     }
 }
 
-/// The request body for trashing a file via `files.update`: sets `trashed`.
+/// The request body for trashing or restoring a file via `files.update`: sets
+/// `trashed`.
 ///
 /// Trashing is a metadata update, so it is a PATCH with this one field. Setting
-/// `trashed = true` moves the file to the trash, which the Drive UI can undo.
+/// `trashed = true` moves the file to the trash, which the Drive UI can undo;
+/// setting it `false` restores the file from the trash.
 public struct DriveTrashRequest: Codable, Sendable, Equatable {
     public let trashed: Bool
 
     public init(trashed: Bool) {
         self.trashed = trashed
+    }
+}
+
+/// The request body for a metadata update via `files.update` (a PATCH).
+///
+/// Every field is optional and omitted when nil, so a rename sends only `name`,
+/// a star or unstar sends only `starred`, and a pure parent move sends `{}` —
+/// the parent change travels in the URL as `addParents`/`removeParents`, not in
+/// the body. Encoding through ``GoogleJSON`` escapes the name safely, so a name
+/// with a quote, a backslash, or a newline never breaks the JSON.
+public struct DriveUpdateRequest: Codable, Sendable, Equatable {
+    public let name: String?
+    public let starred: Bool?
+
+    public init(name: String? = nil, starred: Bool? = nil) {
+        self.name = name
+        self.starred = starred
+    }
+}
+
+/// The `shortcutDetails` of a shortcut file: the id of the file it points to.
+public struct DriveShortcutDetails: Codable, Sendable, Equatable {
+    public let targetId: String
+
+    public init(targetId: String) {
+        self.targetId = targetId
+    }
+}
+
+/// The request body for creating a shortcut via `files.create`.
+///
+/// A shortcut is an ordinary file whose MIME is
+/// `application/vnd.google-apps.shortcut` and whose `shortcutDetails.targetId`
+/// names the file it points to. The name and target travel in the body, never
+/// in the URL; `parents` places the shortcut in a folder.
+public struct DriveShortcutCreateRequest: Codable, Sendable, Equatable {
+    /// The MIME type every Drive shortcut carries.
+    public static let mimeType = "application/vnd.google-apps.shortcut"
+
+    public let name: String
+    public let mimeType: String
+    public let parents: [String]?
+    public let shortcutDetails: DriveShortcutDetails
+
+    public init(name: String, targetId: String, parents: [String]? = nil) {
+        self.name = name
+        self.mimeType = Self.mimeType
+        self.parents = parents
+        self.shortcutDetails = DriveShortcutDetails(targetId: targetId)
     }
 }
 

@@ -33,8 +33,11 @@ public struct DocsClient: Sendable {
     }
 
     /// Creates a new, blank document from a `title` via `documents.create`,
-    /// returning the created ``Document`` (whose `documentId` is the value the
-    /// `docs create` command prints). The new document's body is empty until a
+    /// returning the created ``Document`` (whose `documentId` identifies it).
+    /// This is the native Docs create endpoint (title-only, always My Drive); the
+    /// CLI creates documents through `drive create doc` instead, so this method
+    /// has no 1:1 command, but the Docs live test's `docs-create` step covers it.
+    /// The new document's body is empty until a
     /// later ``batchUpdate(documentId:requests:requiredRevisionId:)`` fills it.
     ///
     /// The title is carried in a JSON request body, not in the URL, so it is
