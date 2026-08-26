@@ -317,6 +317,346 @@ final class DocsTableWriteTests: XCTestCase {
         }
     }
 
+    // MARK: - Styling: exact request-union JSON
+
+    /// The three styling cases encode under their own JSON keys, with the style
+    /// sub-models and the range/location target nested exactly. This locks the
+    /// discriminators, the fields masks, and the zero-based wire indices.
+    func testEveryTableStylingRequestTypeEncodesExactly() throws {
+        let start = DocsLocation(index: 10)
+        let cell = DocsTableCellLocation(tableStartLocation: start, rowIndex: 1, columnIndex: 2)
+        let range = DocsTableRange(tableCellLocation: cell, rowSpan: 3, columnSpan: 4)
+        let cellStyle = DocsTableCellStyle(
+            backgroundColor: DocsOptionalColor(rgb: DocsRgbColor(red: 1, green: 0, blue: 0)),
+            contentAlignment: .middle)
+        let rowStyle = DocsTableRowStyle(
+            minRowHeight: DocsDimension(magnitude: 20, unit: .pt),
+            tableHeader: true, preventOverflow: false)
+        let columnProps = DocsTableColumnProperties(
+            widthType: .fixedWidth, width: DocsDimension(magnitude: 90, unit: .pt))
+        let cases: [(DocsBatchUpdateRequest, String)] = [
+            (
+                .updateTableCellStyle(DocsUpdateTableCellStyleRequest(
+                    tableCellStyle: cellStyle,
+                    fields: "backgroundColor,contentAlignment", tableRange: range)),
+                #"{"updateTableCellStyle":{"fields":"backgroundColor,contentAlignment","tableCellStyle":{"backgroundColor":{"color":{"rgbColor":{"blue":0,"green":0,"red":1}}},"contentAlignment":"MIDDLE"},"tableRange":{"columnSpan":4,"rowSpan":3,"tableCellLocation":{"columnIndex":2,"rowIndex":1,"tableStartLocation":{"index":10}}}}}"#
+            ),
+            (
+                .updateTableCellStyle(DocsUpdateTableCellStyleRequest(
+                    tableCellStyle: DocsTableCellStyle(contentAlignment: .top),
+                    fields: "contentAlignment", tableStartLocation: start)),
+                #"{"updateTableCellStyle":{"fields":"contentAlignment","tableCellStyle":{"contentAlignment":"TOP"},"tableStartLocation":{"index":10}}}"#
+            ),
+            (
+                .updateTableRowStyle(DocsUpdateTableRowStyleRequest(
+                    tableStartLocation: start, rowIndices: [0, 2],
+                    tableRowStyle: rowStyle,
+                    fields: "minRowHeight,tableHeader,preventOverflow")),
+                #"{"updateTableRowStyle":{"fields":"minRowHeight,tableHeader,preventOverflow","rowIndices":[0,2],"tableRowStyle":{"minRowHeight":{"magnitude":20,"unit":"PT"},"preventOverflow":false,"tableHeader":true},"tableStartLocation":{"index":10}}}"#
+            ),
+            (
+                .updateTableColumnProperties(DocsUpdateTableColumnPropertiesRequest(
+                    tableStartLocation: start, columnIndices: [1],
+                    tableColumnProperties: columnProps, fields: "widthType,width")),
+                #"{"updateTableColumnProperties":{"columnIndices":[1],"fields":"widthType,width","tableColumnProperties":{"width":{"magnitude":90,"unit":"PT"},"widthType":"FIXED_WIDTH"},"tableStartLocation":{"index":10}}}"#
+            ),
+        ]
+        for (request, expected) in cases {
+            XCTAssertEqual(try encode(request), expected)
+        }
+    }
+
+    // MARK: - Styling: client bodies
+
+    func testEveryStylingClientMethodPostsItsExactBody() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        for _ in 0..<6 { transport.stub(urlContains: ":batchUpdate", json: #"{}"#) }
+
+        // Cell style, whole table, background only (no range -> tableStartLocation).
+        _ = try await client.styleTableCells(
+            documentId: "doc-1", tableStartIndex: 10,
+            backgroundColor: try DocsOptionalColor.parse("#00FF00"))
+        // Cell style, a range with every writable style: the border and padding
+        // each fan out to four sides, and the mask lists every provided path.
+        _ = try await client.styleTableCells(
+            documentId: "doc-1", tableStartIndex: 10,
+            row: 2, column: 3, rowSpan: 2, columnSpan: 2,
+            backgroundColor: try DocsOptionalColor.parse("#FF0000"),
+            borderColor: try DocsOptionalColor.parse("#0000FF"),
+            borderWidth: 2, borderDash: .dash,
+            padding: 3, contentAlignment: .middle)
+        // Row style, all rows (empty list -> no rowIndices), min height only.
+        _ = try await client.styleTableRow(
+            documentId: "doc-1", tableStartIndex: 10, minRowHeight: 24)
+        // Row style, specific one-based rows -> zero-based, header + overflow.
+        _ = try await client.styleTableRow(
+            documentId: "doc-1", tableStartIndex: 10, rows: [1, 3],
+            tableHeader: true, preventOverflow: false)
+        // Column width, specific one-based column -> zero-based, fixed width.
+        _ = try await client.styleTableColumnWidth(
+            documentId: "doc-1", tableStartIndex: 10, columns: [2], width: 90)
+        // Column width, all columns (empty -> no columnIndices), evenly distributed.
+        _ = try await client.styleTableColumnWidth(
+            documentId: "doc-1", tableStartIndex: 10, evenlyDistributed: true)
+
+        let requests = transport.requests(urlContains: ":batchUpdate")
+        XCTAssertEqual(requests.count, 6)
+        XCTAssertTrue(requests.allSatisfy { $0.method == "POST" })
+        XCTAssertTrue(requests.allSatisfy {
+            $0.url.absoluteString
+                == "https://docs.googleapis.com/v1/documents/doc-1:batchUpdate"
+        })
+
+        XCTAssertEqual(
+            Self.body(requests[0]),
+            #"{"requests":[{"updateTableCellStyle":{"fields":"backgroundColor","tableCellStyle":{"backgroundColor":{"color":{"rgbColor":{"blue":0,"green":1,"red":0}}}},"tableStartLocation":{"index":10}}}]}"#
+        )
+
+        // The border and padding repeat identically across all four sides; build
+        // the expected body from those pieces so the repetition is unmistakable.
+        let border = #"{"color":{"color":{"rgbColor":{"blue":1,"green":0,"red":0}}},"dashStyle":"DASH","width":{"magnitude":2,"unit":"PT"}}"#
+        let pad = #"{"magnitude":3,"unit":"PT"}"#
+        let cellStyleJSON =
+            "{\"backgroundColor\":{\"color\":{\"rgbColor\":{\"blue\":0,\"green\":0,\"red\":1}}},"
+            + "\"borderBottom\":\(border),\"borderLeft\":\(border),"
+            + "\"borderRight\":\(border),\"borderTop\":\(border),"
+            + "\"contentAlignment\":\"MIDDLE\","
+            + "\"paddingBottom\":\(pad),\"paddingLeft\":\(pad),"
+            + "\"paddingRight\":\(pad),\"paddingTop\":\(pad)}"
+        let expectedCellRange =
+            "{\"requests\":[{\"updateTableCellStyle\":{"
+            + "\"fields\":\"backgroundColor,borderLeft,borderRight,borderTop,borderBottom,"
+            + "paddingLeft,paddingRight,paddingTop,paddingBottom,contentAlignment\","
+            + "\"tableCellStyle\":\(cellStyleJSON),"
+            + "\"tableRange\":{\"columnSpan\":2,\"rowSpan\":2,\"tableCellLocation\":"
+            + "{\"columnIndex\":2,\"rowIndex\":1,\"tableStartLocation\":{\"index\":10}}}}}]}"
+        XCTAssertEqual(Self.body(requests[1]), expectedCellRange)
+
+        XCTAssertEqual(
+            Self.body(requests[2]),
+            #"{"requests":[{"updateTableRowStyle":{"fields":"minRowHeight","tableRowStyle":{"minRowHeight":{"magnitude":24,"unit":"PT"}},"tableStartLocation":{"index":10}}}]}"#
+        )
+        XCTAssertEqual(
+            Self.body(requests[3]),
+            #"{"requests":[{"updateTableRowStyle":{"fields":"tableHeader,preventOverflow","rowIndices":[0,2],"tableRowStyle":{"preventOverflow":false,"tableHeader":true},"tableStartLocation":{"index":10}}}]}"#
+        )
+        XCTAssertEqual(
+            Self.body(requests[4]),
+            #"{"requests":[{"updateTableColumnProperties":{"columnIndices":[1],"fields":"widthType,width","tableColumnProperties":{"width":{"magnitude":90,"unit":"PT"},"widthType":"FIXED_WIDTH"},"tableStartLocation":{"index":10}}}]}"#
+        )
+        XCTAssertEqual(
+            Self.body(requests[5]),
+            #"{"requests":[{"updateTableColumnProperties":{"fields":"widthType","tableColumnProperties":{"widthType":"EVENLY_DISTRIBUTED"},"tableStartLocation":{"index":10}}}]}"#
+        )
+    }
+
+    // MARK: - Styling: whole-table vs range, defaults
+
+    func testCellStyleWholeTableUsesStartLocationNotARange() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
+
+        // No row/column: the whole table is styled through a tableStartLocation,
+        // never a tableRange.
+        _ = try await client.styleTableCells(
+            documentId: "doc-1", tableStartIndex: 7, contentAlignment: .bottom)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.body(request),
+            #"{"requests":[{"updateTableCellStyle":{"fields":"contentAlignment","tableCellStyle":{"contentAlignment":"BOTTOM"},"tableStartLocation":{"index":7}}}]}"#
+        )
+    }
+
+    func testCellStyleRangeDefaultsSpansToOne() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
+
+        // A cell with a row and column but no spans styles a single cell: the
+        // spans default to 1.
+        _ = try await client.styleTableCells(
+            documentId: "doc-1", tableStartIndex: 10, row: 1, column: 1,
+            backgroundColor: try DocsOptionalColor.parse("#123456"))
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.body(request),
+            #"{"requests":[{"updateTableCellStyle":{"fields":"backgroundColor","tableCellStyle":{"backgroundColor":{"color":{"rgbColor":{"blue":0.33725490196078434,"green":0.20392156862745098,"red":0.07058823529411765}}}},"tableRange":{"columnSpan":1,"rowSpan":1,"tableCellLocation":{"columnIndex":0,"rowIndex":0,"tableStartLocation":{"index":10}}}}}]}"#
+        )
+    }
+
+    func testCellStyleBorderDefaultsWidthOneAndSolidDash() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
+
+        // --border with no width or dash: the width defaults to 1pt and the dash
+        // to solid, and all four border paths are in the mask.
+        _ = try await client.styleTableCells(
+            documentId: "doc-1", tableStartIndex: 10,
+            borderColor: try DocsOptionalColor.parse("#000000"))
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        let border = #"{"color":{"color":{"rgbColor":{"blue":0,"green":0,"red":0}}},"dashStyle":"SOLID","width":{"magnitude":1,"unit":"PT"}}"#
+        let style =
+            "{\"borderBottom\":\(border),\"borderLeft\":\(border),"
+            + "\"borderRight\":\(border),\"borderTop\":\(border)}"
+        XCTAssertEqual(
+            Self.body(request),
+            "{\"requests\":[{\"updateTableCellStyle\":{"
+            + "\"fields\":\"borderLeft,borderRight,borderTop,borderBottom\","
+            + "\"tableCellStyle\":\(style),"
+            + "\"tableStartLocation\":{\"index\":10}}}]}"
+        )
+    }
+
+    // MARK: - Styling: segment normalization
+
+    func testStylingCarriesSegmentIdAndNormalizesEmptyToBody() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        for _ in 0..<2 { transport.stub(urlContains: ":batchUpdate", json: #"{}"#) }
+
+        // A named segment carries onto the tableStartLocation.
+        _ = try await client.styleTableColumnWidth(
+            documentId: "doc-1", tableStartIndex: 5, evenlyDistributed: true, segmentId: "hdr-1")
+        // An empty segment id means the body: no empty segmentId leaks through.
+        _ = try await client.styleTableRow(
+            documentId: "doc-1", tableStartIndex: 5, minRowHeight: 10, segmentId: "")
+
+        let requests = transport.requests(urlContains: ":batchUpdate")
+        XCTAssertEqual(
+            Self.body(requests[0]),
+            #"{"requests":[{"updateTableColumnProperties":{"fields":"widthType","tableColumnProperties":{"widthType":"EVENLY_DISTRIBUTED"},"tableStartLocation":{"index":5,"segmentId":"hdr-1"}}}]}"#
+        )
+        XCTAssertEqual(
+            Self.body(requests[1]),
+            #"{"requests":[{"updateTableRowStyle":{"fields":"minRowHeight","tableRowStyle":{"minRowHeight":{"magnitude":10,"unit":"PT"}},"tableStartLocation":{"index":5}}}]}"#
+        )
+    }
+
+    // MARK: - Styling: empty reply decode
+
+    func testStylingOpDecodesEmptyReply() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: "{}")
+
+        let response = try await client.styleTableRow(
+            documentId: "doc-1", tableStartIndex: 10, tableHeader: true)
+
+        XCTAssertNil(response.documentId)
+        XCTAssertNil(response.replies)
+    }
+
+    // MARK: - Styling: WriteControl
+
+    func testStylingOpWithRequiredRevisionCarriesWriteControl() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
+
+        _ = try await client.styleTableColumnWidth(
+            documentId: "doc-1", tableStartIndex: 10, width: 72, requiredRevisionId: "rev-9")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.body(request),
+            #"{"requests":[{"updateTableColumnProperties":{"fields":"widthType,width","tableColumnProperties":{"width":{"magnitude":72,"unit":"PT"},"widthType":"FIXED_WIDTH"},"tableStartLocation":{"index":10}}}],"writeControl":{"requiredRevisionId":"rev-9"}}"#
+        )
+    }
+
+    // MARK: - Styling: validation sends nothing
+
+    func testCellStyleValidationSendsNothing() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        // No style option at all.
+        await assertInvalid { _ = try await client.styleTableCells(
+            documentId: "doc-1", tableStartIndex: 10) }
+        // A cell target with a bad one-based row (a style option is present so the
+        // range building is what rejects it).
+        await assertInvalid { _ = try await client.styleTableCells(
+            documentId: "doc-1", tableStartIndex: 10, row: 0, column: 1,
+            contentAlignment: .top) }
+        // Only one of row/column given.
+        await assertInvalid { _ = try await client.styleTableCells(
+            documentId: "doc-1", tableStartIndex: 10, row: 1, contentAlignment: .top) }
+        // A span without a cell target.
+        await assertInvalid { _ = try await client.styleTableCells(
+            documentId: "doc-1", tableStartIndex: 10, rowSpan: 2, contentAlignment: .top) }
+        // A border width or dash without a color.
+        await assertInvalid { _ = try await client.styleTableCells(
+            documentId: "doc-1", tableStartIndex: 10, borderWidth: 2) }
+        await assertInvalid { _ = try await client.styleTableCells(
+            documentId: "doc-1", tableStartIndex: 10, borderDash: .dot) }
+        // A non-positive border width or padding.
+        await assertInvalid { _ = try await client.styleTableCells(
+            documentId: "doc-1", tableStartIndex: 10,
+            borderColor: try DocsOptionalColor.parse("#000000"), borderWidth: 0) }
+        await assertInvalid { _ = try await client.styleTableCells(
+            documentId: "doc-1", tableStartIndex: 10, padding: 0) }
+
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testRowStyleValidationSendsNothing() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        // No style option.
+        await assertInvalid { _ = try await client.styleTableRow(
+            documentId: "doc-1", tableStartIndex: 10) }
+        // A non-positive minimum height.
+        await assertInvalid { _ = try await client.styleTableRow(
+            documentId: "doc-1", tableStartIndex: 10, minRowHeight: 0) }
+        // A bad one-based row number in the list.
+        await assertInvalid { _ = try await client.styleTableRow(
+            documentId: "doc-1", tableStartIndex: 10, rows: [0], tableHeader: true) }
+
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    func testColumnWidthValidationSendsNothing() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        // Neither a width nor evenly-distributed.
+        await assertInvalid { _ = try await client.styleTableColumnWidth(
+            documentId: "doc-1", tableStartIndex: 10) }
+        // Both a width and evenly-distributed.
+        await assertInvalid { _ = try await client.styleTableColumnWidth(
+            documentId: "doc-1", tableStartIndex: 10, width: 90, evenlyDistributed: true) }
+        // A fixed width below the 5-point minimum.
+        await assertInvalid { _ = try await client.styleTableColumnWidth(
+            documentId: "doc-1", tableStartIndex: 10, width: 4) }
+        // A bad one-based column number in the list.
+        await assertInvalid { _ = try await client.styleTableColumnWidth(
+            documentId: "doc-1", tableStartIndex: 10, columns: [0], width: 90) }
+
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    // MARK: - Styling: error propagation
+
+    func testStylingMethodPropagatesGoogleErrorEnvelope() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"error":{"code":400,"message":"bad style","status":"INVALID_ARGUMENT"}}"#,
+            status: 400)
+
+        await assertGoogleError(code: 400, status: "INVALID_ARGUMENT", message: "bad style") {
+            _ = try await client.styleTableCells(
+                documentId: "doc-1", tableStartIndex: 10, contentAlignment: .top)
+        }
+    }
+
     // MARK: - Helpers
 
     private func assertInvalid(

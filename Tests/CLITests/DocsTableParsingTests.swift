@@ -17,7 +17,7 @@ final class DocsTableParsingTests: XCTestCase {
         }
         XCTAssertEqual(names, [
             "create", "add-row", "add-column", "delete-row", "delete-column",
-            "merge", "unmerge", "pin-headers",
+            "merge", "unmerge", "pin-headers", "style", "row-style", "column-width",
         ])
     }
 
@@ -202,5 +202,178 @@ final class DocsTableParsingTests: XCTestCase {
         XCTAssertThrowsError(try Docs.Table.PinHeaders.parse([
             "doc-1", "--table", "10", "--count", "-1",
         ]))
+    }
+
+    // MARK: - style
+
+    func testStyleParsesEveryOptionForACellRange() throws {
+        let command = try Docs.Table.Style.parse([
+            "doc-1", "--table", "10", "--row", "2", "--column", "3",
+            "--row-span", "2", "--column-span", "2",
+            "--background", "#FF0000",
+            "--border", "#0000FF", "--border-width", "2", "--border-dash", "dash",
+            "--padding", "3", "--align", "middle",
+            "--segment", "hdr-1", "--require-revision", "rev-2",
+        ])
+        XCTAssertEqual(command.documentID, "doc-1")
+        XCTAssertEqual(command.table, 10)
+        XCTAssertEqual(command.row, 2)
+        XCTAssertEqual(command.column, 3)
+        XCTAssertEqual(command.rowSpan, 2)
+        XCTAssertEqual(command.columnSpan, 2)
+        XCTAssertEqual(command.background, "#FF0000")
+        XCTAssertEqual(command.border, "#0000FF")
+        XCTAssertEqual(command.borderWidth, 2)
+        XCTAssertEqual(command.borderDash, .dash)
+        XCTAssertEqual(command.padding, 3)
+        XCTAssertEqual(command.align, .middle)
+        XCTAssertEqual(command.segment, "hdr-1")
+        XCTAssertEqual(command.requireRevision, "rev-2")
+    }
+
+    func testStyleParsesWholeTableWithNoCellRange() throws {
+        let command = try Docs.Table.Style.parse([
+            "doc-1", "--table", "7", "--align", "top",
+        ])
+        XCTAssertNil(command.row)
+        XCTAssertNil(command.column)
+        XCTAssertNil(command.rowSpan)
+        XCTAssertNil(command.columnSpan)
+        XCTAssertEqual(command.align, .top)
+    }
+
+    func testStyleRejectsNoStyleOption() {
+        XCTAssertThrowsError(try Docs.Table.Style.parse(["doc-1", "--table", "10"]))
+    }
+
+    func testStyleRejectsBorderWidthOrDashWithoutBorder() {
+        XCTAssertThrowsError(try Docs.Table.Style.parse([
+            "doc-1", "--table", "10", "--background", "#FF0000", "--border-width", "2",
+        ]))
+        XCTAssertThrowsError(try Docs.Table.Style.parse([
+            "doc-1", "--table", "10", "--background", "#FF0000", "--border-dash", "dot",
+        ]))
+    }
+
+    func testStyleRejectsOnlyOneOfRowAndColumn() {
+        XCTAssertThrowsError(try Docs.Table.Style.parse([
+            "doc-1", "--table", "10", "--row", "1", "--align", "top",
+        ]))
+        XCTAssertThrowsError(try Docs.Table.Style.parse([
+            "doc-1", "--table", "10", "--column", "1", "--align", "top",
+        ]))
+    }
+
+    func testStyleRejectsSpansWithoutACell() {
+        XCTAssertThrowsError(try Docs.Table.Style.parse([
+            "doc-1", "--table", "10", "--row-span", "2", "--align", "top",
+        ]))
+    }
+
+    func testStyleRejectsNonOneBasedCellAndNonPositiveDimensions() {
+        XCTAssertThrowsError(try Docs.Table.Style.parse([
+            "doc-1", "--table", "10", "--row", "0", "--column", "1", "--align", "top",
+        ]))
+        XCTAssertThrowsError(try Docs.Table.Style.parse([
+            "doc-1", "--table", "10", "--border", "#000000", "--border-width", "0",
+        ]))
+        XCTAssertThrowsError(try Docs.Table.Style.parse([
+            "doc-1", "--table", "10", "--padding", "0",
+        ]))
+    }
+
+    // MARK: - row-style
+
+    func testRowStyleParsesRowsAndFlags() throws {
+        let command = try Docs.Table.RowStyle.parse([
+            "doc-1", "--table", "10", "--rows", "1", "3", "5",
+            "--min-height", "24", "--header", "--prevent-overflow",
+            "--segment", "ftr-1", "--require-revision", "rev-4",
+        ])
+        XCTAssertEqual(command.table, 10)
+        XCTAssertEqual(command.rows, [1, 3, 5])
+        XCTAssertEqual(command.minHeight, 24)
+        XCTAssertEqual(command.header, true)
+        XCTAssertEqual(command.preventOverflow, true)
+        XCTAssertEqual(command.segment, "ftr-1")
+        XCTAssertEqual(command.requireRevision, "rev-4")
+    }
+
+    func testRowStyleParsesNoHeaderAndEmptyRows() throws {
+        let command = try Docs.Table.RowStyle.parse([
+            "doc-1", "--table", "10", "--no-header",
+        ])
+        XCTAssertTrue(command.rows.isEmpty)
+        XCTAssertEqual(command.header, false)
+        XCTAssertNil(command.preventOverflow)
+    }
+
+    func testRowStyleRejectsNoStyleOption() {
+        XCTAssertThrowsError(try Docs.Table.RowStyle.parse(["doc-1", "--table", "10"]))
+    }
+
+    func testRowStyleRejectsNonPositiveMinHeightAndBadRow() {
+        XCTAssertThrowsError(try Docs.Table.RowStyle.parse([
+            "doc-1", "--table", "10", "--min-height", "0",
+        ]))
+        XCTAssertThrowsError(try Docs.Table.RowStyle.parse([
+            "doc-1", "--table", "10", "--rows", "0", "--header",
+        ]))
+    }
+
+    // MARK: - column-width
+
+    func testColumnWidthParsesFixedWidth() throws {
+        let command = try Docs.Table.ColumnWidth.parse([
+            "doc-1", "--table", "10", "--columns", "1", "2", "--width", "90",
+            "--segment", "hdr-2", "--require-revision", "rev-5",
+        ])
+        XCTAssertEqual(command.table, 10)
+        XCTAssertEqual(command.columns, [1, 2])
+        XCTAssertEqual(command.width, 90)
+        XCTAssertFalse(command.evenly)
+        XCTAssertEqual(command.segment, "hdr-2")
+        XCTAssertEqual(command.requireRevision, "rev-5")
+    }
+
+    func testColumnWidthParsesEvenlyForAllColumns() throws {
+        let command = try Docs.Table.ColumnWidth.parse([
+            "doc-1", "--table", "10", "--evenly",
+        ])
+        XCTAssertTrue(command.columns.isEmpty)
+        XCTAssertTrue(command.evenly)
+        XCTAssertNil(command.width)
+    }
+
+    func testColumnWidthRejectsBothAndNeither() {
+        XCTAssertThrowsError(try Docs.Table.ColumnWidth.parse([
+            "doc-1", "--table", "10", "--width", "90", "--evenly",
+        ]))
+        XCTAssertThrowsError(try Docs.Table.ColumnWidth.parse([
+            "doc-1", "--table", "10",
+        ]))
+    }
+
+    func testColumnWidthRejectsWidthBelowFiveAndBadColumn() {
+        XCTAssertThrowsError(try Docs.Table.ColumnWidth.parse([
+            "doc-1", "--table", "10", "--width", "4",
+        ]))
+        XCTAssertThrowsError(try Docs.Table.ColumnWidth.parse([
+            "doc-1", "--table", "10", "--columns", "0", "--width", "90",
+        ]))
+    }
+
+    // MARK: - argument enum mapping
+
+    func testContentAlignmentArgumentMapsToTheWireValue() {
+        XCTAssertEqual(DocsContentAlignmentArgument.top.contentAlignment.rawValue, "TOP")
+        XCTAssertEqual(DocsContentAlignmentArgument.middle.contentAlignment.rawValue, "MIDDLE")
+        XCTAssertEqual(DocsContentAlignmentArgument.bottom.contentAlignment.rawValue, "BOTTOM")
+    }
+
+    func testDashStyleArgumentMapsToTheWireValue() {
+        XCTAssertEqual(DocsDashStyleArgument.solid.dashStyle.rawValue, "SOLID")
+        XCTAssertEqual(DocsDashStyleArgument.dot.dashStyle.rawValue, "DOT")
+        XCTAssertEqual(DocsDashStyleArgument.dash.dashStyle.rawValue, "DASH")
     }
 }
