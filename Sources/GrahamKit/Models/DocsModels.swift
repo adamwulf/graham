@@ -509,7 +509,7 @@ public struct DocNamedRange: Codable, Sendable {
 }
 
 /// A range of content in a segment, half-open in UTF-16 code units.
-public struct DocRange: Codable, Sendable {
+public struct DocRange: Codable, Sendable, Equatable {
     public let startIndex: Int?
     public let endIndex: Int?
     /// The segment the range lives in; empty or nil is the document body.
@@ -872,6 +872,89 @@ extension DocImageRow: GrahamRow {
 
     private static func roundedPoints(_ value: Double) -> String {
         String(Int(value.rounded()))
+    }
+}
+
+// MARK: - Named-range list facade
+
+/// One named range, flattened out of ``Document/namedRanges``.
+///
+/// The Docs `namedRanges` map is keyed by name; each entry holds one or more
+/// ``DocNamedRange`` objects that share that name, and each of those covers one
+/// or more ``DocRange`` spans (a named range can be discontinuous). This row is
+/// the flattened, per-``DocNamedRange`` view a `docs range list` command
+/// renders: the id `docs range delete`/`fill` take, the name they can also
+/// target, and the range's spans. The extraction lives here in GrahamKit; the
+/// command only fetches and renders. See ``Document/namedRangeRows``.
+public struct DocNamedRangeRow: Codable, Sendable, Equatable {
+    /// The named range id — the value `docs range delete --id` and
+    /// `docs range fill --id` consume.
+    public let namedRangeId: String?
+    /// The name shared by every ``DocNamedRange`` with this name; `docs range
+    /// delete --name` and `docs range fill --name` target it.
+    public let name: String?
+    /// The spans this named range covers, in ascending start order. A named
+    /// range can be discontinuous, so this can hold several spans.
+    public let ranges: [DocRange]
+
+    init(namedRange: DocNamedRange, name: String?) {
+        namedRangeId = namedRange.namedRangeId
+        // The entry's own name wins; fall back to the map key that grouped it.
+        self.name = namedRange.name ?? name
+        // Sort the spans by (start, end) so the rendered spans and the JSON are
+        // deterministic regardless of the order Google returns them in.
+        ranges = (namedRange.ranges ?? []).sorted {
+            ($0.startIndex ?? 0, $0.endIndex ?? 0) < ($1.startIndex ?? 0, $1.endIndex ?? 0)
+        }
+    }
+}
+
+extension Document {
+    /// Every named range in the document, one row per ``DocNamedRange``.
+    ///
+    /// ``Document/namedRanges`` keys each group by name and can list several
+    /// ranges under one name, so a single name can produce several rows. The
+    /// rows are sorted by name, then by named range id, so the output is
+    /// deterministic — the map itself is unordered. The flattening lives here in
+    /// GrahamKit; the command only fetches and renders. See ``DocNamedRangeRow``.
+    public var namedRangeRows: [DocNamedRangeRow] {
+        var rows: [DocNamedRangeRow] = []
+        for (key, group) in namedRanges ?? [:] {
+            let name = group.name ?? key
+            for namedRange in group.namedRanges ?? [] {
+                rows.append(DocNamedRangeRow(namedRange: namedRange, name: name))
+            }
+        }
+        return rows.sorted {
+            let leftName = $0.name ?? ""
+            let rightName = $1.name ?? ""
+            if leftName != rightName { return leftName < rightName }
+            return ($0.namedRangeId ?? "") < ($1.namedRangeId ?? "")
+        }
+    }
+}
+
+extension DocNamedRangeRow: GrahamRow {
+    public static var tableColumns: [String] {
+        ["ID", "NAME", "RANGES"]
+    }
+
+    public var tableValues: [String] {
+        // RANGES is last (and can be long for a discontinuous range), so it is
+        // not padded.
+        [namedRangeId ?? "", name ?? "", rangesText]
+    }
+
+    /// `--format id` prints the named range id, one per line — the value the
+    /// range write commands take.
+    public var idValue: String { namedRangeId ?? "" }
+
+    /// The spans as `start-end`, joined by commas for a discontinuous range
+    /// (for example `14-31` or `31-37,37-44`). An absent end reads as empty.
+    var rangesText: String {
+        ranges
+            .map { "\($0.startIndex ?? 0)-\($0.endIndex.map(String.init) ?? "")" }
+            .joined(separator: ",")
     }
 }
 

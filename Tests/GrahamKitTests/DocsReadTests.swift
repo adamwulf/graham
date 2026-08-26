@@ -145,7 +145,13 @@ final class DocsReadTests: XCTestCase {
       "namedRanges": {
         "greeting": {"name": "greeting", "namedRanges": [
           {"namedRangeId": "nr1", "name": "greeting", "ranges": [
-            {"startIndex": 14, "endIndex": 31, "tabId": "t.0"}]}]}
+            {"startIndex": 14, "endIndex": 31, "tabId": "t.0"}]}]},
+        "signature": {"name": "signature", "namedRanges": [
+          {"namedRangeId": "nr2", "name": "signature", "ranges": [
+            {"startIndex": 46, "endIndex": 63}]},
+          {"namedRangeId": "nr3", "name": "signature", "ranges": [
+            {"startIndex": 37, "endIndex": 44},
+            {"startIndex": 31, "endIndex": 37}]}]}
       },
       "namedStyles": {"styles": [
         {"namedStyleType": "HEADING_1", "textStyle": {"bold": true},
@@ -512,5 +518,64 @@ final class DocsReadTests: XCTestCase {
             Document.self, from: Data(#"{"documentId": "d"}"#.utf8))
         XCTAssertTrue(document.blockRows.isEmpty)
         XCTAssertEqual(document.plainText, "")
+    }
+
+    // MARK: - namedRangeRows facade
+
+    func testNamedRangeRowsFlattenAndSortByNameThenId() throws {
+        let rows = try decodeDocument().namedRangeRows
+        // greeting -> nr1; signature -> nr2, nr3. Sorted by name, then by id, so
+        // the output is deterministic even though the map is unordered.
+        XCTAssertEqual(rows.map(\.namedRangeId), ["nr1", "nr2", "nr3"])
+        XCTAssertEqual(rows.map(\.name), ["greeting", "signature", "signature"])
+    }
+
+    func testNamedRangeRowsExtractSingleAndDiscontinuousSpans() throws {
+        let rows = try decodeDocument().namedRangeRows
+        let byId = Dictionary(uniqueKeysWithValues: rows.map { ($0.namedRangeId ?? "", $0) })
+
+        // A single-range named range renders one span.
+        let nr1 = try XCTUnwrap(byId["nr1"])
+        XCTAssertEqual(nr1.ranges.map(\.startIndex), [14])
+        XCTAssertEqual(nr1.tableValues, ["nr1", "greeting", "14-31"])
+
+        // A discontinuous named range renders its spans in ascending start
+        // order, joined by commas — even though the fixture lists them reversed.
+        let nr3 = try XCTUnwrap(byId["nr3"])
+        XCTAssertEqual(nr3.ranges.map(\.startIndex), [31, 37])
+        XCTAssertEqual(nr3.tableValues, ["nr3", "signature", "31-37,37-44"])
+    }
+
+    func testNamedRangeNameCanMapToSeveralRanges() throws {
+        let rows = try decodeDocument().namedRangeRows
+        // One name ("signature") produces two rows, one per NamedRange entry.
+        let signature = rows.filter { $0.name == "signature" }
+        XCTAssertEqual(signature.map(\.namedRangeId), ["nr2", "nr3"])
+    }
+
+    func testNamedRangeRowsIdFormatPrintsIds() throws {
+        let rows = try decodeDocument().namedRangeRows
+        let ids = try OutputFormatter.render(rows, format: .id)
+        XCTAssertEqual(ids, "nr1\nnr2\nnr3")
+    }
+
+    func testNamedRangeRowsJsonlCarriesFullSpanDetail() throws {
+        let rows = try decodeDocument().namedRangeRows
+        let jsonl = try OutputFormatter.render(rows, format: .jsonl)
+        let lines = jsonl.split(separator: "\n").map(String.init)
+        XCTAssertEqual(lines.count, 3)
+
+        // The greeting row keeps the id, name, span, and the tab association.
+        let greeting = try XCTUnwrap(lines.first { $0.contains(#""namedRangeId":"nr1""#) })
+        XCTAssertTrue(greeting.contains(#""name":"greeting""#), greeting)
+        XCTAssertTrue(greeting.contains(#""startIndex":14"#), greeting)
+        XCTAssertTrue(greeting.contains(#""endIndex":31"#), greeting)
+        XCTAssertTrue(greeting.contains(#""tabId":"t.0""#), greeting)
+    }
+
+    func testDocumentWithNoNamedRangesYieldsNoRows() throws {
+        let document = try GoogleJSON.decoder.decode(
+            Document.self, from: Data(#"{"documentId": "d"}"#.utf8))
+        XCTAssertTrue(document.namedRangeRows.isEmpty)
     }
 }
