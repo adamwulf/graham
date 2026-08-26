@@ -135,6 +135,17 @@ graham docs replace <document-id> --find "old" --replace "new" --match-case
 graham docs insert <document-id> --text "Hello" --segment <segment-id> --at 0
 graham docs insert <document-id> --text "Hello" --end
 graham docs delete <document-id> --from 0 --to 6 --segment <segment-id>
+# Style a range of text: --bold/--italic/--underline/--strike are toggles (use the
+# --no- form to turn one off), colors are hex like #FF0000, --size is in points,
+# --baseline is super/sub/none, and --link sets a URL. At least one flag is required.
+graham docs style <document-id> --from 1 --to 6 --bold --color "#1155CC" --link "https://example.com"
+# Style whole paragraphs a range touches: --style is a named style (normal-text,
+# title, subtitle, heading-1..heading-6), --align is start/center/end/justified,
+# --direction is ltr/rtl, --line-spacing is a percent (100 = single), and spacing
+# and indents are in points. At least one flag is required.
+graham docs paragraph <document-id> --from 1 --to 20 --style heading-1 --align center
+# Shortcut for just the named style: a level 1-6, or title, subtitle, or normal.
+graham docs heading <document-id> 2 --from 1 --to 20
 # Any write can require the document be at a known revision (optimistic concurrency);
 # the write fails instead of overwriting a concurrent edit.
 graham docs insert <document-id> --text "Hello" --at 1 --require-revision <revision-id>
