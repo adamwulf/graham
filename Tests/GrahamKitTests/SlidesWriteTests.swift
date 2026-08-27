@@ -2253,7 +2253,7 @@ final class SlidesWriteTests: GrahamTestCase {
 
     func testStyleShapeRejectsNonFinitePositiveValues() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         await assertInvalidArgument {
             try await client.styleShape(
