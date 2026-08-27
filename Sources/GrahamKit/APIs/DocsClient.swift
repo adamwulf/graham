@@ -2112,7 +2112,10 @@ public struct DocsClient: Sendable {
     /// `indentFirstLine`. `tabId` optionally scopes the change to one tab.
     ///
     /// The baseline offset and link (nonsensical for a style definition) and the
-    /// pagination toggles, shading, and borders are out of this slice.
+    /// paragraph pagination toggles, shading, and borders are a deliberate
+    /// never-implement decision on this method — the API would accept them in a
+    /// `NamedStyle`, but a named-style redefinition is not their place; set them
+    /// per-paragraph with ``styleParagraphs(documentId:startIndex:endIndex:segmentId:namedStyleType:alignment:direction:lineSpacing:spaceAbove:spaceBelow:indentStart:indentEnd:indentFirstLine:keepLinesTogether:keepWithNext:avoidWidowAndOrphan:pageBreakBefore:shadingBackgroundColor:spacingMode:outerBorderColor:betweenBorderColor:borderWidth:borderDash:borderPadding:requiredRevisionId:)``.
     public func updateNamedStyle(
         documentId: String,
         namedStyleType: String,

@@ -49,7 +49,9 @@ encoded body, decoded reply, error propagation), then a thin subcommand in
   document-wide with the `docs style` text flags and the `docs paragraph`
   alignment / spacing / indent flags; `--tab-id` scopes it to a tab). The
   baseline offset and link (nonsensical for a style definition) and the
-  pagination toggles, shading, and borders are out by design.
+  paragraph **pagination toggles, shading, and borders** are **never
+  implemented** on `docs named-style` — a closed decision, not a to-do (see the
+  CLAUDE.md gotcha). Set those per-paragraph with `docs paragraph` instead.
 
 ### Tabs, smart chips, suggestions (advanced, beyond the cut line)
 
