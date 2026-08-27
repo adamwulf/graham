@@ -1521,62 +1521,13 @@ struct Sheets: AsyncParsableCommand {
     }
 }
 
-extension BasicChartType: ExpressibleByArgument {
-    public init?(argument: String) {
-        self.init(rawValue: argument.uppercased())
-    }
-}
-
-extension SheetsChartKind: ExpressibleByArgument {
-    public init?(argument: String) {
-        self.init(rawValue: argument.uppercased())
-    }
-}
-
-extension SheetsChartAggregateType: ExpressibleByArgument {
-    public init?(argument: String) {
-        self.init(rawValue: argument.uppercased())
-    }
-}
-
-extension SheetsDimension: ExpressibleByArgument {
-    public init?(argument: String) {
-        self.init(rawValue: argument.uppercased())
-    }
-}
-
-extension SheetsHorizontalAlignment: ExpressibleByArgument {
-    public init?(argument: String) {
-        self.init(rawValue: argument.uppercased())
-    }
-}
-
-extension SheetsConditionType: ExpressibleByArgument {
-    public init?(argument: String) {
-        self.init(rawValue: argument.uppercased())
-    }
-}
-
-extension InterpolationPointType: ExpressibleByArgument {
-    public init?(argument: String) {
-        self.init(rawValue: argument.uppercased())
-    }
-}
-
-extension SheetsNumberFormatType: ExpressibleByArgument {
-    public init?(argument: String) {
-        self.init(rawValue: argument.uppercased())
-    }
-}
-
-extension SheetsBorderStyle: ExpressibleByArgument {
-    public init?(argument: String) {
-        self.init(rawValue: argument.uppercased())
-    }
-}
-
-extension SheetsMergeType: ExpressibleByArgument {
-    public init?(argument: String) {
-        self.init(rawValue: argument.uppercased())
-    }
-}
+extension BasicChartType: UppercasedRawArgument {}
+extension SheetsChartKind: UppercasedRawArgument {}
+extension SheetsChartAggregateType: UppercasedRawArgument {}
+extension SheetsDimension: UppercasedRawArgument {}
+extension SheetsHorizontalAlignment: UppercasedRawArgument {}
+extension SheetsConditionType: UppercasedRawArgument {}
+extension InterpolationPointType: UppercasedRawArgument {}
+extension SheetsNumberFormatType: UppercasedRawArgument {}
+extension SheetsBorderStyle: UppercasedRawArgument {}
+extension SheetsMergeType: UppercasedRawArgument {}

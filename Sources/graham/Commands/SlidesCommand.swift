@@ -2575,11 +2575,7 @@ enum ReorderPosition: String, ExpressibleByArgument {
 /// Lets `--unit pt|emu` bind to the shared ``ElementUnit``. The API's raw
 /// values are upper-case (`PT`/`EMU`), so accept either case, matching how
 /// ``VideoSource`` and ``LineCategory`` parse in `Graham.swift`.
-extension ElementUnit: ExpressibleByArgument {
-    public init?(argument: String) {
-        self.init(rawValue: argument.uppercased())
-    }
-}
+extension ElementUnit: UppercasedRawArgument {}
 
 /// CLI-facing dash-style names. Keeps the API's SCREAMING wire spellings
 /// (``DashStyle``) out of the command surface: the user types lower-kebab words
