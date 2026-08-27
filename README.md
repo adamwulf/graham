@@ -147,6 +147,11 @@ graham drive star <file-id> --off
 graham drive trash <file-id>
 graham drive untrash <file-id>
 graham drive delete <file-id> --force
+# Exercise the live Drive API surface with disposable folders and files inside
+# the root-level "graham test" folder. Created artifacts are removed afterward;
+# --keep retains them. Any failed step exits nonzero.
+graham drive test
+graham drive test --keep --folder "graham test"
 
 graham sheets get <spreadsheet-id>
 graham sheets values <spreadsheet-id> "Sheet1!A1:C10"

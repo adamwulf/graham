@@ -8,8 +8,41 @@ struct Drive: AsyncParsableCommand {
         subcommands: [
             List.self, Get.self, Create.self, Copy.self, Move.self, Rename.self,
             Star.self, Trash.self, Untrash.self, Delete.self, Download.self, Export.self,
+            Test.self,
         ]
     )
+
+    struct Test: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Run the live end-to-end Drive smoke test.",
+            discussion: """
+                Creates disposable folders and files inside a folder in My Drive, \
+                exercises graham's Drive API surface, and removes the created \
+                files afterward. The root-level test folder remains. Use --keep \
+                to retain the disposable files for inspection. The command exits \
+                nonzero when any step fails.
+                """
+        )
+
+        @Flag(help: "Keep the disposable folders and files after the run.")
+        var keep = false
+
+        @Option(help: "The root-level My Drive folder to find or create.")
+        var folder = "graham test"
+
+        func run() async throws {
+            let api = try CLI.makeAPI()
+            let runner = DriveLiveTest(
+                drive: DriveClient(api: api),
+                folderName: folder,
+                keep: keep,
+                label: CLI.iso8601Label(),
+                onStep: CLI.liveTestStepHandler(for: DriveLiveTestStep.self)
+            )
+            let summary = await runner.run()
+            try CLI.printLiveTestSummary(summary)
+        }
+    }
 
     struct List: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
