@@ -432,10 +432,10 @@ public struct SlidesClient: Sendable {
         factorX: Double,
         factorY: Double
     ) async throws {
-        guard factorX > 0 else {
+        guard factorX.isFinite, factorX > 0 else {
             throw GrahamError.invalidArgument("horizontal scale factor must be greater than zero")
         }
-        guard factorY > 0 else {
+        guard factorY.isFinite, factorY > 0 else {
             throw GrahamError.invalidArgument("vertical scale factor must be greater than zero")
         }
         let context = try await elementGeometryContext(
@@ -647,10 +647,10 @@ public struct SlidesClient: Sendable {
 
         let size: ElementSize?
         if let width, let height {
-            guard width > 0 else {
+            guard width.isFinite, width > 0 else {
                 throw GrahamError.invalidArgument("width must be greater than zero")
             }
-            guard height > 0 else {
+            guard height.isFinite, height > 0 else {
                 throw GrahamError.invalidArgument("height must be greater than zero")
             }
             size = ElementSize(
@@ -1942,7 +1942,7 @@ public struct SlidesClient: Sendable {
     /// Throws ``GrahamError/invalidArgument(_:)`` unless `value` is greater
     /// than zero.
     private static func validatePositive(_ value: Double, label: String) throws {
-        guard value > 0 else {
+        guard value.isFinite, value > 0 else {
             throw GrahamError.invalidArgument(
                 "\(label) must be greater than zero, got \(value)")
         }

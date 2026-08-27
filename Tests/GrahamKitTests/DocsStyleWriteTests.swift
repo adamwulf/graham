@@ -174,6 +174,11 @@ final class DocsStyleWriteTests: GrahamTestCase {
             _ = try await client.styleText(
                 documentId: "doc-1", startIndex: 1, endIndex: 5, fontSize: 0)
         }
+        // Positive measurements must also be finite.
+        await assertInvalidArgument {
+            _ = try await client.styleText(
+                documentId: "doc-1", startIndex: 1, endIndex: 5, fontSize: .infinity)
+        }
         XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
     }
 
@@ -389,6 +394,11 @@ final class DocsStyleWriteTests: GrahamTestCase {
         await assertInvalidArgument {
             _ = try await client.styleParagraphs(
                 documentId: "doc-1", startIndex: 1, endIndex: 10, lineSpacing: 0)
+        }
+        // Positive measurements must also be finite.
+        await assertInvalidArgument {
+            _ = try await client.styleParagraphs(
+                documentId: "doc-1", startIndex: 1, endIndex: 10, lineSpacing: .nan)
         }
         // A negative indent.
         await assertInvalidArgument {

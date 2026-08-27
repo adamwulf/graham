@@ -2251,6 +2251,21 @@ final class SlidesWriteTests: GrahamTestCase {
         XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
     }
 
+    func testStyleShapeRejectsNonFinitePositiveValues() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        await assertInvalidArgument {
+            try await client.styleShape(
+                presentationId: "p-1", objectId: "shape-1", outlineWeight: .infinity)
+        }
+        await assertInvalidArgument {
+            try await client.styleShape(
+                presentationId: "p-1", objectId: "shape-1", shadowBlur: .nan)
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
     func testStyleShapeRejectsANonPositiveShadowBlur() async throws {
         let transport = StubTransport()
         let client = TestSupport.slidesClient(transport)

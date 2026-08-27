@@ -2388,6 +2388,15 @@ final class DocsWriteTests: GrahamTestCase {
             _ = try await client.updateNamedStyle(
                 documentId: "doc-1", namedStyleType: "TITLE", lineSpacing: 0)
         }
+        // Positive measurements must also be finite.
+        await assertInvalidArgument {
+            _ = try await client.updateNamedStyle(
+                documentId: "doc-1", namedStyleType: "TITLE", fontSize: .infinity)
+        }
+        await assertInvalidArgument {
+            _ = try await client.updateNamedStyle(
+                documentId: "doc-1", namedStyleType: "TITLE", lineSpacing: .nan)
+        }
         XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
     }
 

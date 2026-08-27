@@ -244,6 +244,45 @@ public struct DocsClient: Sendable {
         return DocsRange(startIndex: startIndex, endIndex: endIndex, segmentId: segmentId)
     }
 
+    /// Validates and builds the weighted font value shared by text runs and
+    /// named styles.
+    private static func makeWeightedFontFamily(
+        fontFamily: String?, fontWeight: Int?
+    ) throws -> DocsWeightedFontFamily? {
+        if let fontFamily {
+            guard !fontFamily.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw GrahamError.invalidArgument("font family must not be empty")
+            }
+            if let fontWeight {
+                guard (100...900).contains(fontWeight), fontWeight % 100 == 0 else {
+                    throw GrahamError.invalidArgument(
+                        "font weight must be a multiple of 100 within 100 and 900, got \(fontWeight)")
+                }
+            }
+            return DocsWeightedFontFamily(fontFamily: fontFamily, weight: fontWeight)
+        }
+        guard fontWeight == nil else {
+            throw GrahamError.invalidArgument("a font weight requires a font family")
+        }
+        return nil
+    }
+
+    /// Validates a positive style measurement. The established message stays
+    /// unchanged while the finite check consistently rejects NaN and infinity.
+    private static func validateStylePositive(_ value: Double?, label: String) throws {
+        if let value, !(value.isFinite && value > 0) {
+            throw GrahamError.invalidArgument(
+                "\(label) must be greater than zero, got \(value)")
+        }
+    }
+
+    /// Validates a style measurement for which zero is meaningful.
+    private static func validateStyleNonNegative(_ value: Double?, label: String) throws {
+        if let value, value < 0 {
+            throw GrahamError.invalidArgument("\(label) must be 0 or greater, got \(value)")
+        }
+    }
+
     /// Styles a range of text: bold, italic, underline, strikethrough, colors,
     /// font, size, baseline offset, and link.
     ///
@@ -291,32 +330,9 @@ public struct DocsClient: Sendable {
         let range = try Self.makeStyleRange(
             startIndex: startIndex, endIndex: endIndex, segmentId: segmentId)
 
-        // Weighted font family: a weight is a multiple of 100 in 100...900 and
-        // requires a family.
-        var weightedFontFamily: DocsWeightedFontFamily?
-        if let fontFamily {
-            // The Docs API requires a non-empty family whenever weightedFontFamily
-            // is set, so reject a blank one before it reaches the wire.
-            guard !fontFamily.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                throw GrahamError.invalidArgument("font family must not be empty")
-            }
-            if let fontWeight {
-                guard (100...900).contains(fontWeight), fontWeight % 100 == 0 else {
-                    throw GrahamError.invalidArgument(
-                        "font weight must be a multiple of 100 within 100 and 900, got \(fontWeight)")
-                }
-            }
-            weightedFontFamily = DocsWeightedFontFamily(fontFamily: fontFamily, weight: fontWeight)
-        } else if fontWeight != nil {
-            throw GrahamError.invalidArgument("a font weight requires a font family")
-        }
-
-        if let fontSize {
-            guard fontSize > 0 else {
-                throw GrahamError.invalidArgument(
-                    "font size must be greater than zero, got \(fontSize)")
-            }
-        }
+        let weightedFontFamily = try Self.makeWeightedFontFamily(
+            fontFamily: fontFamily, fontWeight: fontWeight)
+        try Self.validateStylePositive(fontSize, label: "font size")
 
         let link = linkURL.map { DocsLink(url: $0) }
 
@@ -445,22 +461,12 @@ public struct DocsClient: Sendable {
             resolvedNamedStyle = value
         }
 
-        if let lineSpacing {
-            guard lineSpacing > 0 else {
-                throw GrahamError.invalidArgument(
-                    "line spacing must be greater than zero, got \(lineSpacing)")
-            }
-        }
-        func requireNonNegative(_ value: Double?, _ label: String) throws {
-            if let value, value < 0 {
-                throw GrahamError.invalidArgument("\(label) must be 0 or greater, got \(value)")
-            }
-        }
-        try requireNonNegative(spaceAbove, "space above")
-        try requireNonNegative(spaceBelow, "space below")
-        try requireNonNegative(indentStart, "indent start")
-        try requireNonNegative(indentEnd, "indent end")
-        try requireNonNegative(indentFirstLine, "first-line indent")
+        try Self.validateStylePositive(lineSpacing, label: "line spacing")
+        try Self.validateStyleNonNegative(spaceAbove, label: "space above")
+        try Self.validateStyleNonNegative(spaceBelow, label: "space below")
+        try Self.validateStyleNonNegative(indentStart, label: "indent start")
+        try Self.validateStyleNonNegative(indentEnd, label: "indent end")
+        try Self.validateStyleNonNegative(indentFirstLine, label: "first-line indent")
 
         let shading = shadingBackgroundColor.map { DocsShading(backgroundColor: $0) }
 
@@ -1153,12 +1159,7 @@ public struct DocsClient: Sendable {
         segmentId: String? = nil,
         requiredRevisionId: String? = nil
     ) async throws -> DocsBatchUpdateResponse {
-        if let minRowHeight {
-            guard minRowHeight > 0 else {
-                throw GrahamError.invalidArgument(
-                    "minimum row height must be greater than zero, got \(minRowHeight)")
-            }
-        }
+        try Self.validateStylePositive(minRowHeight, label: "minimum row height")
         var mask: [String] = []
         if minRowHeight != nil { mask.append("minRowHeight") }
         if preventOverflow != nil { mask.append("preventOverflow") }
@@ -1364,18 +1365,8 @@ public struct DocsClient: Sendable {
             throw GrahamError.invalidArgument(
                 "provide either an index or the end of the segment, not both")
         }
-        if let width {
-            guard width > 0 else {
-                throw GrahamError.invalidArgument(
-                    "image width must be greater than zero, got \(width)")
-            }
-        }
-        if let height {
-            guard height > 0 else {
-                throw GrahamError.invalidArgument(
-                    "image height must be greater than zero, got \(height)")
-            }
-        }
+        try Self.validateStylePositive(width, label: "image width")
+        try Self.validateStylePositive(height, label: "image height")
         // A size is sent only when a width or height is given; an omitted size
         // lets the API size the image from its resolution.
         var objectSize: DocsSize?
@@ -2132,48 +2123,15 @@ public struct DocsClient: Sendable {
                 + "SUBTITLE, or HEADING_1 through HEADING_6")
         }
 
-        // Text validation mirrors styleText: a weighted family needs a non-empty
-        // family, a weight is a multiple of 100 in 100...900, a font size is
-        // positive.
-        var weightedFontFamily: DocsWeightedFontFamily?
-        if let fontFamily {
-            guard !fontFamily.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                throw GrahamError.invalidArgument("font family must not be empty")
-            }
-            if let fontWeight {
-                guard (100...900).contains(fontWeight), fontWeight % 100 == 0 else {
-                    throw GrahamError.invalidArgument(
-                        "font weight must be a multiple of 100 within 100 and 900, got \(fontWeight)")
-                }
-            }
-            weightedFontFamily = DocsWeightedFontFamily(fontFamily: fontFamily, weight: fontWeight)
-        } else if fontWeight != nil {
-            throw GrahamError.invalidArgument("a font weight requires a font family")
-        }
-        if let fontSize {
-            guard fontSize > 0 else {
-                throw GrahamError.invalidArgument(
-                    "font size must be greater than zero, got \(fontSize)")
-            }
-        }
-
-        // Paragraph validation mirrors styleParagraphs.
-        if let lineSpacing {
-            guard lineSpacing > 0 else {
-                throw GrahamError.invalidArgument(
-                    "line spacing must be greater than zero, got \(lineSpacing)")
-            }
-        }
-        func requireNonNegative(_ value: Double?, _ label: String) throws {
-            if let value, value < 0 {
-                throw GrahamError.invalidArgument("\(label) must be 0 or greater, got \(value)")
-            }
-        }
-        try requireNonNegative(spaceAbove, "space above")
-        try requireNonNegative(spaceBelow, "space below")
-        try requireNonNegative(indentStart, "indent start")
-        try requireNonNegative(indentEnd, "indent end")
-        try requireNonNegative(indentFirstLine, "first-line indent")
+        let weightedFontFamily = try Self.makeWeightedFontFamily(
+            fontFamily: fontFamily, fontWeight: fontWeight)
+        try Self.validateStylePositive(fontSize, label: "font size")
+        try Self.validateStylePositive(lineSpacing, label: "line spacing")
+        try Self.validateStyleNonNegative(spaceAbove, label: "space above")
+        try Self.validateStyleNonNegative(spaceBelow, label: "space below")
+        try Self.validateStyleNonNegative(indentStart, label: "indent start")
+        try Self.validateStyleNonNegative(indentEnd, label: "indent end")
+        try Self.validateStyleNonNegative(indentFirstLine, label: "first-line indent")
 
         func points(_ value: Double?) -> DocsDimension? {
             value.map { DocsDimension(magnitude: $0, unit: .pt) }
