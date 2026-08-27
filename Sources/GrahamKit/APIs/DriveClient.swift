@@ -6,7 +6,7 @@ import Foundation
 /// side guard, so a broad query does not pull a full Drive by accident.
 public struct DriveClient: Sendable {
     public static let baseURL = "https://www.googleapis.com/drive/v3"
-    static let fileFields = "id,name,mimeType,modifiedTime,size,webViewLink,parents"
+    static let fileFields = "id,name,mimeType,modifiedTime,size,webViewLink,parents,starred,trashed"
 
     private let api: GoogleAPI
 
@@ -227,7 +227,7 @@ public struct DriveClient: Sendable {
     ///
     /// The `trashed` flag travels in a JSON request body, not in the URL.
     public func trash(fileId: String) async throws -> DriveFile {
-        let url = try Self.fileURL(fileId)
+        let url = try Self.fileURL(fileId, extra: [("fields", Self.fileFields)])
         let body = DriveTrashRequest(trashed: true)
         return try await api.sendJSON(DriveFile.self, method: "PATCH", url: url, body: body)
     }
@@ -238,7 +238,7 @@ public struct DriveClient: Sendable {
     ///
     /// The `trashed` flag travels in a JSON request body, not in the URL.
     public func untrash(fileId: String) async throws -> DriveFile {
-        let url = try Self.fileURL(fileId)
+        let url = try Self.fileURL(fileId, extra: [("fields", Self.fileFields)])
         let body = DriveTrashRequest(trashed: false)
         return try await api.sendJSON(DriveFile.self, method: "PATCH", url: url, body: body)
     }

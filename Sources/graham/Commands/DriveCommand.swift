@@ -17,10 +17,11 @@ struct Drive: AsyncParsableCommand {
             abstract: "Run the live end-to-end Drive smoke test.",
             discussion: """
                 Creates disposable folders and files inside a folder in My Drive, \
-                exercises graham's Drive API surface, and removes the created \
-                files afterward. The root-level test folder remains. Use --keep \
-                to retain the disposable files for inspection. The command exits \
-                nonzero when any step fails.
+                exercises graham's Drive metadata and file-management operations, \
+                and removes the created files afterward. Download is excluded \
+                because it requires an existing binary file. The root-level test \
+                folder remains. Use --keep to retain the disposable files for \
+                inspection. The command exits nonzero when any step fails.
                 """
         )
 

@@ -171,8 +171,8 @@ public struct DriveLiveTest: Sendable {
             skipReason: dependencyReason("create-document", value: document)
         ) {
             let file = try await drive.setStarred(fileId: document!.id, starred: true)
-            guard file.id == document!.id else {
-                throw GrahamError.invalidResponse("starring returned the wrong file")
+            guard file.id == document!.id, file.starred == true else {
+                throw GrahamError.invalidResponse("the starred state did not round-trip")
             }
         }
         _ = await actionStep(
@@ -180,8 +180,8 @@ public struct DriveLiveTest: Sendable {
             skipReason: starred ? nil : "star-document failed"
         ) {
             let file = try await drive.setStarred(fileId: document!.id, starred: false)
-            guard file.id == document!.id else {
-                throw GrahamError.invalidResponse("unstarring returned the wrong file")
+            guard file.id == document!.id, file.starred == false else {
+                throw GrahamError.invalidResponse("the unstarred state did not round-trip")
             }
         }
 
@@ -256,8 +256,8 @@ public struct DriveLiveTest: Sendable {
             skipReason: dependencyReason("copy-document", value: copy)
         ) {
             let file = try await drive.trash(fileId: copy!.id)
-            guard file.id == copy!.id else {
-                throw GrahamError.invalidResponse("trashing returned the wrong file")
+            guard file.id == copy!.id, file.trashed == true else {
+                throw GrahamError.invalidResponse("the trashed state did not round-trip")
             }
         }
         let untrashedCopy = await actionStep(
@@ -265,8 +265,8 @@ public struct DriveLiveTest: Sendable {
             skipReason: trashedCopy ? nil : "trash-copy failed"
         ) {
             let file = try await drive.untrash(fileId: copy!.id)
-            guard file.id == copy!.id else {
-                throw GrahamError.invalidResponse("untrashing returned the wrong file")
+            guard file.id == copy!.id, file.trashed == false else {
+                throw GrahamError.invalidResponse("the untrashed state did not round-trip")
             }
         }
         if keep {

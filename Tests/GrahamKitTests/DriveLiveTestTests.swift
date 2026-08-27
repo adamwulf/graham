@@ -29,6 +29,7 @@ final class DriveLiveTestTests: XCTestCase {
         XCTAssertEqual(fixture.copyRequests.count, 1)
         XCTAssertEqual(fixture.exportRequests.count, 1)
         XCTAssertEqual(fixture.deleteRequests.count, 1)
+        XCTAssertTrue(fixture.deleteRequests[0].url.path.hasSuffix("/copy-1"))
         XCTAssertEqual(fixture.trashRequests.count, 5)
         XCTAssertEqual(fixture.starRequests.count, 2)
         XCTAssertEqual(fixture.moveRequests.count, 1)
@@ -136,6 +137,119 @@ final class DriveLiveTestTests: XCTestCase {
         })
     }
 
+    func testStateTransitionsMustRoundTrip() async {
+        let fixture = DriveLiveFixture(ignoreStateMutations: true)
+
+        let summary = await fixture.makeRunner().run()
+
+        XCTAssertEqual(
+            summary.steps.first(where: { $0.name == "star-document" })?.outcome,
+            .fail(reason: "Invalid response: the starred state did not round-trip"))
+        XCTAssertEqual(
+            summary.steps.first(where: { $0.name == "unstar-document" })?.outcome,
+            .skip(reason: "star-document failed"))
+        XCTAssertEqual(
+            summary.steps.first(where: { $0.name == "trash-copy" })?.outcome,
+            .fail(reason: "Invalid response: the trashed state did not round-trip"))
+        XCTAssertEqual(
+            summary.steps.first(where: { $0.name == "untrash-copy" })?.outcome,
+            .skip(reason: "trash-copy failed"))
+        XCTAssertTrue(fixture.deleteRequests.isEmpty)
+    }
+
+    func testRootFolderCreationFailureStopsBeforeCreatingArtifacts() async {
+        let fixture = DriveLiveFixture(existingFolder: false, failCreateID: "folder-1")
+
+        let summary = await fixture.makeRunner().run()
+
+        XCTAssertEqual(summary.steps.map(\.name), ["folder"])
+        XCTAssertEqual(
+            summary.steps.first?.outcome,
+            .fail(reason: "Google API error 400 (INVALID_ARGUMENT): folder-1 create rejected"))
+        XCTAssertTrue(fixture.patchRequests.isEmpty)
+        XCTAssertTrue(fixture.deleteRequests.isEmpty)
+    }
+
+    func testSourceFolderCreationFailureSkipsDependentsAndCleansDestination() async {
+        let fixture = DriveLiveFixture(failCreateID: "source-1")
+
+        let summary = await fixture.makeRunner().run()
+
+        XCTAssertEqual(summary.steps.map(\.name), Self.expectedStepNames)
+        XCTAssertEqual(
+            summary.steps.first(where: { $0.name == "create-source-folder" })?.outcome,
+            .fail(reason: "Google API error 400 (INVALID_ARGUMENT): source-1 create rejected"))
+        XCTAssertEqual(
+            summary.steps.first(where: { $0.name == "create-document" })?.outcome,
+            .skip(reason: "create-source-folder failed"))
+        XCTAssertEqual(
+            summary.steps.first(where: { $0.name == "drive-trash-source-folder" })?.outcome,
+            .skip(reason: "create-source-folder failed"))
+        XCTAssertEqual(fixture.cleanupTrashRequests.count, 1)
+        XCTAssertTrue(fixture.cleanupTrashRequests[0].url.path.hasSuffix("/destination-1"))
+        XCTAssertTrue(fixture.deleteRequests.isEmpty)
+    }
+
+    func testDestinationFolderCreationFailureCleansSurvivingSourceChain() async {
+        let fixture = DriveLiveFixture(failCreateID: "destination-1")
+
+        let summary = await fixture.makeRunner().run()
+
+        XCTAssertEqual(
+            summary.steps.first(where: { $0.name == "create-destination-folder" })?.outcome,
+            .fail(reason: "Google API error 400 (INVALID_ARGUMENT): destination-1 create rejected"))
+        XCTAssertEqual(
+            summary.steps.first(where: { $0.name == "move-document" })?.outcome,
+            .skip(reason: "create-destination-folder failed"))
+        XCTAssertEqual(summary.steps.first(where: { $0.name == "copy-document" })?.outcome, .pass)
+        XCTAssertEqual(fixture.deleteRequests.count, 1)
+        XCTAssertEqual(fixture.cleanupTrashRequests.count, 2)
+        XCTAssertTrue(fixture.cleanupTrashRequests.contains {
+            $0.url.path.hasSuffix("/document-1")
+        })
+        XCTAssertTrue(fixture.cleanupTrashRequests.contains {
+            $0.url.path.hasSuffix("/source-1")
+        })
+    }
+
+    func testDocumentCreationFailureSkipsFileOperationsAndCleansFolders() async {
+        let fixture = DriveLiveFixture(failCreateID: "document-1")
+
+        let summary = await fixture.makeRunner().run()
+
+        XCTAssertEqual(
+            summary.steps.first(where: { $0.name == "create-document" })?.outcome,
+            .fail(reason: "Google API error 400 (INVALID_ARGUMENT): document-1 create rejected"))
+        for name in [
+            "get-document", "rename-document", "star-document", "move-document",
+            "create-shortcut", "copy-document", "export-document",
+        ] {
+            XCTAssertEqual(
+                summary.steps.first(where: { $0.name == name })?.outcome,
+                .skip(reason: "create-document failed"), "unexpected outcome for \(name)")
+        }
+        XCTAssertEqual(fixture.cleanupTrashRequests.count, 2)
+        XCTAssertTrue(fixture.deleteRequests.isEmpty)
+    }
+
+    func testCopyFailureSkipsLifecycleAndStillCleansEverySurvivingArtifact() async {
+        let fixture = DriveLiveFixture(failCopy: true)
+
+        let summary = await fixture.makeRunner().run()
+
+        XCTAssertEqual(
+            summary.steps.first(where: { $0.name == "copy-document" })?.outcome,
+            .fail(reason: "Google API error 400 (INVALID_ARGUMENT): copy rejected"))
+        XCTAssertEqual(
+            summary.steps.first(where: { $0.name == "trash-copy" })?.outcome,
+            .skip(reason: "copy-document failed"))
+        XCTAssertEqual(
+            summary.steps.first(where: { $0.name == "delete-copy" })?.outcome,
+            .skip(reason: "untrash-copy failed"))
+        XCTAssertTrue(fixture.deleteRequests.isEmpty)
+        XCTAssertEqual(fixture.cleanupTrashRequests.count, 4)
+    }
+
     private static let expectedStepNames = [
         "folder", "roots", "create-source-folder", "create-destination-folder",
         "create-document", "get-document", "list-source", "global-search",
@@ -181,6 +295,9 @@ private final class DriveLiveFixture: @unchecked Sendable {
     let failMove: Bool
     let corruptRenameResponse: Bool
     let failDelete: Bool
+    let failCreateID: String?
+    let failCopy: Bool
+    let ignoreStateMutations: Bool
 
     private var files: [String: StoredFile] = [:]
 
@@ -188,12 +305,18 @@ private final class DriveLiveFixture: @unchecked Sendable {
         existingFolder: Bool = true,
         failMove: Bool = false,
         corruptRenameResponse: Bool = false,
-        failDelete: Bool = false
+        failDelete: Bool = false,
+        failCreateID: String? = nil,
+        failCopy: Bool = false,
+        ignoreStateMutations: Bool = false
     ) {
         self.existingFolder = existingFolder
         self.failMove = failMove
         self.corruptRenameResponse = corruptRenameResponse
         self.failDelete = failDelete
+        self.failCreateID = failCreateID
+        self.failCopy = failCopy
+        self.ignoreStateMutations = ignoreStateMutations
         if existingFolder {
             files["folder-1"] = StoredFile(
                 id: "folder-1", name: "graham test",
@@ -319,6 +442,9 @@ private final class DriveLiveFixture: @unchecked Sendable {
         if path.hasPrefix("/drive/v3/files/"), request.method == "DELETE" {
             if failDelete { return googleError(message: "delete rejected") }
             let id = path.split(separator: "/").last.map(String.init) ?? ""
+            guard files[id] != nil else {
+                return googleError(message: "file not found", status: 404)
+            }
             files[id] = nil
             return HTTPResponse(statusCode: 204)
         }
@@ -374,6 +500,9 @@ private final class DriveLiveFixture: @unchecked Sendable {
         } else {
             id = "document-1"
         }
+        if failCreateID == id {
+            return googleError(message: "\(id) create rejected")
+        }
         let file = StoredFile(
             id: id, name: name, mimeType: mime, parents: parents,
             trashed: false, starred: false)
@@ -382,6 +511,7 @@ private final class DriveLiveFixture: @unchecked Sendable {
     }
 
     private func copyResponse(_ request: HTTPRequest) -> HTTPResponse {
+        if failCopy { return googleError(message: "copy rejected") }
         let body = createBody(request) ?? [:]
         let file = StoredFile(
             id: "copy-1",
@@ -411,8 +541,10 @@ private final class DriveLiveFixture: @unchecked Sendable {
             }
             file.name = name
         }
-        if let starred = body["starred"] as? Bool { file.starred = starred }
-        if let trashed = body["trashed"] as? Bool { file.trashed = trashed }
+        if !ignoreStateMutations {
+            if let starred = body["starred"] as? Bool { file.starred = starred }
+            if let trashed = body["trashed"] as? Bool { file.trashed = trashed }
+        }
         if let parent = queryValue("addParents", in: request) {
             if failMove { return googleError(message: "move rejected") }
             file.parents = [parent]
@@ -431,6 +563,8 @@ private final class DriveLiveFixture: @unchecked Sendable {
             "name": file.name,
             "mimeType": file.mimeType,
             "parents": file.parents,
+            "starred": file.starred,
+            "trashed": file.trashed,
         ]
     }
 

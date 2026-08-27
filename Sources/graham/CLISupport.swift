@@ -37,7 +37,7 @@ enum CLI {
         print(String(data: data, encoding: .utf8) ?? "{}")
     }
 
-    /// Returns the timestamp label shared by all three live-test runners.
+    /// Returns the timestamp label shared by the live-test runners.
     static func iso8601Label(now: Date = Date()) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]

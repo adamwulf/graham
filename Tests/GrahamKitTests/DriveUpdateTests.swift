@@ -49,24 +49,30 @@ final class DriveUpdateTests: XCTestCase {
     func testStarPatchesStarredTrue() async throws {
         let transport = StubTransport()
         let client = TestSupport.driveClient(transport)
-        transport.stub(urlContains: "/drive/v3/files/f1", json: #"{"id":"f1","name":"n"}"#)
+        transport.stub(
+            urlContains: "/drive/v3/files/f1",
+            json: #"{"id":"f1","name":"n","starred":true}"#)
 
-        _ = try await client.setStarred(fileId: "f1", starred: true)
+        let file = try await client.setStarred(fileId: "f1", starred: true)
 
         let request = try XCTUnwrap(transport.requests(urlContains: "/drive/v3/files/f1").first)
         XCTAssertEqual(request.method, "PATCH")
         XCTAssertEqual(String(data: try XCTUnwrap(request.body), encoding: .utf8), #"{"starred":true}"#)
+        XCTAssertEqual(file.starred, true)
     }
 
     func testUnstarPatchesStarredFalse() async throws {
         let transport = StubTransport()
         let client = TestSupport.driveClient(transport)
-        transport.stub(urlContains: "/drive/v3/files/f1", json: #"{"id":"f1","name":"n"}"#)
+        transport.stub(
+            urlContains: "/drive/v3/files/f1",
+            json: #"{"id":"f1","name":"n","starred":false}"#)
 
-        _ = try await client.setStarred(fileId: "f1", starred: false)
+        let file = try await client.setStarred(fileId: "f1", starred: false)
 
         let request = try XCTUnwrap(transport.requests(urlContains: "/drive/v3/files/f1").first)
         XCTAssertEqual(String(data: try XCTUnwrap(request.body), encoding: .utf8), #"{"starred":false}"#)
+        XCTAssertEqual(file.starred, false)
     }
 
     // MARK: - Untrash
@@ -76,7 +82,7 @@ final class DriveUpdateTests: XCTestCase {
         let client = TestSupport.driveClient(transport)
         transport.stub(
             urlContains: "/drive/v3/files/f1",
-            json: #"{"id":"f1","name":"Report"}"#
+            json: #"{"id":"f1","name":"Report","trashed":false}"#
         )
 
         let file = try await client.untrash(fileId: "f1")
@@ -84,10 +90,13 @@ final class DriveUpdateTests: XCTestCase {
         let request = try XCTUnwrap(transport.requests(urlContains: "/drive/v3/files/f1").first)
         XCTAssertEqual(request.method, "PATCH")
         XCTAssertEqual(Self.path(request.url), "/drive/v3/files/f1")
-        // Like trash, the only query item is supportsAllDrives=true; no fields.
-        XCTAssertEqual(Self.queryItems(request.url), [URLQueryItem(name: "supportsAllDrives", value: "true")])
+        XCTAssertEqual(Self.queryItems(request.url), [
+            URLQueryItem(name: "fields", value: DriveClient.fileFields),
+            URLQueryItem(name: "supportsAllDrives", value: "true"),
+        ])
         XCTAssertEqual(String(data: try XCTUnwrap(request.body), encoding: .utf8), #"{"trashed":false}"#)
         XCTAssertEqual(file.id, "f1")
+        XCTAssertEqual(file.trashed, false)
     }
 
     func testUntrashRequestEncodesTrashedFalse() throws {

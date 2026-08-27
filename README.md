@@ -147,9 +147,10 @@ graham drive star <file-id> --off
 graham drive trash <file-id>
 graham drive untrash <file-id>
 graham drive delete <file-id> --force
-# Exercise the live Drive API surface with disposable folders and files inside
-# the root-level "graham test" folder. Created artifacts are removed afterward;
-# --keep retains them. Any failed step exits nonzero.
+# Exercise Drive metadata and file-management operations with disposable folders
+# and files inside the root-level "graham test" folder. Download is excluded
+# because it requires an existing binary file. Inner artifacts are cleaned up
+# afterward; the root test folder remains. --keep retains everything.
 graham drive test
 graham drive test --keep --folder "graham test"
 
