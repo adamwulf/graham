@@ -992,9 +992,8 @@ public struct SlidesClient: Sendable {
         // Content alignment.
         if contentAlignment != nil { mask.append("contentAlignment") }
 
-        guard !mask.isEmpty else {
-            throw GrahamError.invalidArgument("style shape requires at least one style option")
-        }
+        let fields = try GrahamValidation.requireFieldMask(
+            mask, "style shape requires at least one style option")
 
         let style = ShapeStyle(
             shapeBackgroundFill: backgroundFill,
@@ -1007,7 +1006,7 @@ public struct SlidesClient: Sendable {
             requests: [.updateShapeProperties(UpdateShapePropertiesRequest(
                 objectId: objectId,
                 shapeProperties: style,
-                fields: mask.joined(separator: ",")
+                fields: fields
             ))]
         )
     }
@@ -1036,15 +1035,14 @@ public struct SlidesClient: Sendable {
             dash: outlineDash,
             noOutline: noOutline
         )
-        guard !outline.mask.isEmpty else {
-            throw GrahamError.invalidArgument("style image requires at least one outline option")
-        }
+        let fields = try GrahamValidation.requireFieldMask(
+            outline.mask, "style image requires at least one outline option")
         _ = try await batchUpdate(
             presentationId: presentationId,
             requests: [.updateImageProperties(UpdateImagePropertiesRequest(
                 objectId: objectId,
                 imageProperties: ImageStyle(outline: outline.value),
-                fields: outline.mask.joined(separator: ",")
+                fields: fields
             ))]
         )
     }
@@ -1079,9 +1077,8 @@ public struct SlidesClient: Sendable {
         if startArrow != nil { mask.append("startArrow") }
         if endArrow != nil { mask.append("endArrow") }
 
-        guard !mask.isEmpty else {
-            throw GrahamError.invalidArgument("style line requires at least one style option")
-        }
+        let fields = try GrahamValidation.requireFieldMask(
+            mask, "style line requires at least one style option")
 
         let style = LineStyle(
             lineFill: lineFill,
@@ -1095,7 +1092,7 @@ public struct SlidesClient: Sendable {
             requests: [.updateLineProperties(UpdateLinePropertiesRequest(
                 objectId: objectId,
                 lineProperties: style,
-                fields: mask.joined(separator: ",")
+                fields: fields
             ))]
         )
     }
@@ -1144,9 +1141,8 @@ public struct SlidesClient: Sendable {
         )
         mask.append(contentsOf: outline.mask)
 
-        guard !mask.isEmpty else {
-            throw GrahamError.invalidArgument("style video requires at least one style option")
-        }
+        let fields = try GrahamValidation.requireFieldMask(
+            mask, "style video requires at least one style option")
 
         let style = VideoStyle(
             autoPlay: autoPlay,
@@ -1160,7 +1156,7 @@ public struct SlidesClient: Sendable {
             requests: [.updateVideoProperties(UpdateVideoPropertiesRequest(
                 objectId: objectId,
                 videoProperties: style,
-                fields: mask.joined(separator: ",")
+                fields: fields
             ))]
         )
     }
@@ -1334,10 +1330,8 @@ public struct SlidesClient: Sendable {
             mask.append("tableCellBackgroundFill.propertyState")
         }
         if alignment != nil { mask.append("contentAlignment") }
-        guard !mask.isEmpty else {
-            throw GrahamError.invalidArgument(
-                "style table cells requires at least one style option")
-        }
+        let fields = try GrahamValidation.requireFieldMask(
+            mask, "style table cells requires at least one style option")
 
         _ = try await batchUpdate(
             presentationId: presentationId,
@@ -1348,7 +1342,7 @@ public struct SlidesClient: Sendable {
                     tableCellBackgroundFill: backgroundFill,
                     contentAlignment: alignment
                 ),
-                fields: mask.joined(separator: ",")
+                fields: fields
             ))]
         )
     }
@@ -1431,10 +1425,8 @@ public struct SlidesClient: Sendable {
         if alpha != nil { mask.append("tableBorderFill.solidFill.alpha") }
         if weight != nil { mask.append("weight") }
         if dash != nil { mask.append("dashStyle") }
-        guard !mask.isEmpty else {
-            throw GrahamError.invalidArgument(
-                "style table borders requires at least one style option")
-        }
+        let fields = try GrahamValidation.requireFieldMask(
+            mask, "style table borders requires at least one style option")
 
         let borderFill: TableBorderFill?
         if color != nil || alpha != nil {
@@ -1453,7 +1445,7 @@ public struct SlidesClient: Sendable {
                     weight: weight.map { ElementDimension(magnitude: $0, unit: .pt) },
                     dashStyle: dash
                 ),
-                fields: mask.joined(separator: ",")
+                fields: fields
             ))]
         )
     }
@@ -1609,9 +1601,8 @@ public struct SlidesClient: Sendable {
         if baseline != nil { mask.append("baselineOffset") }
         if resolvedLink != nil || clearLink { mask.append("link") }
 
-        guard !mask.isEmpty else {
-            throw GrahamError.invalidArgument("style text requires at least one style option")
-        }
+        let fields = try GrahamValidation.requireFieldMask(
+            mask, "style text requires at least one style option")
 
         let style = TextStyleValue(
             bold: bold,
@@ -1634,7 +1625,7 @@ public struct SlidesClient: Sendable {
                 cellLocation: cellLocation,
                 style: style,
                 textRange: range,
-                fields: mask.joined(separator: ",")
+                fields: fields
             ))]
         )
     }
@@ -1697,10 +1688,8 @@ public struct SlidesClient: Sendable {
         if direction != nil { mask.append("direction") }
         if spacingMode != nil { mask.append("spacingMode") }
 
-        guard !mask.isEmpty else {
-            throw GrahamError.invalidArgument(
-                "style paragraphs requires at least one style option")
-        }
+        let fields = try GrahamValidation.requireFieldMask(
+            mask, "style paragraphs requires at least one style option")
 
         func points(_ value: Double?) -> ElementDimension? {
             value.map { ElementDimension(magnitude: $0, unit: .pt) }
@@ -1723,7 +1712,7 @@ public struct SlidesClient: Sendable {
                 cellLocation: cellLocation,
                 style: style,
                 textRange: range,
-                fields: mask.joined(separator: ",")
+                fields: fields
             ))]
         )
     }

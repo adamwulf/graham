@@ -333,9 +333,8 @@ public struct DocsClient: Sendable {
         if link != nil { mask.append("link") }
         if smallCaps != nil { mask.append("smallCaps") }
 
-        guard !mask.isEmpty else {
-            throw GrahamError.invalidArgument("style text requires at least one style option")
-        }
+        let fields = try GrahamValidation.requireFieldMask(
+            mask, "style text requires at least one style option")
 
         let style = DocsTextStyle(
             bold: bold,
@@ -351,7 +350,7 @@ public struct DocsClient: Sendable {
             smallCaps: smallCaps
         )
         let request = DocsBatchUpdateRequest.updateTextStyle(DocsUpdateTextStyleRequest(
-            textStyle: style, fields: mask.joined(separator: ","), range: range))
+            textStyle: style, fields: fields, range: range))
         return try await batchUpdate(
             documentId: documentId, requests: [request],
             requiredRevisionId: requiredRevisionId)
@@ -528,10 +527,8 @@ public struct DocsClient: Sendable {
         }
         if betweenBorder != nil { mask.append("borderBetween") }
 
-        guard !mask.isEmpty else {
-            throw GrahamError.invalidArgument(
-                "style paragraphs requires at least one style option")
-        }
+        let fields = try GrahamValidation.requireFieldMask(
+            mask, "style paragraphs requires at least one style option")
 
         func points(_ value: Double?) -> DocsDimension? {
             value.map { DocsDimension(magnitude: $0, unit: .pt) }
@@ -559,7 +556,7 @@ public struct DocsClient: Sendable {
             borderBetween: betweenBorder
         )
         let request = DocsBatchUpdateRequest.updateParagraphStyle(DocsUpdateParagraphStyleRequest(
-            paragraphStyle: style, fields: mask.joined(separator: ","), range: range))
+            paragraphStyle: style, fields: fields, range: range))
         return try await batchUpdate(
             documentId: documentId, requests: [request],
             requiredRevisionId: requiredRevisionId)
@@ -1085,10 +1082,8 @@ public struct DocsClient: Sendable {
         }
         if contentAlignment != nil { mask.append("contentAlignment") }
 
-        guard !mask.isEmpty else {
-            throw GrahamError.invalidArgument(
-                "style table cells requires at least one style option")
-        }
+        let fields = try GrahamValidation.requireFieldMask(
+            mask, "style table cells requires at least one style option")
 
         let style = DocsTableCellStyle(
             backgroundColor: backgroundColor,
@@ -1101,8 +1096,6 @@ public struct DocsClient: Sendable {
             paddingTop: paddingDimension,
             paddingBottom: paddingDimension,
             contentAlignment: contentAlignment)
-        let fields = mask.joined(separator: ",")
-
         // A cell target is given when any of row/column/span is present; then
         // both a row and a column are required. Otherwise the whole table is
         // styled.
@@ -1169,10 +1162,8 @@ public struct DocsClient: Sendable {
         var mask: [String] = []
         if minRowHeight != nil { mask.append("minRowHeight") }
         if preventOverflow != nil { mask.append("preventOverflow") }
-        guard !mask.isEmpty else {
-            throw GrahamError.invalidArgument(
-                "style table row requires at least one style option")
-        }
+        let fields = try GrahamValidation.requireFieldMask(
+            mask, "style table row requires at least one style option")
 
         // One-based CLI rows become zero-based API indices; an empty list means
         // every row, which the API expresses as an omitted rowIndices.
@@ -1191,7 +1182,7 @@ public struct DocsClient: Sendable {
             preventOverflow: preventOverflow)
         let request = DocsUpdateTableRowStyleRequest(
             tableStartLocation: start, rowIndices: rowIndices,
-            tableRowStyle: style, fields: mask.joined(separator: ","))
+            tableRowStyle: style, fields: fields)
         return try await batchUpdate(
             documentId: documentId,
             requests: [.updateTableRowStyle(request)],
@@ -1971,9 +1962,8 @@ public struct DocsClient: Sendable {
         if marginFooter != nil { mask.append("marginFooter") }
         if flipPageOrientation != nil { mask.append("flipPageOrientation") }
 
-        guard !mask.isEmpty else {
-            throw GrahamError.invalidArgument("page setup requires at least one style option")
-        }
+        let fields = try GrahamValidation.requireFieldMask(
+            mask, "page setup requires at least one style option")
 
         let style = DocsDocumentStyle(
             pageSize: pageSize,
@@ -1990,8 +1980,7 @@ public struct DocsClient: Sendable {
             marginFooter: points(marginFooter),
             flipPageOrientation: flipPageOrientation)
         let request = DocsBatchUpdateRequest.updateDocumentStyle(
-            DocsUpdateDocumentStyleRequest(
-                documentStyle: style, fields: mask.joined(separator: ",")))
+            DocsUpdateDocumentStyleRequest(documentStyle: style, fields: fields))
         return try await batchUpdate(
             documentId: documentId, requests: [request],
             requiredRevisionId: requiredRevisionId)
@@ -2071,9 +2060,8 @@ public struct DocsClient: Sendable {
         if useFirstPageHeaderFooter != nil { mask.append("useFirstPageHeaderFooter") }
         if flipPageOrientation != nil { mask.append("flipPageOrientation") }
 
-        guard !mask.isEmpty else {
-            throw GrahamError.invalidArgument("section style requires at least one style option")
-        }
+        let fields = try GrahamValidation.requireFieldMask(
+            mask, "section style requires at least one style option")
 
         let style = DocsSectionStyle(
             marginTop: points(marginTop),
@@ -2091,7 +2079,7 @@ public struct DocsClient: Sendable {
             DocsUpdateSectionStyleRequest(
                 range: DocsRange(startIndex: startIndex, endIndex: endIndex),
                 sectionStyle: style,
-                fields: mask.joined(separator: ",")))
+                fields: fields))
         return try await batchUpdate(
             documentId: documentId, requests: [request],
             requiredRevisionId: requiredRevisionId)
@@ -2471,15 +2459,14 @@ public struct DocsClient: Sendable {
         if apiIndex != nil { mask.append("index") }
         if parentTabId != nil { mask.append("parentTabId") }
         if iconEmoji != nil { mask.append("iconEmoji") }
-        guard !mask.isEmpty else {
-            throw GrahamError.invalidArgument("updating a tab requires at least one property")
-        }
+        let fields = try GrahamValidation.requireFieldMask(
+            mask, "updating a tab requires at least one property")
         let properties = DocsTabProperties(
             tabId: tabId, title: title, index: apiIndex,
             iconEmoji: iconEmoji, parentTabId: parentTabId)
         let request = DocsBatchUpdateRequest.updateDocumentTabProperties(
             DocsUpdateDocumentTabPropertiesRequest(
-                tabProperties: properties, fields: mask.joined(separator: ",")))
+                tabProperties: properties, fields: fields))
         return try await batchUpdate(
             documentId: documentId, requests: [request],
             requiredRevisionId: requiredRevisionId)
