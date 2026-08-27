@@ -4,16 +4,12 @@ import XCTest
 /// Tests for copying a Drive file (`files.copy`) and the
 /// ``DriveFileCopyRequest`` body, including the omitted-name case.
 final class DriveCopyTests: XCTestCase {
-    private func makeClient(transport: StubTransport) -> DriveClient {
-        transport.stubTokenEndpoint()
-        return DriveClient(api: TestSupport.makeAPI(transport: transport))
-    }
 
     // MARK: - Request shape
 
     func testCopyPostsToTheCopyEndpointWithTheNameInTheBody() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(
             urlContains: "/drive/v3/files/f1/copy",
             json: #"{"id":"copy-1","name":"My Copy","mimeType":"application/vnd.google-apps.document"}"#
@@ -40,7 +36,7 @@ final class DriveCopyTests: XCTestCase {
 
     func testCopyOmitsTheNameKeyWhenNoNameIsGiven() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(
             urlContains: "/drive/v3/files/f1/copy",
             json: #"{"id":"copy-2","name":"Copy of Report"}"#
@@ -59,7 +55,7 @@ final class DriveCopyTests: XCTestCase {
 
     func testCopyEscapesTheFileIDInThePath() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(urlContains: "/copy", json: #"{"id":"x","name":"n"}"#)
 
         _ = try await client.copy(fileId: "a b/c")
@@ -73,7 +69,7 @@ final class DriveCopyTests: XCTestCase {
 
     func testCopyWithParentEncodesTheDestinationInTheBody() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(
             urlContains: "/drive/v3/files/f1/copy",
             json: #"{"id":"copy-1","name":"My Copy"}"#
@@ -88,7 +84,7 @@ final class DriveCopyTests: XCTestCase {
 
     func testCopyReturnsTheNewFilesId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(
             urlContains: "/drive/v3/files/f1/copy",
             json: #"{"id":"copy-99","name":"Deck copy","mimeType":"application/vnd.google-apps.presentation"}"#
@@ -104,7 +100,7 @@ final class DriveCopyTests: XCTestCase {
 
     func testCopyEncodesTrickyNamesSafely() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(urlContains: "/drive/v3/files/f1/copy", json: #"{"id":"x","name":"n"}"#)
 
         // Quotes, a backslash, a newline, and a non-ASCII character.

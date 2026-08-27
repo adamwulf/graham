@@ -4,16 +4,12 @@ import XCTest
 /// Tests for trashing (`files.update` with `trashed = true`) and permanently
 /// deleting (`files.delete`, HTTP 204) a Drive file.
 final class DriveTrashDeleteTests: XCTestCase {
-    private func makeClient(transport: StubTransport) -> DriveClient {
-        transport.stubTokenEndpoint()
-        return DriveClient(api: TestSupport.makeAPI(transport: transport))
-    }
 
     // MARK: - Trash
 
     func testTrashPatchesTheFileWithTrashedTrue() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(
             urlContains: "/drive/v3/files/f1",
             json: #"{"id":"f1","name":"Report","mimeType":"application/vnd.google-apps.document"}"#
@@ -38,7 +34,7 @@ final class DriveTrashDeleteTests: XCTestCase {
 
     func testTrashEscapesTheFileIDInThePath() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(urlContains: "/drive/v3/files/", json: #"{"id":"x","name":"n"}"#)
 
         _ = try await client.trash(fileId: "a b/c")
@@ -57,7 +53,7 @@ final class DriveTrashDeleteTests: XCTestCase {
 
     func testDeleteSendsDeleteAndToleratesAnEmpty204Body() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         // A real files.delete replies with HTTP 204 and an empty body.
         transport.stub(urlContains: "/drive/v3/files/f1", responses: [
             HTTPResponse(statusCode: 204, body: Data()),
@@ -76,7 +72,7 @@ final class DriveTrashDeleteTests: XCTestCase {
 
     func testDeleteEscapesTheFileIDInThePath() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(urlContains: "/drive/v3/files/", responses: [
             HTTPResponse(statusCode: 204, body: Data()),
         ])
@@ -89,7 +85,7 @@ final class DriveTrashDeleteTests: XCTestCase {
 
     func testDeletePropagatesAGoogleError() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(
             urlContains: "/drive/v3/files/f1",
             json: #"{"error":{"code":404,"message":"File not found.","status":"NOT_FOUND"}}"#,

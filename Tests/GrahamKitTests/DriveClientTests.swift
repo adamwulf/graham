@@ -2,14 +2,10 @@ import XCTest
 @testable import GrahamKit
 
 final class DriveClientTests: XCTestCase {
-    private func makeClient(transport: StubTransport) -> DriveClient {
-        transport.stubTokenEndpoint()
-        return DriveClient(api: TestSupport.makeAPI(transport: transport))
-    }
 
     func testListWalksAllPages() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(urlContains: "/drive/v3/files?", responses: [
             StubTransport.json(#"""
             {"nextPageToken":"tok+1","files":[
@@ -31,7 +27,7 @@ final class DriveClientTests: XCTestCase {
 
     func testListStopsAtTheLimit() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(urlContains: "/drive/v3/files?", json: #"""
         {"nextPageToken":"more","files":[
             {"id":"a","name":"First"},
@@ -47,7 +43,7 @@ final class DriveClientTests: XCTestCase {
 
     func testListSendsQueryAndOrder() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(urlContains: "/drive/v3/files?", json: #"{"files":[]}"#)
 
         _ = try await client.list(query: "name contains 'x'", orderBy: "modifiedTime desc", limit: 10)
@@ -62,7 +58,7 @@ final class DriveClientTests: XCTestCase {
 
     func testGetFetchesOneFile() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(
             urlContains: "/drive/v3/files/f1",
             json: #"{"id":"f1","name":"Report","mimeType":"application/vnd.google-apps.document"}"#
@@ -79,7 +75,7 @@ final class DriveClientTests: XCTestCase {
 
     func testExportRequestsTheMimeType() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(urlContains: "/export", responses: [
             HTTPResponse(statusCode: 200, body: Data("plain text".utf8)),
         ])
@@ -94,7 +90,7 @@ final class DriveClientTests: XCTestCase {
 
     func testDownloadRequestsRawMediaAcrossSharedDrives() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(urlContains: "/drive/v3/files/f1", responses: [
             HTTPResponse(statusCode: 200, body: Data("raw bytes".utf8)),
         ])
@@ -111,7 +107,7 @@ final class DriveClientTests: XCTestCase {
 
     func testListByParentIDScopesToTheFolderAndAllDrives() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(urlContains: "/drive/v3/files?", json: #"{"files":[]}"#)
 
         _ = try await client.list(parentID: "folder123")
@@ -126,7 +122,7 @@ final class DriveClientTests: XCTestCase {
 
     func testListByTypeAddsTheMimeClause() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(urlContains: "/drive/v3/files?", json: #"{"files":[]}"#)
 
         _ = try await client.list(type: .sheets)
@@ -140,7 +136,7 @@ final class DriveClientTests: XCTestCase {
 
     func testListCombinesParentTypeAndQuery() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(urlContains: "/drive/v3/files?", json: #"{"files":[]}"#)
 
         _ = try await client.list(parentID: "p1", type: .docs, query: "name contains 'x'")
@@ -155,7 +151,7 @@ final class DriveClientTests: XCTestCase {
 
     func testListEscapesSingleQuotesInTheParentID() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(urlContains: "/drive/v3/files?", json: #"{"files":[]}"#)
 
         _ = try await client.list(parentID: "a'b")
@@ -166,7 +162,7 @@ final class DriveClientTests: XCTestCase {
 
     func testDrivesWalksAllPages() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(urlContains: "/drive/v3/drives?", responses: [
             StubTransport.json(#"""
             {"nextPageToken":"pg+2","drives":[
@@ -190,7 +186,7 @@ final class DriveClientTests: XCTestCase {
 
     func testDrivesStopsAtTheLimit() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(urlContains: "/drive/v3/drives?", json: #"""
         {"nextPageToken":"more","drives":[
             {"id":"d1","name":"Team A"},
@@ -206,7 +202,7 @@ final class DriveClientTests: XCTestCase {
 
     func testRootDecodesTheFilesGetResponse() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(
             urlContains: "/drive/v3/files/root",
             json: #"{"id":"root-id","name":"My Drive","mimeType":"application/vnd.google-apps.folder"}"#
@@ -223,7 +219,7 @@ final class DriveClientTests: XCTestCase {
 
     func testListEscapesBackslashesInTheParentID() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(urlContains: "/drive/v3/files?", json: #"{"files":[]}"#)
 
         _ = try await client.list(parentID: #"a\b"#)
@@ -235,7 +231,7 @@ final class DriveClientTests: XCTestCase {
 
     func testRootsReturnsMyDriveThenTheSharedDrives() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(
             urlContains: "/drive/v3/files/root",
             json: #"{"id":"root-id","name":"My Drive","mimeType":"application/vnd.google-apps.folder"}"#
@@ -252,7 +248,7 @@ final class DriveClientTests: XCTestCase {
 
     func testRootsWithLimitOneReturnsOnlyMyDriveAndSkipsTheDrivesCall() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(
             urlContains: "/drive/v3/files/root",
             json: #"{"id":"root-id","name":"My Drive","mimeType":"application/vnd.google-apps.folder"}"#
@@ -267,7 +263,7 @@ final class DriveClientTests: XCTestCase {
 
     func testRootsWithZeroLimitReturnsNothing() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
 
         let rows = try await client.roots(limit: 0)
 
@@ -277,7 +273,7 @@ final class DriveClientTests: XCTestCase {
 
     func testBrowseWithIDListsFolderContents() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(urlContains: "/drive/v3/files?", json: #"{"files":[{"id":"c1","name":"child"}]}"#)
 
         let rows = try await client.browse(id: "f1")
@@ -290,7 +286,7 @@ final class DriveClientTests: XCTestCase {
 
     func testBrowseWithNoArgumentsReturnsTheTopLevelRoots() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(
             urlContains: "/drive/v3/files/root",
             json: #"{"id":"root-id","name":"My Drive","mimeType":"application/vnd.google-apps.folder"}"#
@@ -306,7 +302,7 @@ final class DriveClientTests: XCTestCase {
 
     func testBrowseWithFoldersTypeAndNoIDStillReturnsTheRoots() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(
             urlContains: "/drive/v3/files/root",
             json: #"{"id":"root-id","name":"My Drive","mimeType":"application/vnd.google-apps.folder"}"#
@@ -321,7 +317,7 @@ final class DriveClientTests: XCTestCase {
 
     func testBrowseWithQueryAndNoIDRunsAGlobalSearch() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(urlContains: "/drive/v3/files?", json: #"{"files":[{"id":"g1","name":"hit"}]}"#)
 
         let rows = try await client.browse(query: "name contains 'x'")
@@ -335,7 +331,7 @@ final class DriveClientTests: XCTestCase {
 
     func testBrowseWithDocsTypeAndNoIDRunsAGlobalSearch() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(urlContains: "/drive/v3/files?", json: #"{"files":[]}"#)
 
         _ = try await client.browse(type: .docs)
@@ -350,7 +346,7 @@ final class DriveClientTests: XCTestCase {
 
     func testBrowseTreatsAnEmptyQueryAsNoQuery() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(
             urlContains: "/drive/v3/files/root",
             json: #"{"id":"root-id","name":"My Drive","mimeType":"application/vnd.google-apps.folder"}"#
