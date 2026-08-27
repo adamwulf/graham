@@ -834,6 +834,54 @@ public struct SheetsClient: Sendable {
                 AddConditionalFormatRuleRequest(rule: rule, index: index))])
     }
 
+    /// Adds a gradient (color-scale) conditional-format rule over an A1 `range`.
+    /// A cell's background interpolates between the min and max stops, with an
+    /// optional mid stop in between. Each stop is a color plus an
+    /// ``InterpolationPointType`` (`MIN`/`MAX` read the range's own extreme and
+    /// take no value; `NUMBER`/`PERCENT`/`PERCENTILE` each need one). The midpoint
+    /// is omitted when `midColor` is nil, and its type may not be `MIN`/`MAX`.
+    /// `index` is the zero-based insertion position within the sheet's rule list.
+    /// Every stop's value is validated before any request is sent.
+    public func addGradientConditionalFormatRule(
+        spreadsheetId: String,
+        range: String,
+        minColor: SheetsColor,
+        minType: InterpolationPointType,
+        minValue: String?,
+        midColor: SheetsColor?,
+        midType: InterpolationPointType?,
+        midValue: String?,
+        maxColor: SheetsColor,
+        maxType: InterpolationPointType,
+        maxValue: String?,
+        index: Int = 0
+    ) async throws {
+        guard index >= 0 else {
+            throw GrahamError.invalidArgument("the rule index must be non-negative")
+        }
+        let minpoint = try InterpolationPoint.make(color: minColor, type: minType, value: minValue)
+        var midpoint: InterpolationPoint?
+        if let midColor {
+            let resolvedMidType = midType ?? .percent
+            guard resolvedMidType.needsValue else {
+                throw GrahamError.invalidArgument(
+                    "the midpoint type must be NUMBER, PERCENT, or PERCENTILE")
+            }
+            midpoint = try InterpolationPoint.make(
+                color: midColor, type: resolvedMidType, value: midValue)
+        }
+        let maxpoint = try InterpolationPoint.make(color: maxColor, type: maxType, value: maxValue)
+        let gridRange = try await resolveGridRange(spreadsheetId: spreadsheetId, range: range)
+        let rule = ConditionalFormatRule(
+            ranges: [gridRange],
+            gradientRule: GradientRule(
+                minpoint: minpoint, midpoint: midpoint, maxpoint: maxpoint))
+        _ = try await batchUpdate(
+            spreadsheetId: spreadsheetId,
+            requests: [.addConditionalFormatRule(
+                AddConditionalFormatRuleRequest(rule: rule, index: index))])
+    }
+
     /// Deletes the conditional-format rule at `index` on `sheetId`.
     public func deleteConditionalFormatRule(
         spreadsheetId: String,

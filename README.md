@@ -19,8 +19,9 @@ Named after Graham's number — a contrast to the googol that named Google.
   or columns and resize them; format a range (bold, text and background color,
   font family and size, number type and pattern, alignment — each set, toggled,
   or cleared) and draw cell borders; merge and unmerge cells, sort ranges,
-  auto-size dimensions, and name ranges (add, list, delete); add and delete
-  conditional-format rules, set and clear data validation, turn on basic filters
+  auto-size dimensions, and name ranges (add, list, delete); add boolean and
+  gradient (color-scale) conditional-format rules and delete them, set and clear
+  data validation, turn on basic filters
   and add filter views, and add and delete protected ranges; add, update, move,
   and delete charts (basic, pie, combo, histogram, scorecard, or candlestick; on
   a new sheet or as an overlay) and list them; and run a live end-to-end smoke
@@ -190,6 +191,10 @@ graham sheets named-range list <spreadsheet-id>
 graham sheets named-range delete <spreadsheet-id> --named-range-id abc123
 # Highlight cells that match a condition, or delete a rule by its zero-based index.
 graham sheets conditional-format add <spreadsheet-id> "Sheet1!A2:A100" --type NUMBER_GREATER --value 10 --background "#FFCC00"
+# Or a gradient (color-scale) rule: min and max stops are required, the mid stop
+# optional. A stop type is MIN/MAX (no value) or NUMBER/PERCENT/PERCENTILE (needs
+# a value); min defaults to MIN, max to MAX, so a two-color scale needs only colors.
+graham sheets conditional-format add <spreadsheet-id> "Sheet1!A1:A100" --gradient --min-color "#FFFFFF" --mid-color "#FFFF00" --mid-type PERCENT --mid-value 50 --max-color "#FF0000"
 graham sheets conditional-format delete <spreadsheet-id> --index 0 --sheet "Sheet1"
 # Restrict cell input, optionally with an in-cell dropdown; clear it again.
 graham sheets validation set <spreadsheet-id> "Sheet1!B2:B100" --type ONE_OF_LIST --value yes --value no --dropdown

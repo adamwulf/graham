@@ -5,10 +5,10 @@ For architecture and implementation conventions, see `CLAUDE.md`.
 
 **Google Docs is at practical 100%** — every `core` and `useful` operation is
 built and merged. Only the explicitly-deferred advanced items below remain.
-**Google Sheets is at practical 100%** — the ranked build-out (values, tabs, grid
+**Google Sheets is complete** — the ranked build-out (values, tabs, grid
 shape, formatting, charts) and the advanced polish (the full formatting surface,
-structure, data tooling, and the extra chart types) are all built. Only the one
-narrow item at the end of this file remains.
+structure, data tooling, every chart type, and both boolean and gradient
+color-scale conditional formatting) are all built. No Sheets items remain.
 
 ---
 
@@ -91,21 +91,10 @@ ids are not writable and are intentionally omitted.
 
 ---
 
-## Sheets — remaining item
+## Sheets — done
 
-The full Sheets build-out is done: values, tabs, grid shape, the complete
-formatting surface (bold, text/background color, font family and size, number
-type and pattern, alignment — each set, toggled, or cleared — and cell borders),
-structure (`mergeCells` / `unmergeCells`, `sortRange`, `autoResize`, named
-ranges), data tooling (conditional formatting, data validation, basic filters
-and filter views, protected ranges), and every chart type (basic, pie, combo,
-histogram, scorecard, candlestick) plus `updateEmbeddedObjectPosition` chart
-move. See `README.md` for the command surface and `CLAUDE.md` for the
-write-endpoint recipe and index conventions. One narrow item is intentionally
-deferred:
-
-- **Gradient (color-scale) conditional formatting** — the boolean-rule path is
-  built (`sheets conditional-format add --type … --background …`), and the
-  `GradientRule` / `InterpolationPoint` models exist so a rule round-trips, but
-  no command builds a color-scale rule yet. Add a `--gradient` mode (min / mid /
-  max interpolation points) when a real need appears.
+The full Sheets build-out is complete; no items remain. See `README.md` for the
+command surface and `CLAUDE.md` for the write-endpoint recipe and index
+conventions. Both conditional-format paths ship: boolean rules (`sheets
+conditional-format add --type … --background …`) and gradient color-scale rules
+(`sheets conditional-format add --gradient --min-color … --max-color …`).
