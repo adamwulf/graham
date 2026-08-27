@@ -415,9 +415,7 @@ struct Docs: AsyncParsableCommand {
                         "--font-weight must be a multiple of 100 from 100 to 900.")
                 }
             }
-            if let size, size <= 0 {
-                throw ValidationError("--size must be greater than zero.")
-            }
+            try validatePositive(size, name: "--size")
         }
 
         func run() async throws {
@@ -591,15 +589,13 @@ struct Docs: AsyncParsableCommand {
             guard hasStyle else {
                 throw ValidationError("Provide at least one style flag.")
             }
-            if let lineSpacing, lineSpacing <= 0 {
-                throw ValidationError("--line-spacing must be greater than zero.")
-            }
-            if let borderWidth, borderWidth < 0 {
-                throw ValidationError("--border-width must not be negative (0 hides the border).")
-            }
-            if let borderPadding, borderPadding < 0 {
-                throw ValidationError("--border-padding must not be negative (0 means no padding).")
-            }
+            try validatePositive(lineSpacing, name: "--line-spacing")
+            try validateNonNegative(
+                borderWidth,
+                message: "--border-width must not be negative (0 hides the border).")
+            try validateNonNegative(
+                borderPadding,
+                message: "--border-padding must not be negative (0 means no padding).")
         }
 
         func run() async throws {
@@ -838,8 +834,8 @@ struct Docs: AsyncParsableCommand {
                     throw ValidationError(
                         "Provide --at <index>, or pass --end to append to the end of the segment.")
                 }
-                guard rows >= 1 else { throw ValidationError("--rows must be 1 or greater.") }
-                guard columns >= 1 else { throw ValidationError("--columns must be 1 or greater.") }
+                try validateOneBased(rows, message: "--rows must be 1 or greater.")
+                try validateOneBased(columns, message: "--columns must be 1 or greater.")
             }
 
             func run() async throws {
@@ -900,10 +896,8 @@ struct Docs: AsyncParsableCommand {
                 guard below != above else {
                     throw ValidationError("Provide exactly one of --below or --above.")
                 }
-                guard row >= 1 else { throw ValidationError("--row must be one-based (1 or greater).") }
-                guard column >= 1 else {
-                    throw ValidationError("--column must be one-based (1 or greater).")
-                }
+                try validateOneBased(row, name: "--row")
+                try validateOneBased(column, name: "--column")
             }
 
             func run() async throws {
@@ -954,10 +948,8 @@ struct Docs: AsyncParsableCommand {
                 guard right != left else {
                     throw ValidationError("Provide exactly one of --right or --left.")
                 }
-                guard row >= 1 else { throw ValidationError("--row must be one-based (1 or greater).") }
-                guard column >= 1 else {
-                    throw ValidationError("--column must be one-based (1 or greater).")
-                }
+                try validateOneBased(row, name: "--row")
+                try validateOneBased(column, name: "--column")
             }
 
             func run() async throws {
@@ -999,10 +991,8 @@ struct Docs: AsyncParsableCommand {
             var requireRevision: String?
 
             func validate() throws {
-                guard row >= 1 else { throw ValidationError("--row must be one-based (1 or greater).") }
-                guard column >= 1 else {
-                    throw ValidationError("--column must be one-based (1 or greater).")
-                }
+                try validateOneBased(row, name: "--row")
+                try validateOneBased(column, name: "--column")
             }
 
             func run() async throws {
@@ -1044,10 +1034,8 @@ struct Docs: AsyncParsableCommand {
             var requireRevision: String?
 
             func validate() throws {
-                guard row >= 1 else { throw ValidationError("--row must be one-based (1 or greater).") }
-                guard column >= 1 else {
-                    throw ValidationError("--column must be one-based (1 or greater).")
-                }
+                try validateOneBased(row, name: "--row")
+                try validateOneBased(column, name: "--column")
             }
 
             func run() async throws {
@@ -1097,16 +1085,11 @@ struct Docs: AsyncParsableCommand {
             var requireRevision: String?
 
             func validate() throws {
-                guard row >= 1 else { throw ValidationError("--row must be one-based (1 or greater).") }
-                guard column >= 1 else {
-                    throw ValidationError("--column must be one-based (1 or greater).")
-                }
-                guard rowSpan >= 1 else {
-                    throw ValidationError("--row-span must be 1 or greater.")
-                }
-                guard columnSpan >= 1 else {
-                    throw ValidationError("--column-span must be 1 or greater.")
-                }
+                try validateOneBased(row, name: "--row")
+                try validateOneBased(column, name: "--column")
+                try validateOneBased(rowSpan, message: "--row-span must be 1 or greater.")
+                try validateOneBased(
+                    columnSpan, message: "--column-span must be 1 or greater.")
             }
 
             func run() async throws {
@@ -1156,16 +1139,11 @@ struct Docs: AsyncParsableCommand {
             var requireRevision: String?
 
             func validate() throws {
-                guard row >= 1 else { throw ValidationError("--row must be one-based (1 or greater).") }
-                guard column >= 1 else {
-                    throw ValidationError("--column must be one-based (1 or greater).")
-                }
-                guard rowSpan >= 1 else {
-                    throw ValidationError("--row-span must be 1 or greater.")
-                }
-                guard columnSpan >= 1 else {
-                    throw ValidationError("--column-span must be 1 or greater.")
-                }
+                try validateOneBased(row, name: "--row")
+                try validateOneBased(column, name: "--column")
+                try validateOneBased(rowSpan, message: "--row-span must be 1 or greater.")
+                try validateOneBased(
+                    columnSpan, message: "--column-span must be 1 or greater.")
             }
 
             func run() async throws {
@@ -1208,7 +1186,7 @@ struct Docs: AsyncParsableCommand {
             var requireRevision: String?
 
             func validate() throws {
-                guard count >= 0 else { throw ValidationError("--count must be 0 or greater.") }
+                try validateNonNegative(count, message: "--count must be 0 or greater.")
             }
 
             func run() async throws {
@@ -1309,22 +1287,16 @@ struct Docs: AsyncParsableCommand {
                         "Provide both --row and --column to style a cell range, or neither "
                         + "to style the whole table.")
                 }
-                if let row, row < 1 { throw ValidationError("--row must be one-based (1 or greater).") }
-                if let column, column < 1 {
-                    throw ValidationError("--column must be one-based (1 or greater).")
-                }
-                if let rowSpan, rowSpan < 1 {
-                    throw ValidationError("--row-span must be 1 or greater.")
-                }
-                if let columnSpan, columnSpan < 1 {
-                    throw ValidationError("--column-span must be 1 or greater.")
-                }
-                if let borderWidth, borderWidth < 0 {
-                    throw ValidationError("--border-width must not be negative (0 hides the border).")
-                }
-                if let padding, padding < 0 {
-                    throw ValidationError("--padding must not be negative (0 means no padding).")
-                }
+                try validateOneBased(row, name: "--row")
+                try validateOneBased(column, name: "--column")
+                try validateOneBased(rowSpan, message: "--row-span must be 1 or greater.")
+                try validateOneBased(
+                    columnSpan, message: "--column-span must be 1 or greater.")
+                try validateNonNegative(
+                    borderWidth,
+                    message: "--border-width must not be negative (0 hides the border).")
+                try validateNonNegative(
+                    padding, message: "--padding must not be negative (0 means no padding).")
             }
 
             func run() async throws {
@@ -1403,12 +1375,8 @@ struct Docs: AsyncParsableCommand {
                     throw ValidationError(
                         "Provide at least one of --min-height or --prevent-overflow.")
                 }
-                if let minHeight, minHeight <= 0 {
-                    throw ValidationError("--min-height must be greater than zero.")
-                }
-                for row in rows where row < 1 {
-                    throw ValidationError("--rows must be one-based (1 or greater).")
-                }
+                try validatePositive(minHeight, name: "--min-height")
+                for row in rows { try validateOneBased(row, name: "--rows") }
             }
 
             func run() async throws {
@@ -1470,12 +1438,11 @@ struct Docs: AsyncParsableCommand {
                 guard (width != nil) != evenly else {
                     throw ValidationError("Provide exactly one of --width or --evenly.")
                 }
+                try validatePositive(width, message: "--width must be at least 5 points.")
                 if let width, width < 5 {
                     throw ValidationError("--width must be at least 5 points.")
                 }
-                for column in columns where column < 1 {
-                    throw ValidationError("--columns must be one-based (1 or greater).")
-                }
+                for column in columns { try validateOneBased(column, name: "--columns") }
             }
 
             func run() async throws {
@@ -1689,12 +1656,8 @@ struct Docs: AsyncParsableCommand {
                         "Provide --at <index>, or pass --end to append to the end of the segment.")
                 }
                 if uri.isEmpty { throw ValidationError("--uri must not be empty.") }
-                if let width, width <= 0 {
-                    throw ValidationError("--width must be greater than zero.")
-                }
-                if let height, height <= 0 {
-                    throw ValidationError("--height must be greater than zero.")
-                }
+                try validatePositive(width, name: "--width")
+                try validatePositive(height, name: "--height")
             }
 
             func run() async throws {
@@ -2313,24 +2276,32 @@ struct Docs: AsyncParsableCommand {
                 throw ValidationError(
                     "Provide both --page-width and --page-height, or neither.")
             }
-            // A finite value greater than zero: this also rejects NaN and
-            // infinity, which Double parsing would otherwise accept.
-            func requirePositive(_ value: Double?, _ label: String) throws {
-                if let value, !(value.isFinite && value > 0) {
-                    throw ValidationError("\(label) must be a finite value greater than zero.")
-                }
-            }
-            try requirePositive(pageWidth, "--page-width")
-            try requirePositive(pageHeight, "--page-height")
-            try requirePositive(marginTop, "--margin-top")
-            try requirePositive(marginBottom, "--margin-bottom")
-            try requirePositive(marginLeft, "--margin-left")
-            try requirePositive(marginRight, "--margin-right")
-            try requirePositive(marginHeader, "--margin-header")
-            try requirePositive(marginFooter, "--margin-footer")
-            if let pageNumberStart, pageNumberStart < 1 {
-                throw ValidationError("--page-number-start must be 1 or greater.")
-            }
+            try validatePositive(
+                pageWidth,
+                message: "--page-width must be a finite value greater than zero.")
+            try validatePositive(
+                pageHeight,
+                message: "--page-height must be a finite value greater than zero.")
+            try validatePositive(
+                marginTop,
+                message: "--margin-top must be a finite value greater than zero.")
+            try validatePositive(
+                marginBottom,
+                message: "--margin-bottom must be a finite value greater than zero.")
+            try validatePositive(
+                marginLeft,
+                message: "--margin-left must be a finite value greater than zero.")
+            try validatePositive(
+                marginRight,
+                message: "--margin-right must be a finite value greater than zero.")
+            try validatePositive(
+                marginHeader,
+                message: "--margin-header must be a finite value greater than zero.")
+            try validatePositive(
+                marginFooter,
+                message: "--margin-footer must be a finite value greater than zero.")
+            try validateOneBased(
+                pageNumberStart, message: "--page-number-start must be 1 or greater.")
         }
 
         func run() async throws {
@@ -2436,26 +2407,30 @@ struct Docs: AsyncParsableCommand {
             guard hasOption else {
                 throw ValidationError("Provide at least one section-style option.")
             }
-            guard from >= 0 else {
-                throw ValidationError("--from must be zero or greater.")
-            }
+            try validateNonNegative(from, message: "--from must be zero or greater.")
             guard to > from else {
                 throw ValidationError("--to must be greater than --from.")
             }
-            func requirePositive(_ value: Double?, _ label: String) throws {
-                if let value, !(value.isFinite && value > 0) {
-                    throw ValidationError("\(label) must be a finite value greater than zero.")
-                }
-            }
-            try requirePositive(marginTop, "--margin-top")
-            try requirePositive(marginBottom, "--margin-bottom")
-            try requirePositive(marginLeft, "--margin-left")
-            try requirePositive(marginRight, "--margin-right")
-            try requirePositive(marginHeader, "--margin-header")
-            try requirePositive(marginFooter, "--margin-footer")
-            if let pageNumberStart, pageNumberStart < 1 {
-                throw ValidationError("--page-number-start must be 1 or greater.")
-            }
+            try validatePositive(
+                marginTop,
+                message: "--margin-top must be a finite value greater than zero.")
+            try validatePositive(
+                marginBottom,
+                message: "--margin-bottom must be a finite value greater than zero.")
+            try validatePositive(
+                marginLeft,
+                message: "--margin-left must be a finite value greater than zero.")
+            try validatePositive(
+                marginRight,
+                message: "--margin-right must be a finite value greater than zero.")
+            try validatePositive(
+                marginHeader,
+                message: "--margin-header must be a finite value greater than zero.")
+            try validatePositive(
+                marginFooter,
+                message: "--margin-footer must be a finite value greater than zero.")
+            try validateOneBased(
+                pageNumberStart, message: "--page-number-start must be 1 or greater.")
         }
 
         func run() async throws {
@@ -2595,12 +2570,8 @@ struct Docs: AsyncParsableCommand {
                         "--font-weight must be a multiple of 100 from 100 to 900.")
                 }
             }
-            if let size, size <= 0 {
-                throw ValidationError("--size must be greater than zero.")
-            }
-            if let lineSpacing, lineSpacing <= 0 {
-                throw ValidationError("--line-spacing must be greater than zero.")
-            }
+            try validatePositive(size, name: "--size")
+            try validatePositive(lineSpacing, name: "--line-spacing")
         }
 
         func run() async throws {
@@ -2844,9 +2815,8 @@ struct Docs: AsyncParsableCommand {
             var requireRevision: String?
 
             func validate() throws {
-                if let position, position < 1 {
-                    throw ValidationError("--position must be 1 or greater.")
-                }
+                try validateOneBased(
+                    position, message: "--position must be 1 or greater.")
             }
 
             func run() async throws {
@@ -2916,9 +2886,8 @@ struct Docs: AsyncParsableCommand {
                     throw ValidationError(
                         "Provide at least one of --title, --position, --parent, or --icon.")
                 }
-                if let position, position < 1 {
-                    throw ValidationError("--position must be 1 or greater.")
-                }
+                try validateOneBased(
+                    position, message: "--position must be 1 or greater.")
             }
 
             func run() async throws {

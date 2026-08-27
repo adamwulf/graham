@@ -182,9 +182,7 @@ struct Slides: AsyncParsableCommand {
         var layoutId: String?
 
         func validate() throws {
-            if let at, at < 1 {
-                throw ValidationError("--at must be 1 or greater.")
-            }
+            try validateOneBased(at, message: "--at must be 1 or greater.")
             if layout != nil && layoutId != nil {
                 throw ValidationError("--layout cannot be combined with --layout-id.")
             }
@@ -228,12 +226,8 @@ struct Slides: AsyncParsableCommand {
                 if (width == nil) != (height == nil) {
                     throw ValidationError("--width and --height must be provided together.")
                 }
-                if let width, !(width > 0) {
-                    throw ValidationError("--width must be greater than zero.")
-                }
-                if let height, !(height > 0) {
-                    throw ValidationError("--height must be greater than zero.")
-                }
+                try validatePositive(width, name: "--width")
+                try validatePositive(height, name: "--height")
             }
         }
 
@@ -275,12 +269,8 @@ struct Slides: AsyncParsableCommand {
             var height: Double = 50
 
             func validate() throws {
-                if width <= 0 {
-                    throw ValidationError("--width must be greater than zero.")
-                }
-                if height <= 0 {
-                    throw ValidationError("--height must be greater than zero.")
-                }
+                try validatePositive(width, name: "--width")
+                try validatePositive(height, name: "--height")
             }
 
             func run() async throws {
@@ -448,12 +438,8 @@ struct Slides: AsyncParsableCommand {
 
             func validate() throws {
                 try geometry.validate()
-                if rows < 1 {
-                    throw ValidationError("--rows must be 1 or greater.")
-                }
-                if columns < 1 {
-                    throw ValidationError("--columns must be 1 or greater.")
-                }
+                try validateOneBased(rows, message: "--rows must be 1 or greater.")
+                try validateOneBased(columns, message: "--columns must be 1 or greater.")
             }
 
             func run() async throws {
@@ -657,15 +643,9 @@ struct Slides: AsyncParsableCommand {
                 if hasAxis && (byX == nil || byY == nil) {
                     throw ValidationError("--by-x and --by-y must be provided together.")
                 }
-                if let by, !(by > 0) {
-                    throw ValidationError("--by must be greater than zero.")
-                }
-                if let byX, !(byX > 0) {
-                    throw ValidationError("--by-x must be greater than zero.")
-                }
-                if let byY, !(byY > 0) {
-                    throw ValidationError("--by-y must be greater than zero.")
-                }
+                try validatePositive(by, name: "--by")
+                try validatePositive(byX, name: "--by-x")
+                try validatePositive(byY, name: "--by-y")
             }
 
             func run() async throws {
@@ -952,9 +932,7 @@ struct Slides: AsyncParsableCommand {
         var to: Int
 
         func validate() throws {
-            if to < 1 {
-                throw ValidationError("--to must be 1 or greater.")
-            }
+            try validateOneBased(to, message: "--to must be 1 or greater.")
         }
 
         func run() async throws {
@@ -1533,12 +1511,8 @@ struct Slides: AsyncParsableCommand {
                     throw ValidationError("Provide at least one style flag.")
                 }
                 try outlineOptions.validate()
-                if let start, start < 0 {
-                    throw ValidationError("--start must be 0 or greater.")
-                }
-                if let end, end < 0 {
-                    throw ValidationError("--end must be 0 or greater.")
-                }
+                try validateNonNegative(start, message: "--start must be 0 or greater.")
+                try validateNonNegative(end, message: "--end must be 0 or greater.")
                 if let start, let end, !(end > start) {
                     throw ValidationError("--end must be greater than --start.")
                 }
@@ -2800,26 +2774,5 @@ enum BulletPresetArgument: String, ExpressibleByArgument {
         case .upperromanUpperalphaDigit: return .numberedUpperromanUpperalphaDigit
         case .zerodigitAlphaRoman: return .numberedZerodigitAlphaRoman
         }
-    }
-}
-
-/// Rejects an alpha that is present but outside 0...1.
-private func validateAlpha(_ alpha: Double?, name: String) throws {
-    if let alpha, !(alpha >= 0 && alpha <= 1) {
-        throw ValidationError("\(name) must be between 0 and 1.")
-    }
-}
-
-/// Rejects a value that is present but not greater than zero.
-private func validatePositive(_ value: Double?, name: String) throws {
-    if let value, !(value > 0) {
-        throw ValidationError("\(name) must be greater than zero.")
-    }
-}
-
-/// Rejects an index or span that is present but below the one-based minimum.
-private func validateOneBased(_ value: Int?, name: String) throws {
-    if let value, value < 1 {
-        throw ValidationError("\(name) must be one-based (1 or greater).")
     }
 }
