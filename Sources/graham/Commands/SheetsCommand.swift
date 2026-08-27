@@ -8,6 +8,10 @@ struct Sheets: AsyncParsableCommand {
         subcommands: [
             Get.self, Values.self, Set.self, Append.self, Clear.self, Tab.self,
             Freeze.self, Resize.self, Format.self, Chart.self, Test.self,
+            ConditionalFormat.self, Validation.self, Filter.self, FilterView.self,
+            Protect.self,
+            Border.self,
+            Merge.self, Unmerge.self, Sort.self, Autoresize.self, NamedRange.self,
         ]
     )
 
@@ -530,10 +534,17 @@ struct Sheets: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Apply a cell format across a range.",
             discussion: """
-                Set at least one of --bold, --background, --number-format, or
-                --align. Only the aspects you set are changed. The sheet comes
-                from the range's tab name, or the first sheet when the range
-                names none.
+                Set at least one aspect: --bold/--no-bold, --background,
+                --text-color, --font, --font-size, --number-format,
+                --number-type, or --align. Only the aspects you name are changed.
+
+                To reset an aspect to the cell default, use --no-bold,
+                --clear-background, --clear-number-format, or --clear-align; a
+                set and a clear of the same aspect together are rejected. Colors
+                are hex values (#RRGGBB or #RGB). The number format type defaults
+                to NUMBER, so an existing --number-format pattern keeps its old
+                behavior. The sheet comes from the range's tab name, or the first
+                sheet when the range names none.
                 """
         )
 
@@ -543,35 +554,154 @@ struct Sheets: AsyncParsableCommand {
         @Argument(help: "The range to format, for example 'Sheet1!A1:B1'.")
         var range: String
 
-        @Flag(help: "Make the cells bold.")
-        var bold = false
+        @Flag(inversion: .prefixedNo, help: "Make the cells bold; --no-bold clears bold.")
+        var bold: Bool?
 
         @Option(help: "Background color as a hex value, e.g. #FFCC00 or #FC0.")
         var background: String?
 
+        @Flag(name: .customLong("clear-background"), help: "Clear the background to the cell default.")
+        var clearBackground = false
+
+        @Option(name: .customLong("text-color"), help: "Text color as a hex value, e.g. #202124.")
+        var textColor: String?
+
+        @Option(help: "The font family, e.g. 'Roboto' or 'Arial'.")
+        var font: String?
+
+        @Option(name: .customLong("font-size"), help: "The font size in points.")
+        var fontSize: Int?
+
         @Option(name: .customLong("number-format"), help: "A number format pattern, e.g. '#,##0.00'.")
         var numberFormat: String?
+
+        @Option(
+            name: .customLong("number-type"),
+            help: "The number format type: number, percent, currency, date, time, date_time, scientific, or text (default number).")
+        var numberType: SheetsNumberFormatType?
+
+        @Flag(
+            name: .customLong("clear-number-format"),
+            help: "Clear the number format to the cell default.")
+        var clearNumberFormat = false
 
         @Option(help: "Horizontal alignment: left, center, or right.")
         var align: SheetsHorizontalAlignment?
 
+        @Flag(name: .customLong("clear-align"), help: "Clear the horizontal alignment to the cell default.")
+        var clearAlign = false
+
         func validate() throws {
-            guard bold || background != nil || numberFormat != nil || align != nil else {
+            let touchesSomething = bold != nil
+                || background != nil || clearBackground
+                || textColor != nil || font != nil || fontSize != nil
+                || numberFormat != nil || numberType != nil || clearNumberFormat
+                || align != nil || clearAlign
+            guard touchesSomething else {
                 throw ValidationError(
-                    "Provide at least one of --bold, --background, --number-format, or --align.")
+                    "Provide at least one of --bold/--no-bold, --background, --text-color, "
+                    + "--font, --font-size, --number-format, --number-type, or --align "
+                    + "(or a --clear-* flag).")
+            }
+            if background != nil, clearBackground {
+                throw ValidationError("Set --background or --clear-background, not both.")
+            }
+            if numberFormat != nil || numberType != nil, clearNumberFormat {
+                throw ValidationError(
+                    "Set --number-format/--number-type or --clear-number-format, not both.")
+            }
+            if align != nil, clearAlign {
+                throw ValidationError("Set --align or --clear-align, not both.")
             }
         }
 
         func run() async throws {
             let client = SheetsClient(api: try CLI.makeAPI())
-            let color = try background.map { try SheetsColor.parse($0) }
+            let background = try self.background.map { try SheetsColor.parse($0) }
+            let textColor = try self.textColor.map { try SheetsColor.parse($0) }
             try await client.formatCells(
                 spreadsheetId: spreadsheetID,
                 range: range,
-                bold: bold ? true : nil,
-                backgroundColor: color,
+                bold: bold,
+                backgroundColor: background,
+                clearBackground: clearBackground,
                 numberFormat: numberFormat,
-                horizontalAlignment: align
+                numberFormatType: numberType,
+                clearNumberFormat: clearNumberFormat,
+                horizontalAlignment: align,
+                clearAlignment: clearAlign,
+                textColor: textColor,
+                fontFamily: font,
+                fontSize: fontSize
+            )
+        }
+    }
+
+    struct Border: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Set or clear cell borders across a range.",
+            discussion: """
+                Choose the sides with --all, or any of --top, --bottom, --left,
+                --right, and --inner (--inner draws the interior horizontal and
+                vertical lines). Every chosen side gets the same --style and
+                optional --color. Use --style none to clear the chosen sides. The
+                sheet comes from the range's tab name, or the first sheet when the
+                range names none.
+                """
+        )
+
+        @Argument(help: "The spreadsheet ID.")
+        var spreadsheetID: String
+
+        @Argument(help: "The range to border, for example 'Sheet1!A1:B4'.")
+        var range: String
+
+        @Flag(help: "Apply to all four edges and the interior lines.")
+        var all = false
+
+        @Flag(help: "Apply to the top edge.")
+        var top = false
+
+        @Flag(help: "Apply to the bottom edge.")
+        var bottom = false
+
+        @Flag(help: "Apply to the left edge.")
+        var left = false
+
+        @Flag(help: "Apply to the right edge.")
+        var right = false
+
+        @Flag(help: "Apply to the interior horizontal and vertical lines.")
+        var inner = false
+
+        @Option(
+            help: "The line style: solid, solid_medium, solid_thick, dashed, dotted, double, or none.")
+        var style: SheetsBorderStyle
+
+        @Option(help: "The border color as a hex value, e.g. #000000. Defaults to black.")
+        var color: String?
+
+        func validate() throws {
+            guard all || top || bottom || left || right || inner else {
+                throw ValidationError(
+                    "Choose at least one side: --all, --top, --bottom, --left, --right, or --inner.")
+            }
+        }
+
+        func run() async throws {
+            let client = SheetsClient(api: try CLI.makeAPI())
+            let color = try self.color.map { try SheetsColor.parse($0) }
+            try await client.setBorders(
+                spreadsheetId: spreadsheetID,
+                range: range,
+                style: style,
+                color: color,
+                top: all || top,
+                bottom: all || bottom,
+                left: all || left,
+                right: all || right,
+                innerHorizontal: all || inner,
+                innerVertical: all || inner
             )
         }
     }
@@ -579,18 +709,26 @@ struct Sheets: AsyncParsableCommand {
     struct Chart: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Work with embedded spreadsheet charts.",
-            subcommands: [Add.self, Update.self, Delete.self]
+            subcommands: [Add.self, Update.self, Move.self, Delete.self]
         )
 
         struct Add: AsyncParsableCommand {
             static let configuration = CommandConfiguration(
                 abstract: "Add a chart and print its chart id.",
                 discussion: """
-                    The first range column is the domain and each remaining
-                    column is a series (a pie chart uses the first two columns).
-                    The first row supplies headers. By default the chart lands on
-                    its own new sheet; pass --anchor to overlay it on an existing
-                    sheet. The printed numeric chart id can be passed to
+                    --kind selects the chart shape (default column). For column,
+                    bar, line, area, scatter, and combo the first range column is
+                    the domain and each remaining column is a series; pie uses the
+                    first two columns; histogram turns every column into a series;
+                    scorecard reads a key value (and optional baseline) from the
+                    first one or two columns; candlestick reads exactly five
+                    columns as domain, open, high, low, close. The first row
+                    supplies headers. --type and --pie still work as aliases for
+                    the matching --kind (a set --kind wins). --bucket-size and
+                    --outlier-percentile tune a histogram; --aggregate sets a
+                    scorecard aggregation. By default the chart lands on its own
+                    new sheet; pass --anchor to overlay it on an existing sheet.
+                    The printed numeric chart id can be passed to
                     `graham slides create chart --chart-id`.
                     """
             )
@@ -604,11 +742,27 @@ struct Sheets: AsyncParsableCommand {
             @Option(help: "The chart title.")
             var title: String?
 
-            @Option(help: "The chart type: column, bar, line, area, scatter, or combo.")
+            @Option(help: """
+                The chart kind: column, bar, line, area, scatter, combo, pie, \
+                histogram, scorecard, or candlestick. Overrides --type/--pie.
+                """)
+            var kind: SheetsChartKind?
+
+            @Option(help: "The basic chart type: column, bar, line, area, scatter, or combo.")
             var type: BasicChartType = .column
 
             @Flag(help: "Make a pie chart (uses the first two columns; ignores --type).")
             var pie = false
+
+            @Option(name: .customLong("bucket-size"), help: "Histogram bucket size.")
+            var bucketSize: Double?
+
+            @Option(name: .customLong("outlier-percentile"),
+                    help: "Histogram outlier percentile (0-1).")
+            var outlierPercentile: Double?
+
+            @Option(help: "Scorecard aggregation: average, count, max, median, min, or sum.")
+            var aggregate: SheetsChartAggregateType?
 
             @Option(help: "Overlay the chart anchored to this A1 cell, e.g. 'Sheet2!D2'.")
             var anchor: String?
@@ -636,6 +790,10 @@ struct Sheets: AsyncParsableCommand {
                     type: type,
                     range: range,
                     pie: pie,
+                    kind: kind,
+                    bucketSize: bucketSize,
+                    outlierPercentile: outlierPercentile,
+                    aggregate: aggregate,
                     overlay: overlay
                 )
                 print(chartId)
@@ -644,7 +802,13 @@ struct Sheets: AsyncParsableCommand {
 
         struct Update: AsyncParsableCommand {
             static let configuration = CommandConfiguration(
-                abstract: "Replace a chart's spec, rebuilt from a range and type."
+                abstract: "Replace a chart's spec, rebuilt from a range and kind.",
+                discussion: """
+                    --kind selects the chart shape, exactly as `chart add`;
+                    --type and --pie remain aliases (a set --kind wins).
+                    --bucket-size/--outlier-percentile tune a histogram and
+                    --aggregate sets a scorecard aggregation.
+                    """
             )
 
             @Argument(help: "The spreadsheet ID.")
@@ -659,11 +823,27 @@ struct Sheets: AsyncParsableCommand {
             @Option(help: "The chart title.")
             var title: String?
 
-            @Option(help: "The chart type: column, bar, line, area, scatter, or combo.")
+            @Option(help: """
+                The chart kind: column, bar, line, area, scatter, combo, pie, \
+                histogram, scorecard, or candlestick. Overrides --type/--pie.
+                """)
+            var kind: SheetsChartKind?
+
+            @Option(help: "The basic chart type: column, bar, line, area, scatter, or combo.")
             var type: BasicChartType = .column
 
             @Flag(help: "Make a pie chart (uses the first two columns; ignores --type).")
             var pie = false
+
+            @Option(name: .customLong("bucket-size"), help: "Histogram bucket size.")
+            var bucketSize: Double?
+
+            @Option(name: .customLong("outlier-percentile"),
+                    help: "Histogram outlier percentile (0-1).")
+            var outlierPercentile: Double?
+
+            @Option(help: "Scorecard aggregation: average, count, max, median, min, or sum.")
+            var aggregate: SheetsChartAggregateType?
 
             func run() async throws {
                 let client = SheetsClient(api: try CLI.makeAPI())
@@ -673,7 +853,65 @@ struct Sheets: AsyncParsableCommand {
                     title: title,
                     type: type,
                     range: range,
-                    pie: pie
+                    pie: pie,
+                    kind: kind,
+                    bucketSize: bucketSize,
+                    outlierPercentile: outlierPercentile,
+                    aggregate: aggregate
+                )
+            }
+        }
+
+        struct Move: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Move or resize an embedded chart.",
+                discussion: """
+                    Choose exactly one placement: --anchor overlays the chart on
+                    an existing sheet at an A1 cell (optionally sized with --width
+                    and --height), or --new-sheet moves it onto its own new sheet.
+                    The anchor's sheet comes from its tab name, or the first sheet
+                    when it names none.
+                    """
+            )
+
+            @Argument(help: "The spreadsheet ID.")
+            var spreadsheetID: String
+
+            @Option(help: "The numeric chart id to move.")
+            var chartId: Int
+
+            @Option(help: "Overlay the chart anchored to this A1 cell, e.g. 'Sheet2!D2'.")
+            var anchor: String?
+
+            @Option(help: "Overlay width in pixels (requires --anchor).")
+            var width: Int?
+
+            @Option(help: "Overlay height in pixels (requires --anchor).")
+            var height: Int?
+
+            @Flag(help: "Move the chart onto its own new sheet.")
+            var newSheet = false
+
+            func validate() throws {
+                let placements = [anchor != nil, newSheet].filter { $0 }.count
+                guard placements == 1 else {
+                    throw ValidationError(
+                        "Choose exactly one placement: --anchor or --new-sheet.")
+                }
+                if newSheet, width != nil || height != nil {
+                    throw ValidationError("--width and --height require --anchor.")
+                }
+            }
+
+            func run() async throws {
+                let client = SheetsClient(api: try CLI.makeAPI())
+                try await client.moveChart(
+                    spreadsheetId: spreadsheetID,
+                    chartId: chartId,
+                    anchor: anchor,
+                    width: width,
+                    height: height,
+                    newSheet: newSheet
                 )
             }
         }
@@ -695,9 +933,514 @@ struct Sheets: AsyncParsableCommand {
             }
         }
     }
+
+    struct ConditionalFormat: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "conditional-format",
+            abstract: "Add or remove conditional-format rules on a sheet.",
+            subcommands: [Add.self, Delete.self]
+        )
+
+        struct Add: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Add a rule that colors cells matching a condition.",
+                discussion: """
+                    The rule covers the range and colors any cell that satisfies
+                    the condition. Give the condition operands with --value: none
+                    for BLANK/NOT_BLANK, two for the *_BETWEEN types, otherwise
+                    one or more. The sheet comes from the range's tab name, or the
+                    first sheet when the range names none.
+                    """
+            )
+
+            @Argument(help: "The spreadsheet ID.")
+            var spreadsheetID: String
+
+            @Argument(help: "The range the rule covers, e.g. 'Sheet1!A2:A100'.")
+            var range: String
+
+            @Option(help: "The condition type, e.g. NUMBER_GREATER or TEXT_CONTAINS.")
+            var type: SheetsConditionType
+
+            @Option(help: "A condition value. Repeat for the *_BETWEEN types (two values).")
+            var value: [String] = []
+
+            @Option(help: "The background color for a matched cell, as hex, e.g. #FFCC00.")
+            var background: String
+
+            @Option(help: "Zero-based insertion index within the sheet's rule list.")
+            var index: Int = 0
+
+            func run() async throws {
+                let client = SheetsClient(api: try CLI.makeAPI())
+                let color = try SheetsColor.parse(background)
+                try await client.addConditionalFormatRule(
+                    spreadsheetId: spreadsheetID,
+                    range: range,
+                    type: type,
+                    values: value,
+                    backgroundColor: color,
+                    index: index
+                )
+            }
+        }
+
+        struct Delete: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Delete a conditional-format rule by its index."
+            )
+
+            @Argument(help: "The spreadsheet ID.")
+            var spreadsheetID: String
+
+            @Option(help: "The zero-based index of the rule to delete.")
+            var index: Int
+
+            @Option(help: "The numeric sheet id to target.")
+            var sheetId: Int?
+
+            @Option(help: "The title of the sheet to target.")
+            var sheet: String?
+
+            func validate() throws {
+                try SheetTarget.validate(sheetId: sheetId, sheet: sheet)
+            }
+
+            func run() async throws {
+                let client = SheetsClient(api: try CLI.makeAPI())
+                let id = try await SheetTarget.resolve(
+                    client, spreadsheetID: spreadsheetID, sheetId: sheetId, sheet: sheet)
+                try await client.deleteConditionalFormatRule(
+                    spreadsheetId: spreadsheetID, sheetId: id, index: index)
+            }
+        }
+    }
+
+    struct Validation: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Set or clear data validation on a range.",
+            subcommands: [Set.self, Clear.self]
+        )
+
+        struct Set: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Set a data-validation rule on a range.",
+                discussion: """
+                    Give the condition operands with --value: none for
+                    BLANK/NOT_BLANK, two for the *_BETWEEN types, otherwise one or
+                    more (ONE_OF_LIST takes each allowed value). --strict rejects
+                    invalid input; --dropdown draws the in-cell chooser.
+                    """
+            )
+
+            @Argument(help: "The spreadsheet ID.")
+            var spreadsheetID: String
+
+            @Argument(help: "The range to validate, e.g. 'Sheet1!B2:B100'.")
+            var range: String
+
+            @Option(help: "The condition type, e.g. ONE_OF_LIST or NUMBER_BETWEEN.")
+            var type: SheetsConditionType
+
+            @Option(help: "A condition value. Repeat for a list or the *_BETWEEN types.")
+            var value: [String] = []
+
+            @Flag(help: "Reject input that fails the condition.")
+            var strict = false
+
+            @Flag(help: "Show the in-cell dropdown of allowed values.")
+            var dropdown = false
+
+            @Option(help: "The input hint shown when the cell is selected.")
+            var message: String?
+
+            func run() async throws {
+                let client = SheetsClient(api: try CLI.makeAPI())
+                try await client.setDataValidation(
+                    spreadsheetId: spreadsheetID,
+                    range: range,
+                    type: type,
+                    values: value,
+                    strict: strict ? true : nil,
+                    showCustomUi: dropdown ? true : nil,
+                    inputMessage: message
+                )
+            }
+        }
+
+        struct Clear: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Clear data validation from a range."
+            )
+
+            @Argument(help: "The spreadsheet ID.")
+            var spreadsheetID: String
+
+            @Argument(help: "The range to clear, e.g. 'Sheet1!B2:B100'.")
+            var range: String
+
+            func run() async throws {
+                let client = SheetsClient(api: try CLI.makeAPI())
+                try await client.clearDataValidation(spreadsheetId: spreadsheetID, range: range)
+            }
+        }
+    }
+
+    struct Filter: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Set or clear a sheet's basic filter.",
+            subcommands: [Set.self, Clear.self]
+        )
+
+        struct Set: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Set the basic filter over a range."
+            )
+
+            @Argument(help: "The spreadsheet ID.")
+            var spreadsheetID: String
+
+            @Argument(help: "The range the filter covers, e.g. 'Sheet1!A1:D100'.")
+            var range: String
+
+            func run() async throws {
+                let client = SheetsClient(api: try CLI.makeAPI())
+                try await client.setBasicFilter(spreadsheetId: spreadsheetID, range: range)
+            }
+        }
+
+        struct Clear: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Clear the basic filter from a sheet."
+            )
+
+            @Argument(help: "The spreadsheet ID.")
+            var spreadsheetID: String
+
+            @Option(help: "The numeric sheet id to target.")
+            var sheetId: Int?
+
+            @Option(help: "The title of the sheet to target.")
+            var sheet: String?
+
+            func validate() throws {
+                try SheetTarget.validate(sheetId: sheetId, sheet: sheet)
+            }
+
+            func run() async throws {
+                let client = SheetsClient(api: try CLI.makeAPI())
+                let id = try await SheetTarget.resolve(
+                    client, spreadsheetID: spreadsheetID, sheetId: sheetId, sheet: sheet)
+                try await client.clearBasicFilter(spreadsheetId: spreadsheetID, sheetId: id)
+            }
+        }
+    }
+
+    struct FilterView: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "filter-view",
+            abstract: "Manage saved filter views.",
+            subcommands: [Add.self]
+        )
+
+        struct Add: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Add a titled filter view and print its id."
+            )
+
+            @Argument(help: "The spreadsheet ID.")
+            var spreadsheetID: String
+
+            @Argument(help: "The range the view covers, e.g. 'Sheet1!A1:D100'.")
+            var range: String
+
+            @Option(help: "The title of the filter view.")
+            var title: String
+
+            func run() async throws {
+                let client = SheetsClient(api: try CLI.makeAPI())
+                let id = try await client.addFilterView(
+                    spreadsheetId: spreadsheetID, range: range, title: title)
+                print(id)
+            }
+        }
+    }
+
+    struct Protect: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Add or remove protected ranges.",
+            subcommands: [Add.self, Delete.self]
+        )
+
+        struct Add: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Protect a range and print its protected-range id.",
+                discussion: """
+                    By default edits to the range are blocked for everyone but the
+                    owner; pass --warning-only to warn on edits instead of blocking
+                    them.
+                    """
+            )
+
+            @Argument(help: "The spreadsheet ID.")
+            var spreadsheetID: String
+
+            @Argument(help: "The range to protect, e.g. 'Sheet1!A1:D10'.")
+            var range: String
+
+            @Option(help: "A description of the protection.")
+            var description: String?
+
+            @Flag(name: .customLong("warning-only"),
+                  help: "Warn on edits instead of blocking them.")
+            var warningOnly = false
+
+            func run() async throws {
+                let client = SheetsClient(api: try CLI.makeAPI())
+                let id = try await client.addProtectedRange(
+                    spreadsheetId: spreadsheetID,
+                    range: range,
+                    description: description,
+                    warningOnly: warningOnly ? true : nil
+                )
+                print(id)
+            }
+        }
+
+        struct Delete: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Delete a protected range by its id."
+            )
+
+            @Argument(help: "The spreadsheet ID.")
+            var spreadsheetID: String
+
+            @Option(name: .customLong("protected-range-id"),
+                    help: "The numeric protected-range id to delete.")
+            var protectedRangeId: Int
+
+            func run() async throws {
+                let client = SheetsClient(api: try CLI.makeAPI())
+                try await client.deleteProtectedRange(
+                    spreadsheetId: spreadsheetID, protectedRangeId: protectedRangeId)
+            }
+        }
+    }
+
+    struct Merge: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Merge the cells in a range into one.",
+            discussion: """
+                --type chooses how to merge: merge_all (the whole range into one
+                cell, the default), merge_columns (one cell per column), or
+                merge_rows (one cell per row). The sheet comes from the range's
+                tab name, or the first sheet when the range names none.
+                """
+        )
+
+        @Argument(help: "The spreadsheet ID.")
+        var spreadsheetID: String
+
+        @Argument(help: "The range to merge, for example 'Sheet1!A1:C1'.")
+        var range: String
+
+        @Option(help: "How to merge: merge_all, merge_columns, or merge_rows.")
+        var type: SheetsMergeType = .mergeAll
+
+        func run() async throws {
+            let client = SheetsClient(api: try CLI.makeAPI())
+            try await client.mergeCells(
+                spreadsheetId: spreadsheetID, range: range, mergeType: type)
+        }
+    }
+
+    struct Unmerge: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Split any merged cells within a range back into single cells.",
+            discussion: """
+                The sheet comes from the range's tab name, or the first sheet
+                when the range names none.
+                """
+        )
+
+        @Argument(help: "The spreadsheet ID.")
+        var spreadsheetID: String
+
+        @Argument(help: "The range to unmerge, for example 'Sheet1!A1:C1'.")
+        var range: String
+
+        func run() async throws {
+            let client = SheetsClient(api: try CLI.makeAPI())
+            try await client.unmergeCells(spreadsheetId: spreadsheetID, range: range)
+        }
+    }
+
+    struct Sort: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Sort a range's rows by one or more of its columns.",
+            discussion: """
+                Repeat --by for each sort key, in priority order. Each value is a
+                one-based column within the range, optionally suffixed with :asc
+                or :desc (ascending by default), for example --by 2:desc --by 1.
+                The sheet comes from the range's tab name, or the first sheet
+                when the range names none.
+                """
+        )
+
+        @Argument(help: "The spreadsheet ID.")
+        var spreadsheetID: String
+
+        @Argument(help: "The range to sort, for example 'Sheet1!A2:D20'.")
+        var range: String
+
+        @Option(help: "A one-based column within the range, e.g. '2:desc'. Repeatable.")
+        var by: [String] = []
+
+        func validate() throws {
+            guard !by.isEmpty else {
+                throw ValidationError("Provide at least one --by sort column.")
+            }
+        }
+
+        func run() async throws {
+            let specs = try by.map { try SheetsSortKey.parse($0) }
+            let client = SheetsClient(api: try CLI.makeAPI())
+            try await client.sortRange(
+                spreadsheetId: spreadsheetID, range: range, specs: specs)
+        }
+    }
+
+    struct Autoresize: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Auto-size a span of rows or columns to fit their contents.",
+            discussion: """
+                --from and --to are one-based, inclusive positions; omit --to to
+                size a single row or column. Target a sheet with --sheet-id or
+                --sheet; omit both to use the first sheet.
+                """
+        )
+
+        @Argument(help: "The spreadsheet ID.")
+        var spreadsheetID: String
+
+        @Option(help: "The dimension to size: rows or columns.")
+        var dimension: SheetsDimension
+
+        @Option(help: "The first (one-based) row or column to size.")
+        var from: Int
+
+        @Option(help: "The last (one-based) row or column to size. Defaults to --from.")
+        var to: Int?
+
+        @Option(help: "The numeric sheet id to target.")
+        var sheetId: Int?
+
+        @Option(help: "The title of the sheet to target.")
+        var sheet: String?
+
+        func validate() throws {
+            try SheetTarget.validate(sheetId: sheetId, sheet: sheet)
+        }
+
+        func run() async throws {
+            let client = SheetsClient(api: try CLI.makeAPI())
+            let id = try await SheetTarget.resolve(
+                client, spreadsheetID: spreadsheetID, sheetId: sheetId, sheet: sheet)
+            try await client.autoResizeDimension(
+                spreadsheetId: spreadsheetID,
+                sheetId: id,
+                dimension: dimension,
+                start: from,
+                end: to ?? from
+            )
+        }
+    }
+
+    struct NamedRange: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "named-range",
+            abstract: "Manage the named ranges defined on a spreadsheet.",
+            subcommands: [Add.self, Delete.self, List.self]
+        )
+
+        struct Add: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Define a named range and print its new id.",
+                discussion: """
+                    The sheet comes from the range's tab name, or the first sheet
+                    when the range names none.
+                    """
+            )
+
+            @Argument(help: "The spreadsheet ID.")
+            var spreadsheetID: String
+
+            @Argument(help: "The name of the range.")
+            var name: String
+
+            @Argument(help: "The range to name, for example 'Sheet1!A1:B10'.")
+            var range: String
+
+            func run() async throws {
+                let client = SheetsClient(api: try CLI.makeAPI())
+                let id = try await client.addNamedRange(
+                    spreadsheetId: spreadsheetID, name: name, range: range)
+                print(id)
+            }
+        }
+
+        struct Delete: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Delete a named range by its id."
+            )
+
+            @Argument(help: "The spreadsheet ID.")
+            var spreadsheetID: String
+
+            @Option(name: .customLong("named-range-id"),
+                    help: "The id of the named range to delete.")
+            var namedRangeId: String
+
+            func run() async throws {
+                let client = SheetsClient(api: try CLI.makeAPI())
+                try await client.deleteNamedRange(
+                    spreadsheetId: spreadsheetID, namedRangeId: namedRangeId)
+            }
+        }
+
+        struct List: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "List the named ranges defined on a spreadsheet."
+            )
+
+            @Argument(help: "The spreadsheet ID.")
+            var spreadsheetID: String
+
+            @Option(help: "The output format: table, json, jsonl, or id.")
+            var format: OutputFormat = .table
+
+            func run() async throws {
+                let client = SheetsClient(api: try CLI.makeAPI())
+                let ranges = try await client.namedRanges(spreadsheetId: spreadsheetID)
+                print(try OutputFormatter.render(ranges, format: format))
+            }
+        }
+    }
 }
 
 extension BasicChartType: ExpressibleByArgument {
+    public init?(argument: String) {
+        self.init(rawValue: argument.uppercased())
+    }
+}
+
+extension SheetsChartKind: ExpressibleByArgument {
+    public init?(argument: String) {
+        self.init(rawValue: argument.uppercased())
+    }
+}
+
+extension SheetsChartAggregateType: ExpressibleByArgument {
     public init?(argument: String) {
         self.init(rawValue: argument.uppercased())
     }
@@ -710,6 +1453,30 @@ extension SheetsDimension: ExpressibleByArgument {
 }
 
 extension SheetsHorizontalAlignment: ExpressibleByArgument {
+    public init?(argument: String) {
+        self.init(rawValue: argument.uppercased())
+    }
+}
+
+extension SheetsConditionType: ExpressibleByArgument {
+    public init?(argument: String) {
+        self.init(rawValue: argument.uppercased())
+    }
+}
+
+extension SheetsNumberFormatType: ExpressibleByArgument {
+    public init?(argument: String) {
+        self.init(rawValue: argument.uppercased())
+    }
+}
+
+extension SheetsBorderStyle: ExpressibleByArgument {
+    public init?(argument: String) {
+        self.init(rawValue: argument.uppercased())
+    }
+}
+
+extension SheetsMergeType: ExpressibleByArgument {
     public init?(argument: String) {
         self.init(rawValue: argument.uppercased())
     }

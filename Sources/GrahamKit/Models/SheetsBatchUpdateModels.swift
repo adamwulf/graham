@@ -29,6 +29,38 @@ public enum SheetsBatchUpdateRequest: Encodable, Sendable, Equatable {
     case deleteEmbeddedObject(DeleteEmbeddedObjectRequest)
     /// Replaces an embedded chart's spec.
     case updateChartSpec(UpdateChartSpecRequest)
+    /// Adds a conditional format rule at a zero-based index.
+    case addConditionalFormatRule(AddConditionalFormatRuleRequest)
+    /// Deletes a conditional format rule by sheet id and index.
+    case deleteConditionalFormatRule(DeleteConditionalFormatRuleRequest)
+    /// Sets or clears data validation on a range.
+    case setDataValidation(SetDataValidationRequest)
+    /// Sets the basic filter on a sheet.
+    case setBasicFilter(SetBasicFilterRequest)
+    /// Clears the basic filter from a sheet.
+    case clearBasicFilter(ClearBasicFilterRequest)
+    /// Adds a filter view and reports its new id.
+    case addFilterView(AddFilterViewRequest)
+    /// Adds a protected range and reports its new id.
+    case addProtectedRange(AddProtectedRangeRequest)
+    /// Deletes a protected range by its id.
+    case deleteProtectedRange(DeleteProtectedRangeRequest)
+    /// Sets or clears cell borders across a range.
+    case updateBorders(UpdateBordersRequest)
+    /// Merges a range of cells into one, or into merged rows/columns.
+    case mergeCells(MergeCellsRequest)
+    /// Splits any merged cells within a range back into individual cells.
+    case unmergeCells(UnmergeCellsRequest)
+    /// Sorts a range's rows by one or more of its columns.
+    case sortRange(SortRangeRequest)
+    /// Auto-sizes a span of rows or columns to fit their contents.
+    case autoResizeDimensions(AutoResizeDimensionsRequest)
+    /// Defines a named range over a rectangle of cells.
+    case addNamedRange(AddNamedRangeRequest)
+    /// Deletes a named range by its id.
+    case deleteNamedRange(DeleteNamedRangeRequest)
+    /// Moves or resizes an embedded object (such as a chart).
+    case updateEmbeddedObjectPosition(UpdateEmbeddedObjectPositionRequest)
 
     private enum CodingKeys: String, CodingKey {
         case addChart
@@ -39,6 +71,22 @@ public enum SheetsBatchUpdateRequest: Encodable, Sendable, Equatable {
         case repeatCell
         case deleteEmbeddedObject
         case updateChartSpec
+        case addConditionalFormatRule
+        case deleteConditionalFormatRule
+        case setDataValidation
+        case setBasicFilter
+        case clearBasicFilter
+        case addFilterView
+        case addProtectedRange
+        case deleteProtectedRange
+        case updateBorders
+        case mergeCells
+        case unmergeCells
+        case sortRange
+        case autoResizeDimensions
+        case addNamedRange
+        case deleteNamedRange
+        case updateEmbeddedObjectPosition
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -60,6 +108,38 @@ public enum SheetsBatchUpdateRequest: Encodable, Sendable, Equatable {
             try container.encode(request, forKey: .deleteEmbeddedObject)
         case .updateChartSpec(let request):
             try container.encode(request, forKey: .updateChartSpec)
+        case .addConditionalFormatRule(let request):
+            try container.encode(request, forKey: .addConditionalFormatRule)
+        case .deleteConditionalFormatRule(let request):
+            try container.encode(request, forKey: .deleteConditionalFormatRule)
+        case .setDataValidation(let request):
+            try container.encode(request, forKey: .setDataValidation)
+        case .setBasicFilter(let request):
+            try container.encode(request, forKey: .setBasicFilter)
+        case .clearBasicFilter(let request):
+            try container.encode(request, forKey: .clearBasicFilter)
+        case .addFilterView(let request):
+            try container.encode(request, forKey: .addFilterView)
+        case .addProtectedRange(let request):
+            try container.encode(request, forKey: .addProtectedRange)
+        case .deleteProtectedRange(let request):
+            try container.encode(request, forKey: .deleteProtectedRange)
+        case .updateBorders(let request):
+            try container.encode(request, forKey: .updateBorders)
+        case .mergeCells(let request):
+            try container.encode(request, forKey: .mergeCells)
+        case .unmergeCells(let request):
+            try container.encode(request, forKey: .unmergeCells)
+        case .sortRange(let request):
+            try container.encode(request, forKey: .sortRange)
+        case .autoResizeDimensions(let request):
+            try container.encode(request, forKey: .autoResizeDimensions)
+        case .addNamedRange(let request):
+            try container.encode(request, forKey: .addNamedRange)
+        case .deleteNamedRange(let request):
+            try container.encode(request, forKey: .deleteNamedRange)
+        case .updateEmbeddedObjectPosition(let request):
+            try container.encode(request, forKey: .updateEmbeddedObjectPosition)
         }
     }
 }
@@ -175,20 +255,30 @@ public struct EmbeddedObjectPosition: Codable, Sendable, Equatable {
 }
 
 /// The visible configuration of a chart: exactly one of `basicChart` (bar,
-/// line, area, column, scatter, combo) or `pieChart` is set.
+/// line, area, column, scatter, combo), `pieChart`, `histogramChart`,
+/// `scorecardChart`, or `candlestickChart` is set.
 public struct ChartSpec: Codable, Sendable, Equatable {
     public let title: String?
     public let basicChart: BasicChartSpec?
     public let pieChart: PieChartSpec?
+    public let histogramChart: HistogramChartSpec?
+    public let scorecardChart: ScorecardChartSpec?
+    public let candlestickChart: CandlestickChartSpec?
 
     public init(
         title: String? = nil,
         basicChart: BasicChartSpec? = nil,
-        pieChart: PieChartSpec? = nil
+        pieChart: PieChartSpec? = nil,
+        histogramChart: HistogramChartSpec? = nil,
+        scorecardChart: ScorecardChartSpec? = nil,
+        candlestickChart: CandlestickChartSpec? = nil
     ) {
         self.title = title
         self.basicChart = basicChart
         self.pieChart = pieChart
+        self.histogramChart = histogramChart
+        self.scorecardChart = scorecardChart
+        self.candlestickChart = candlestickChart
     }
 }
 
@@ -296,6 +386,150 @@ public struct GridRange: Codable, Sendable, Equatable {
         self.endRowIndex = endRowIndex
         self.startColumnIndex = startColumnIndex
         self.endColumnIndex = endColumnIndex
+    }
+}
+
+// MARK: - More chart types
+
+/// The kinds of chart graham can build. The first six map one-to-one to a
+/// ``BasicChartType``; the rest select a dedicated spec builder.
+public enum SheetsChartKind: String, Sendable, CaseIterable, Equatable {
+    case column = "COLUMN"
+    case bar = "BAR"
+    case line = "LINE"
+    case area = "AREA"
+    case scatter = "SCATTER"
+    case combo = "COMBO"
+    case pie = "PIE"
+    case histogram = "HISTOGRAM"
+    case scorecard = "SCORECARD"
+    case candlestick = "CANDLESTICK"
+
+    /// The matching ``BasicChartType`` for the six basic kinds, else nil.
+    public var basicChartType: BasicChartType? {
+        BasicChartType(rawValue: rawValue)
+    }
+}
+
+/// A histogram chart: every column of the source range is a series, split into
+/// buckets. `bucketSize` and `outlierPercentile` are optional tuning knobs.
+public struct HistogramChartSpec: Codable, Sendable, Equatable {
+    public let series: [HistogramSeries]
+    public let bucketSize: Double?
+    public let outlierPercentile: Double?
+
+    public init(
+        series: [HistogramSeries],
+        bucketSize: Double? = nil,
+        outlierPercentile: Double? = nil
+    ) {
+        self.series = series
+        self.bucketSize = bucketSize
+        self.outlierPercentile = outlierPercentile
+    }
+}
+
+/// One data series in a histogram chart.
+public struct HistogramSeries: Codable, Sendable, Equatable {
+    public let data: ChartData
+
+    public init(data: ChartData) {
+        self.data = data
+    }
+}
+
+/// The aggregation a scorecard chart applies over its key (and baseline) data.
+public enum SheetsChartAggregateType: String, Sendable, CaseIterable, Equatable {
+    case average = "AVERAGE"
+    case count = "COUNT"
+    case max = "MAX"
+    case median = "MEDIAN"
+    case min = "MIN"
+    case sum = "SUM"
+}
+
+/// A scorecard chart: one key value, an optional baseline to compare against,
+/// and an optional aggregation over each.
+public struct ScorecardChartSpec: Codable, Sendable, Equatable {
+    public let keyValueData: ChartData
+    public let baselineValueData: ChartData?
+    public let aggregateType: String?
+
+    public init(
+        keyValueData: ChartData,
+        baselineValueData: ChartData? = nil,
+        aggregateType: String? = nil
+    ) {
+        self.keyValueData = keyValueData
+        self.baselineValueData = baselineValueData
+        self.aggregateType = aggregateType
+    }
+}
+
+/// A candlestick chart: a domain plus one or more OHLC data groups.
+public struct CandlestickChartSpec: Codable, Sendable, Equatable {
+    public let domain: CandlestickDomain
+    public let data: [CandlestickData]
+
+    public init(domain: CandlestickDomain, data: [CandlestickData]) {
+        self.domain = domain
+        self.data = data
+    }
+}
+
+/// The domain (category or x-axis) data for a candlestick chart.
+public struct CandlestickDomain: Codable, Sendable, Equatable {
+    public let data: ChartData
+
+    public init(data: ChartData) {
+        self.data = data
+    }
+}
+
+/// One OHLC group in a candlestick chart: the open, high, low, and close series.
+public struct CandlestickData: Codable, Sendable, Equatable {
+    public let lowSeries: CandlestickSeries
+    public let openSeries: CandlestickSeries
+    public let closeSeries: CandlestickSeries
+    public let highSeries: CandlestickSeries
+
+    public init(
+        lowSeries: CandlestickSeries,
+        openSeries: CandlestickSeries,
+        closeSeries: CandlestickSeries,
+        highSeries: CandlestickSeries
+    ) {
+        self.lowSeries = lowSeries
+        self.openSeries = openSeries
+        self.closeSeries = closeSeries
+        self.highSeries = highSeries
+    }
+}
+
+/// One series (low, open, close, or high) in a candlestick chart.
+public struct CandlestickSeries: Codable, Sendable, Equatable {
+    public let data: ChartData
+
+    public init(data: ChartData) {
+        self.data = data
+    }
+}
+
+/// The `updateEmbeddedObjectPosition` operation: moves or resizes an embedded
+/// object (such as a chart) to `newPosition`. `objectId` is the numeric chart
+/// id and `fields` is a mask of the `OverlayPosition` fields to update — the
+/// `newPosition.overlayPosition` root is implied, so it names `anchorCell`,
+/// `widthPixels`, and/or `heightPixels` (for example `anchorCell,widthPixels`).
+/// A move to a new sheet sets no overlay field and uses the wildcard `*`.
+public struct UpdateEmbeddedObjectPositionRequest: Codable, Sendable, Equatable {
+    public let objectId: Int
+    public let newPosition: EmbeddedObjectPosition
+    public let fields: String
+
+    public init(objectId: Int, newPosition: EmbeddedObjectPosition, fields: String) {
+        self.objectId = objectId
+        self.newPosition = newPosition
+        self.fields = fields
     }
 }
 
@@ -453,6 +687,19 @@ public struct SheetsColor: Codable, Sendable, Equatable {
     }
 }
 
+/// A non-deprecated `ColorStyle`. Sheets' `ColorStyle` is a union of a themed
+/// color and an explicit `rgbColor`; graham always uses the `rgbColor` arm.
+///
+/// Prefer this over the deprecated `color`/`backgroundColor`/`foregroundColor`
+/// fields for every writable color.
+public struct SheetsColorStyle: Codable, Sendable, Equatable {
+    public let rgbColor: SheetsColor
+
+    public init(rgbColor: SheetsColor) {
+        self.rgbColor = rgbColor
+    }
+}
+
 /// Horizontal cell alignment.
 public enum SheetsHorizontalAlignment: String, Sendable, CaseIterable, Equatable {
     case left = "LEFT"
@@ -460,40 +707,75 @@ public enum SheetsHorizontalAlignment: String, Sendable, CaseIterable, Equatable
     case right = "RIGHT"
 }
 
-/// The writable text format of a cell used by graham's first formatting slice.
+/// The writable text format of a cell.
+///
+/// `foregroundColorStyle` is the non-deprecated text color; `fontFamily` and
+/// `fontSize` (in points) set the typeface. Every field is optional so the
+/// caller sets only what it changes.
 public struct SheetsTextFormat: Codable, Sendable, Equatable {
     public let bold: Bool?
+    public let foregroundColorStyle: SheetsColorStyle?
+    public let fontFamily: String?
+    public let fontSize: Int?
 
-    public init(bold: Bool? = nil) {
+    public init(
+        bold: Bool? = nil,
+        foregroundColorStyle: SheetsColorStyle? = nil,
+        fontFamily: String? = nil,
+        fontSize: Int? = nil
+    ) {
         self.bold = bold
+        self.foregroundColorStyle = foregroundColorStyle
+        self.fontFamily = fontFamily
+        self.fontSize = fontSize
     }
 }
 
-/// A cell number format: a `type` (graham uses `NUMBER`) and a `pattern`.
+/// The kind of a cell number format. The default is `number`; the other kinds
+/// map to Sheets' `NumberFormatType` values.
+public enum SheetsNumberFormatType: String, Sendable, CaseIterable, Equatable {
+    case text = "TEXT"
+    case number = "NUMBER"
+    case percent = "PERCENT"
+    case currency = "CURRENCY"
+    case date = "DATE"
+    case time = "TIME"
+    case dateTime = "DATE_TIME"
+    case scientific = "SCIENTIFIC"
+}
+
+/// A cell number format: a required `type` and an optional `pattern`. Some
+/// types (for example `PERCENT`) render with a Sheets default when no pattern
+/// is given.
 public struct SheetsNumberFormat: Codable, Sendable, Equatable {
     public let type: String
-    public let pattern: String
+    public let pattern: String?
 
-    public init(type: String, pattern: String) {
+    public init(type: String, pattern: String? = nil) {
         self.type = type
         self.pattern = pattern
     }
 }
 
-/// The writable subset of a cell's format that `sheets format` sets.
+/// The writable subset of a cell's format used by `sheets format` and by
+/// conditional-format rules.
+///
+/// `backgroundColorStyle` is the non-deprecated background color (a
+/// `ColorStyle`), used by every writer. A field left `nil` while its path is
+/// named in the `repeatCell` mask clears that aspect back to the cell default.
 public struct SheetsCellFormat: Codable, Sendable, Equatable {
-    public let backgroundColor: SheetsColor?
+    public let backgroundColorStyle: SheetsColorStyle?
     public let textFormat: SheetsTextFormat?
     public let numberFormat: SheetsNumberFormat?
     public let horizontalAlignment: String?
 
     public init(
-        backgroundColor: SheetsColor? = nil,
+        backgroundColorStyle: SheetsColorStyle? = nil,
         textFormat: SheetsTextFormat? = nil,
         numberFormat: SheetsNumberFormat? = nil,
         horizontalAlignment: String? = nil
     ) {
-        self.backgroundColor = backgroundColor
+        self.backgroundColorStyle = backgroundColorStyle
         self.textFormat = textFormat
         self.numberFormat = numberFormat
         self.horizontalAlignment = horizontalAlignment
@@ -523,6 +805,218 @@ public struct RepeatCellRequest: Codable, Sendable, Equatable {
     }
 }
 
+// MARK: - Cell borders (updateBorders)
+
+/// A line style for one cell border edge. `none` clears an edge.
+public enum SheetsBorderStyle: String, Sendable, CaseIterable, Equatable {
+    case solid = "SOLID"
+    case solidMedium = "SOLID_MEDIUM"
+    case solidThick = "SOLID_THICK"
+    case dashed = "DASHED"
+    case dotted = "DOTTED"
+    case double = "DOUBLE"
+    case none = "NONE"
+}
+
+/// One cell border edge: a line `style` plus an optional non-deprecated
+/// `colorStyle`. Google defaults an omitted color to black.
+public struct SheetsBorder: Codable, Sendable, Equatable {
+    public let style: String
+    public let colorStyle: SheetsColorStyle?
+
+    public init(style: String, colorStyle: SheetsColorStyle? = nil) {
+        self.style = style
+        self.colorStyle = colorStyle
+    }
+}
+
+/// The `updateBorders` operation.
+///
+/// Unlike `repeatCell`, this operation has NO `fields` mask: only the sides
+/// present in the request are changed, and a side sent with the `NONE` style
+/// clears that border. Every side is optional so the caller sets only the ones
+/// it names.
+public struct UpdateBordersRequest: Codable, Sendable, Equatable {
+    public let range: GridRange
+    public let top: SheetsBorder?
+    public let bottom: SheetsBorder?
+    public let left: SheetsBorder?
+    public let right: SheetsBorder?
+    public let innerHorizontal: SheetsBorder?
+    public let innerVertical: SheetsBorder?
+
+    public init(
+        range: GridRange,
+        top: SheetsBorder? = nil,
+        bottom: SheetsBorder? = nil,
+        left: SheetsBorder? = nil,
+        right: SheetsBorder? = nil,
+        innerHorizontal: SheetsBorder? = nil,
+        innerVertical: SheetsBorder? = nil
+    ) {
+        self.range = range
+        self.top = top
+        self.bottom = bottom
+        self.left = left
+        self.right = right
+        self.innerHorizontal = innerHorizontal
+        self.innerVertical = innerVertical
+    }
+}
+
+// MARK: - Merge cells
+
+/// How a `mergeCells` operation combines the cells in its range.
+public enum SheetsMergeType: String, Sendable, CaseIterable, Equatable {
+    /// Merge the whole range into one cell.
+    case mergeAll = "MERGE_ALL"
+    /// Merge each column of the range into one cell per column.
+    case mergeColumns = "MERGE_COLUMNS"
+    /// Merge each row of the range into one cell per row.
+    case mergeRows = "MERGE_ROWS"
+}
+
+/// The `mergeCells` operation. `mergeType` is a ``SheetsMergeType`` raw value.
+public struct MergeCellsRequest: Codable, Sendable, Equatable {
+    public let range: GridRange
+    public let mergeType: String
+
+    public init(range: GridRange, mergeType: String) {
+        self.range = range
+        self.mergeType = mergeType
+    }
+}
+
+/// The `unmergeCells` operation. Splits any merged cells overlapping the range.
+public struct UnmergeCellsRequest: Codable, Sendable, Equatable {
+    public let range: GridRange
+
+    public init(range: GridRange) {
+        self.range = range
+    }
+}
+
+// MARK: - Sort range
+
+/// The direction a sort spec orders its column.
+public enum SheetsSortOrder: String, Sendable, CaseIterable, Equatable {
+    case ascending = "ASCENDING"
+    case descending = "DESCENDING"
+}
+
+/// One sort key of a `sortRange`. `dimensionIndex` is the ZERO-BASED column
+/// index of the sort key within the sheet (not within the range).
+public struct SortSpec: Codable, Sendable, Equatable {
+    public let dimensionIndex: Int
+    public let sortOrder: String
+
+    public init(dimensionIndex: Int, sortOrder: String) {
+        self.dimensionIndex = dimensionIndex
+        self.sortOrder = sortOrder
+    }
+}
+
+/// The `sortRange` operation: sorts the rows of `range` by `sortSpecs`, in
+/// order (the first spec is the primary key).
+public struct SortRangeRequest: Codable, Sendable, Equatable {
+    public let range: GridRange
+    public let sortSpecs: [SortSpec]
+
+    public init(range: GridRange, sortSpecs: [SortSpec]) {
+        self.range = range
+        self.sortSpecs = sortSpecs
+    }
+}
+
+/// A CLI-friendly sort key for ``SheetsClient/sortRange(spreadsheetId:range:specs:)``.
+/// `column` is a ONE-BASED column position within the sorted range; the client
+/// translates it to an absolute zero-based sheet ``SortSpec/dimensionIndex``.
+public struct SheetsSortKey: Sendable, Equatable {
+    public let column: Int
+    public let order: SheetsSortOrder
+
+    public init(column: Int, order: SheetsSortOrder) {
+        self.column = column
+        self.order = order
+    }
+
+    /// Parses a `--by` token of the form `col` or `col:asc` / `col:desc` (case
+    /// insensitive), where `col` is a one-based column within the range. A bare
+    /// column defaults to ascending. Throws ``GrahamError/invalidArgument(_:)``
+    /// on any other form.
+    public static func parse(_ input: String) throws -> SheetsSortKey {
+        let parts = input.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 1 || parts.count == 2 else {
+            throw GrahamError.invalidArgument(
+                "invalid --by \"\(input)\"; use <col> or <col>:asc / <col>:desc")
+        }
+        guard let column = Int(parts[0]), column >= 1 else {
+            throw GrahamError.invalidArgument(
+                "invalid --by \"\(input)\"; the column must be a one-based number")
+        }
+        let order: SheetsSortOrder
+        if parts.count == 2 {
+            switch parts[1].lowercased() {
+            case "asc", "ascending":
+                order = .ascending
+            case "desc", "descending":
+                order = .descending
+            default:
+                throw GrahamError.invalidArgument(
+                    "invalid --by \"\(input)\"; the order must be asc or desc")
+            }
+        } else {
+            order = .ascending
+        }
+        return SheetsSortKey(column: column, order: order)
+    }
+}
+
+// MARK: - Auto-resize dimensions
+
+/// The `autoResizeDimensions` operation: sizes each row or column in
+/// `dimensions` to fit its contents.
+public struct AutoResizeDimensionsRequest: Codable, Sendable, Equatable {
+    public let dimensions: DimensionRange
+
+    public init(dimensions: DimensionRange) {
+        self.dimensions = dimensions
+    }
+}
+
+// MARK: - Named ranges
+
+/// The `namedRange` payload of an `addNamedRange`: a name and the rectangle it
+/// covers. `namedRangeId` is deliberately absent — Google assigns it and
+/// reports it in the batch-update reply.
+public struct NamedRangeRequest: Codable, Sendable, Equatable {
+    public let name: String
+    public let range: GridRange
+
+    public init(name: String, range: GridRange) {
+        self.name = name
+        self.range = range
+    }
+}
+
+/// The `addNamedRange` operation.
+public struct AddNamedRangeRequest: Codable, Sendable, Equatable {
+    public let namedRange: NamedRangeRequest
+
+    public init(namedRange: NamedRangeRequest) {
+        self.namedRange = namedRange
+    }
+}
+
+/// The `deleteNamedRange` operation.
+public struct DeleteNamedRangeRequest: Codable, Sendable, Equatable {
+    public let namedRangeId: String
+
+    public init(namedRangeId: String) {
+        self.namedRangeId = namedRangeId
+    }
+}
+
 // MARK: - Responses
 
 /// The response of a `spreadsheets.batchUpdate` call.
@@ -537,6 +1031,19 @@ public struct SheetsBatchUpdateResponse: Codable, Sendable {
 public struct SheetsBatchUpdateReply: Codable, Sendable {
     public let addChart: AddChartReply?
     public let addSheet: AddSheetReply?
+    public let addFilterView: AddFilterViewReply?
+    public let addProtectedRange: AddProtectedRangeReply?
+    public let addNamedRange: AddNamedRangeReply?
+}
+
+/// The reply of an `addNamedRange` operation, carrying the new range's id.
+public struct AddNamedRangeReply: Codable, Sendable {
+    public let namedRange: AddedNamedRange?
+}
+
+/// The server-assigned identity of a newly added named range.
+public struct AddedNamedRange: Codable, Sendable {
+    public let namedRangeId: String?
 }
 
 /// The reply of an `addSheet` operation, carrying the new sheet's properties.
@@ -581,4 +1088,350 @@ public struct ClearValuesResponse: Codable, Sendable {
 public struct BatchGetValuesResponse: Codable, Sendable {
     public let spreadsheetId: String?
     public let valueRanges: [ValueRange]?
+}
+
+// MARK: - Boolean condition (shared)
+
+/// One value in a ``SheetsBooleanCondition``. Every value is a user-entered
+/// string, matching how a person would type it into the Sheets UI; Sheets
+/// interprets numbers, dates, and formulas from the text.
+public struct SheetsConditionValue: Codable, Sendable, Equatable {
+    public let userEnteredValue: String
+
+    public init(userEnteredValue: String) {
+        self.userEnteredValue = userEnteredValue
+    }
+}
+
+/// A boolean condition shared by conditional formatting and data validation.
+/// `type` is a ``SheetsConditionType`` raw value; `values` supplies the operands
+/// the type needs (none for BLANK/NOT_BLANK, two for the *_BETWEEN types).
+public struct SheetsBooleanCondition: Codable, Sendable, Equatable {
+    public let type: String
+    public let values: [SheetsConditionValue]
+
+    public init(type: String, values: [SheetsConditionValue]) {
+        self.type = type
+        self.values = values
+    }
+}
+
+/// The boolean-condition types graham exposes on the CLI. The raw values are the
+/// Sheets `ConditionType` enum names.
+public enum SheetsConditionType: String, Sendable, CaseIterable, Equatable {
+    case numberGreater = "NUMBER_GREATER"
+    case numberGreaterThanEq = "NUMBER_GREATER_THAN_EQ"
+    case numberLess = "NUMBER_LESS"
+    case numberLessThanEq = "NUMBER_LESS_THAN_EQ"
+    case numberEq = "NUMBER_EQ"
+    case numberNotEq = "NUMBER_NOT_EQ"
+    case numberBetween = "NUMBER_BETWEEN"
+    case numberNotBetween = "NUMBER_NOT_BETWEEN"
+    case textContains = "TEXT_CONTAINS"
+    case textNotContains = "TEXT_NOT_CONTAINS"
+    case textStartsWith = "TEXT_STARTS_WITH"
+    case textEndsWith = "TEXT_ENDS_WITH"
+    case textEq = "TEXT_EQ"
+    case textIsEmail = "TEXT_IS_EMAIL"
+    case textIsUrl = "TEXT_IS_URL"
+    case dateBefore = "DATE_BEFORE"
+    case dateAfter = "DATE_AFTER"
+    case dateOnOrBefore = "DATE_ON_OR_BEFORE"
+    case dateOnOrAfter = "DATE_ON_OR_AFTER"
+    case blank = "BLANK"
+    case notBlank = "NOT_BLANK"
+    case oneOfList = "ONE_OF_LIST"
+    case boolean = "BOOLEAN"
+    case customFormula = "CUSTOM_FORMULA"
+
+    /// How many `--value` arguments a condition type needs, where the type makes
+    /// the count unambiguous.
+    public enum ValueArity: Sendable, Equatable {
+        /// Exactly zero values.
+        case none
+        /// Exactly two values.
+        case pair
+        /// At least one value.
+        case oneOrMore
+    }
+
+    /// The value count graham validates: zero for BLANK/NOT_BLANK, two for the
+    /// *_BETWEEN types, otherwise one or more.
+    public var valueArity: ValueArity {
+        switch self {
+        case .blank, .notBlank:
+            return .none
+        case .numberBetween, .numberNotBetween:
+            return .pair
+        default:
+            return .oneOrMore
+        }
+    }
+}
+
+extension SheetsBooleanCondition {
+    /// Builds a boolean condition from a type and its user-entered values,
+    /// validating the number of values against the type where the count is
+    /// unambiguous. Throws ``GrahamError/invalidArgument(_:)`` on a bad count so
+    /// no request is ever sent.
+    public static func make(
+        type: SheetsConditionType,
+        values: [String]
+    ) throws -> SheetsBooleanCondition {
+        switch type.valueArity {
+        case .none:
+            guard values.isEmpty else {
+                throw GrahamError.invalidArgument(
+                    "the \(type.rawValue) condition takes no --value arguments")
+            }
+        case .pair:
+            guard values.count == 2 else {
+                throw GrahamError.invalidArgument(
+                    "the \(type.rawValue) condition needs exactly two --value arguments")
+            }
+        case .oneOrMore:
+            guard !values.isEmpty else {
+                throw GrahamError.invalidArgument(
+                    "the \(type.rawValue) condition needs at least one --value argument")
+            }
+        }
+        return SheetsBooleanCondition(
+            type: type.rawValue,
+            values: values.map { SheetsConditionValue(userEnteredValue: $0) })
+    }
+}
+
+// MARK: - Conditional formatting
+
+/// A gradient (color-scale) rule. graham does not yet build one from the CLI,
+/// but the field is modeled so a ``ConditionalFormatRule`` decodes and re-encodes
+/// faithfully; a future slice can populate its interpolation points.
+public struct GradientRule: Codable, Sendable, Equatable {
+    public let minpoint: InterpolationPoint?
+    public let midpoint: InterpolationPoint?
+    public let maxpoint: InterpolationPoint?
+
+    public init(
+        minpoint: InterpolationPoint? = nil,
+        midpoint: InterpolationPoint? = nil,
+        maxpoint: InterpolationPoint? = nil
+    ) {
+        self.minpoint = minpoint
+        self.midpoint = midpoint
+        self.maxpoint = maxpoint
+    }
+}
+
+/// One stop in a ``GradientRule``: a color, a `type` (such as `MIN`, `MAX`,
+/// `NUMBER`, `PERCENT`), and the `value` the type reads.
+public struct InterpolationPoint: Codable, Sendable, Equatable {
+    public let color: SheetsColor?
+    public let type: String?
+    public let value: String?
+
+    public init(color: SheetsColor? = nil, type: String? = nil, value: String? = nil) {
+        self.color = color
+        self.type = type
+        self.value = value
+    }
+}
+
+/// A boolean conditional-format rule: when `condition` matches a cell, `format`
+/// is stamped over it.
+public struct BooleanRule: Codable, Sendable, Equatable {
+    public let condition: SheetsBooleanCondition
+    public let format: SheetsCellFormat
+
+    public init(condition: SheetsBooleanCondition, format: SheetsCellFormat) {
+        self.condition = condition
+        self.format = format
+    }
+}
+
+/// A conditional-format rule over one or more ranges: exactly one of
+/// `booleanRule` or `gradientRule` is set.
+public struct ConditionalFormatRule: Codable, Sendable, Equatable {
+    public let ranges: [GridRange]
+    public let booleanRule: BooleanRule?
+    public let gradientRule: GradientRule?
+
+    public init(
+        ranges: [GridRange],
+        booleanRule: BooleanRule? = nil,
+        gradientRule: GradientRule? = nil
+    ) {
+        self.ranges = ranges
+        self.booleanRule = booleanRule
+        self.gradientRule = gradientRule
+    }
+}
+
+/// The `addConditionalFormatRule` operation. `index` is the zero-based position
+/// the rule is inserted at within the sheet's rule list.
+public struct AddConditionalFormatRuleRequest: Codable, Sendable, Equatable {
+    public let rule: ConditionalFormatRule
+    public let index: Int
+
+    public init(rule: ConditionalFormatRule, index: Int) {
+        self.rule = rule
+        self.index = index
+    }
+}
+
+/// The `deleteConditionalFormatRule` operation: removes the rule at `index` on
+/// `sheetId`.
+public struct DeleteConditionalFormatRuleRequest: Codable, Sendable, Equatable {
+    public let sheetId: Int
+    public let index: Int
+
+    public init(sheetId: Int, index: Int) {
+        self.sheetId = sheetId
+        self.index = index
+    }
+}
+
+// MARK: - Data validation
+
+/// A data-validation rule for a range. A `nil` rule on a `setDataValidation`
+/// request clears validation instead of setting it.
+public struct DataValidationRule: Codable, Sendable, Equatable {
+    public let condition: SheetsBooleanCondition
+    public let inputMessage: String?
+    public let strict: Bool?
+    public let showCustomUi: Bool?
+
+    public init(
+        condition: SheetsBooleanCondition,
+        inputMessage: String? = nil,
+        strict: Bool? = nil,
+        showCustomUi: Bool? = nil
+    ) {
+        self.condition = condition
+        self.inputMessage = inputMessage
+        self.strict = strict
+        self.showCustomUi = showCustomUi
+    }
+}
+
+/// The `setDataValidation` operation. A `nil` `rule` clears validation on
+/// `range`.
+public struct SetDataValidationRequest: Codable, Sendable, Equatable {
+    public let range: GridRange
+    public let rule: DataValidationRule?
+
+    public init(range: GridRange, rule: DataValidationRule? = nil) {
+        self.range = range
+        self.rule = rule
+    }
+}
+
+// MARK: - Basic filter and filter views
+
+/// A basic filter over a range. graham keeps it to the range for now; sort and
+/// per-column filter criteria can join later.
+public struct BasicFilter: Codable, Sendable, Equatable {
+    public let range: GridRange
+
+    public init(range: GridRange) {
+        self.range = range
+    }
+}
+
+/// The `setBasicFilter` operation.
+public struct SetBasicFilterRequest: Codable, Sendable, Equatable {
+    public let filter: BasicFilter
+
+    public init(filter: BasicFilter) {
+        self.filter = filter
+    }
+}
+
+/// The `clearBasicFilter` operation: removes the basic filter from `sheetId`.
+public struct ClearBasicFilterRequest: Codable, Sendable, Equatable {
+    public let sheetId: Int
+
+    public init(sheetId: Int) {
+        self.sheetId = sheetId
+    }
+}
+
+/// A filter view to add: a titled, saved view over a range.
+///
+/// `filterViewId` is deliberately absent: Google assigns it and reports it in
+/// the batch-update reply.
+public struct FilterViewRequest: Codable, Sendable, Equatable {
+    public let title: String
+    public let range: GridRange
+
+    public init(title: String, range: GridRange) {
+        self.title = title
+        self.range = range
+    }
+}
+
+/// The `addFilterView` operation.
+public struct AddFilterViewRequest: Codable, Sendable, Equatable {
+    public let filter: FilterViewRequest
+
+    public init(filter: FilterViewRequest) {
+        self.filter = filter
+    }
+}
+
+// MARK: - Protected ranges
+
+/// A protected range to add. `warningOnly` makes the protection advisory (edits
+/// are warned about, not blocked). `protectedRangeId` is absent: Google assigns
+/// it and reports it in the reply.
+public struct ProtectedRangeRequest: Codable, Sendable, Equatable {
+    public let range: GridRange
+    public let description: String?
+    public let warningOnly: Bool?
+
+    public init(range: GridRange, description: String? = nil, warningOnly: Bool? = nil) {
+        self.range = range
+        self.description = description
+        self.warningOnly = warningOnly
+    }
+}
+
+/// The `addProtectedRange` operation.
+public struct AddProtectedRangeRequest: Codable, Sendable, Equatable {
+    public let protectedRange: ProtectedRangeRequest
+
+    public init(protectedRange: ProtectedRangeRequest) {
+        self.protectedRange = protectedRange
+    }
+}
+
+/// The `deleteProtectedRange` operation: removes the protected range with id
+/// `protectedRangeId`.
+public struct DeleteProtectedRangeRequest: Codable, Sendable, Equatable {
+    public let protectedRangeId: Int
+
+    public init(protectedRangeId: Int) {
+        self.protectedRangeId = protectedRangeId
+    }
+}
+
+// MARK: - Data-tooling replies
+
+/// The reply of an `addFilterView` operation, carrying the new view's id.
+public struct AddFilterViewReply: Codable, Sendable {
+    public let filter: AddedFilterView?
+}
+
+/// The server-assigned identity of a newly added filter view.
+public struct AddedFilterView: Codable, Sendable {
+    public let filterViewId: Int?
+}
+
+/// The reply of an `addProtectedRange` operation, carrying the new range's id.
+public struct AddProtectedRangeReply: Codable, Sendable {
+    public let protectedRange: AddedProtectedRange?
+}
+
+/// The server-assigned identity of a newly added protected range.
+public struct AddedProtectedRange: Codable, Sendable {
+    public let protectedRangeId: Int?
 }

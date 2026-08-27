@@ -16,7 +16,7 @@ public struct SheetsClient: Sendable {
             "\(Self.baseURL)/spreadsheets/\(GoogleURL.escapePathComponent(id))",
             query: [("fields",
                 "spreadsheetId,properties.title,spreadsheetUrl,sheets.properties,"
-                    + "sheets.charts.chartId,sheets.charts.spec.title")]
+                    + "sheets.charts.chartId,sheets.charts.spec.title,namedRanges")]
         )
         return try await api.getJSON(Spreadsheet.self, from: url)
     }
@@ -162,22 +162,34 @@ public struct SheetsClient: Sendable {
 
     /// Adds a chart and returns its numeric chart id.
     ///
-    /// The first input column is the chart domain and every remaining column
-    /// becomes a series (a pie chart uses only the first two columns). The first
-    /// row supplies the headers. By default the chart lands on its own new sheet;
-    /// pass `overlay` to float it over an existing sheet instead.
+    /// The `kind` selects the chart shape; when nil it derives from `type`/`pie`
+    /// (so existing callers behave unchanged). For basic and pie charts the
+    /// first input column is the domain and every remaining column is a series
+    /// (a pie chart uses only the first two columns), with the first row as the
+    /// headers. Histograms turn every column into a series; scorecards read a
+    /// key value (and an optional baseline) from the first one or two columns;
+    /// candlesticks read exactly five columns as domain, open, high, low, close.
+    /// By default the chart lands on its own new sheet; pass `overlay` to float
+    /// it over an existing sheet instead.
     public func addChart(
         spreadsheetId: String,
         title: String? = nil,
         type: BasicChartType = .column,
         range: String,
         pie: Bool = false,
+        kind: SheetsChartKind? = nil,
+        bucketSize: Double? = nil,
+        outlierPercentile: Double? = nil,
+        aggregate: SheetsChartAggregateType? = nil,
         overlay: ChartOverlay? = nil
     ) async throws -> Int {
-        let parsed = try validatedChartRange(range)
+        let resolvedKind = resolveChartKind(kind: kind, type: type, pie: pie)
+        let parsed = try validatedChartRange(range, kind: resolvedKind)
         let metadata = try await spreadsheet(id: spreadsheetId)
         let dataSheetId = try sheetId(from: metadata, name: parsed.sheetName)
-        let spec = chartSpec(parsed: parsed, sheetId: dataSheetId, type: type, title: title, pie: pie)
+        let spec = chartSpec(
+            parsed: parsed, sheetId: dataSheetId, kind: resolvedKind, type: type, title: title,
+            bucketSize: bucketSize, outlierPercentile: outlierPercentile, aggregate: aggregate)
 
         let position: EmbeddedObjectPosition
         if let overlay {
@@ -205,19 +217,28 @@ public struct SheetsClient: Sendable {
         return chartId
     }
 
-    /// Replaces an existing chart's spec, rebuilt from `range` and `type`.
+    /// Replaces an existing chart's spec, rebuilt from `range` and the chosen
+    /// chart shape. As with ``addChart(spreadsheetId:title:type:range:pie:kind:bucketSize:outlierPercentile:aggregate:overlay:)``,
+    /// `kind` selects the shape and falls back to `type`/`pie` when nil.
     public func updateChart(
         spreadsheetId: String,
         chartId: Int,
         title: String? = nil,
         type: BasicChartType = .column,
         range: String,
-        pie: Bool = false
+        pie: Bool = false,
+        kind: SheetsChartKind? = nil,
+        bucketSize: Double? = nil,
+        outlierPercentile: Double? = nil,
+        aggregate: SheetsChartAggregateType? = nil
     ) async throws {
-        let parsed = try validatedChartRange(range)
+        let resolvedKind = resolveChartKind(kind: kind, type: type, pie: pie)
+        let parsed = try validatedChartRange(range, kind: resolvedKind)
         let metadata = try await spreadsheet(id: spreadsheetId)
         let dataSheetId = try sheetId(from: metadata, name: parsed.sheetName)
-        let spec = chartSpec(parsed: parsed, sheetId: dataSheetId, type: type, title: title, pie: pie)
+        let spec = chartSpec(
+            parsed: parsed, sheetId: dataSheetId, kind: resolvedKind, type: type, title: title,
+            bucketSize: bucketSize, outlierPercentile: outlierPercentile, aggregate: aggregate)
         _ = try await batchUpdate(
             spreadsheetId: spreadsheetId,
             requests: [.updateChartSpec(UpdateChartSpecRequest(chartId: chartId, spec: spec))])
@@ -230,19 +251,116 @@ public struct SheetsClient: Sendable {
             requests: [.deleteEmbeddedObject(DeleteEmbeddedObjectRequest(objectId: chartId))])
     }
 
+    /// Moves or resizes an embedded chart via `updateEmbeddedObjectPosition`.
+    ///
+    /// Exactly one placement is chosen: pass `anchor` (an A1 cell, optionally
+    /// sheet-qualified) to overlay the chart on an existing sheet, optionally
+    /// sized with `width`/`height`; or `newSheet: true` to move it to its own
+    /// new sheet. `width` and `height` require an `anchor`. The sheet id comes
+    /// from the anchor's tab name, or the first sheet when it names none.
+    public func moveChart(
+        spreadsheetId: String,
+        chartId: Int,
+        anchor: String? = nil,
+        width: Int? = nil,
+        height: Int? = nil,
+        newSheet: Bool = false
+    ) async throws {
+        let placements = [anchor != nil, newSheet].filter { $0 }.count
+        guard placements == 1 else {
+            throw GrahamError.invalidArgument(
+                "choose exactly one placement: an --anchor cell or --new-sheet")
+        }
+        if newSheet, width != nil || height != nil {
+            throw GrahamError.invalidArgument("--width and --height require --anchor")
+        }
+
+        let newPosition: EmbeddedObjectPosition
+        let fields: String
+        if let anchor {
+            let parsedAnchor = try A1Range.parse(anchor)
+            let anchorSheetId: Int
+            if let name = parsedAnchor.sheetName {
+                anchorSheetId = try await sheetId(spreadsheetId: spreadsheetId, title: name)
+            } else {
+                anchorSheetId = try await firstSheetId(spreadsheetId: spreadsheetId)
+            }
+            newPosition = EmbeddedObjectPosition(overlayPosition: OverlayPosition(
+                anchorCell: GridCoordinate(
+                    sheetId: anchorSheetId,
+                    rowIndex: parsedAnchor.startRowIndex,
+                    columnIndex: parsedAnchor.startColumnIndex),
+                widthPixels: width,
+                heightPixels: height))
+            // The mask is relative to newPosition.overlayPosition (the root is
+            // implied), so it names only the OverlayPosition fields being set.
+            var maskParts = ["anchorCell"]
+            if width != nil { maskParts.append("widthPixels") }
+            if height != nil { maskParts.append("heightPixels") }
+            fields = maskParts.joined(separator: ",")
+        } else {
+            newPosition = EmbeddedObjectPosition(newSheet: true)
+            // A move to a new sheet sets no overlay field; "*" updates the whole
+            // position.
+            fields = "*"
+        }
+
+        _ = try await batchUpdate(
+            spreadsheetId: spreadsheetId,
+            requests: [.updateEmbeddedObjectPosition(UpdateEmbeddedObjectPositionRequest(
+                objectId: chartId, newPosition: newPosition, fields: fields))])
+    }
+
     // MARK: Chart building
 
-    /// Parses and range-checks a chart source range (at least 2 columns wide and
-    /// 2 rows tall — a header row plus a domain column plus a series column).
-    private func validatedChartRange(_ range: String) throws -> A1Range {
+    /// Resolves the chart kind for a chart write: an explicit `kind` wins;
+    /// otherwise `pie` maps to the pie kind and a bare `type` maps to its
+    /// matching basic kind. This keeps the pre-`kind` callers behaving unchanged.
+    private func resolveChartKind(
+        kind: SheetsChartKind?,
+        type: BasicChartType,
+        pie: Bool
+    ) -> SheetsChartKind {
+        if let kind { return kind }
+        if pie { return .pie }
+        return SheetsChartKind(rawValue: type.rawValue) ?? .column
+    }
+
+    /// Parses and range-checks a chart source range for the given `kind`. Basic
+    /// and pie charts need at least 2 columns and 2 rows (a header row plus a
+    /// domain column plus a series column); a scorecard needs one or two columns
+    /// (key value plus optional baseline); a candlestick needs exactly five
+    /// columns (domain, open, high, low, close). Every check runs before any
+    /// request is issued.
+    private func validatedChartRange(_ range: String, kind: SheetsChartKind) throws -> A1Range {
         let parsed = try A1Range.parse(range)
-        guard parsed.endColumnIndex - parsed.startColumnIndex >= 2 else {
-            throw GrahamError.invalidArgument(
-                "chart range \"\(range)\" must be at least 2 columns wide")
-        }
-        guard parsed.endRowIndex - parsed.startRowIndex >= 2 else {
-            throw GrahamError.invalidArgument(
-                "chart range \"\(range)\" must be at least 2 rows tall")
+        let columns = parsed.endColumnIndex - parsed.startColumnIndex
+        let rows = parsed.endRowIndex - parsed.startRowIndex
+        switch kind {
+        case .column, .bar, .line, .area, .scatter, .combo, .pie:
+            guard columns >= 2 else {
+                throw GrahamError.invalidArgument(
+                    "chart range \"\(range)\" must be at least 2 columns wide")
+            }
+            guard rows >= 2 else {
+                throw GrahamError.invalidArgument(
+                    "chart range \"\(range)\" must be at least 2 rows tall")
+            }
+        case .histogram:
+            // Any bounded range works; every column becomes a series.
+            break
+        case .scorecard:
+            guard columns >= 1, columns <= 2 else {
+                throw GrahamError.invalidArgument(
+                    "scorecard range \"\(range)\" must be 1 or 2 columns wide "
+                        + "(key value, optional baseline)")
+            }
+        case .candlestick:
+            guard columns == 5 else {
+                throw GrahamError.invalidArgument(
+                    "candlestick range \"\(range)\" must be exactly 5 columns wide "
+                        + "(domain, open, high, low, close)")
+            }
         }
         return parsed
     }
@@ -270,33 +388,62 @@ public struct SheetsClient: Sendable {
         return id
     }
 
-    /// Builds a basic or pie chart spec from a parsed source range.
+    /// Builds a chart data source for a single column of a parsed source range.
+    private func chartData(sheetId: Int, parsed: A1Range, column: Int) -> ChartData {
+        ChartData(sourceRange: ChartSourceRange(sources: [GridRange(
+            sheetId: sheetId,
+            startRowIndex: parsed.startRowIndex,
+            endRowIndex: parsed.endRowIndex,
+            startColumnIndex: column,
+            endColumnIndex: column + 1
+        )]))
+    }
+
+    /// Builds the chart spec for the requested `kind` from a parsed source range.
+    /// Each shape has its own private builder, mirroring the original
+    /// basic/pie helper.
     private func chartSpec(
         parsed: A1Range,
         sheetId: Int,
+        kind: SheetsChartKind,
         type: BasicChartType,
         title: String?,
-        pie: Bool
+        bucketSize: Double?,
+        outlierPercentile: Double?,
+        aggregate: SheetsChartAggregateType?
     ) -> ChartSpec {
-        func data(forColumn column: Int) -> ChartData {
-            ChartData(sourceRange: ChartSourceRange(sources: [GridRange(
-                sheetId: sheetId,
-                startRowIndex: parsed.startRowIndex,
-                endRowIndex: parsed.endRowIndex,
-                startColumnIndex: column,
-                endColumnIndex: column + 1
-            )]))
+        switch kind {
+        case .column, .bar, .line, .area, .scatter, .combo:
+            return basicChartSpec(
+                parsed: parsed, sheetId: sheetId, type: kind.basicChartType ?? type, title: title)
+        case .pie:
+            return pieChartSpec(parsed: parsed, sheetId: sheetId, title: title)
+        case .histogram:
+            return histogramChartSpec(
+                parsed: parsed, sheetId: sheetId, title: title,
+                bucketSize: bucketSize, outlierPercentile: outlierPercentile)
+        case .scorecard:
+            return scorecardChartSpec(
+                parsed: parsed, sheetId: sheetId, title: title, aggregate: aggregate)
+        case .candlestick:
+            return candlestickChartSpec(parsed: parsed, sheetId: sheetId, title: title)
         }
-        let domainData = data(forColumn: parsed.startColumnIndex)
-        if pie {
-            return ChartSpec(title: title, pieChart: PieChartSpec(
-                legendPosition: "RIGHT_LEGEND",
-                domain: domainData,
-                series: data(forColumn: parsed.startColumnIndex + 1)))
-        }
-        let domain = BasicChartDomain(domain: domainData)
+    }
+
+    /// Builds a basic chart spec: the first column is the domain and every
+    /// remaining column is a series.
+    private func basicChartSpec(
+        parsed: A1Range,
+        sheetId: Int,
+        type: BasicChartType,
+        title: String?
+    ) -> ChartSpec {
+        let domain = BasicChartDomain(
+            domain: chartData(sheetId: sheetId, parsed: parsed, column: parsed.startColumnIndex))
         let series = ((parsed.startColumnIndex + 1)..<parsed.endColumnIndex).map { column in
-            BasicChartSeries(series: data(forColumn: column), targetAxis: "LEFT_AXIS")
+            BasicChartSeries(
+                series: chartData(sheetId: sheetId, parsed: parsed, column: column),
+                targetAxis: "LEFT_AXIS")
         }
         return ChartSpec(title: title, basicChart: BasicChartSpec(
             chartType: type,
@@ -304,6 +451,73 @@ public struct SheetsClient: Sendable {
             headerCount: 1,
             domains: [domain],
             series: series))
+    }
+
+    /// Builds a pie chart spec from the first two columns of the range.
+    private func pieChartSpec(parsed: A1Range, sheetId: Int, title: String?) -> ChartSpec {
+        ChartSpec(title: title, pieChart: PieChartSpec(
+            legendPosition: "RIGHT_LEGEND",
+            domain: chartData(sheetId: sheetId, parsed: parsed, column: parsed.startColumnIndex),
+            series: chartData(
+                sheetId: sheetId, parsed: parsed, column: parsed.startColumnIndex + 1)))
+    }
+
+    /// Builds a histogram chart spec: every column of the range becomes a series.
+    private func histogramChartSpec(
+        parsed: A1Range,
+        sheetId: Int,
+        title: String?,
+        bucketSize: Double?,
+        outlierPercentile: Double?
+    ) -> ChartSpec {
+        let series = (parsed.startColumnIndex..<parsed.endColumnIndex).map { column in
+            HistogramSeries(data: chartData(sheetId: sheetId, parsed: parsed, column: column))
+        }
+        return ChartSpec(title: title, histogramChart: HistogramChartSpec(
+            series: series,
+            bucketSize: bucketSize,
+            outlierPercentile: outlierPercentile))
+    }
+
+    /// Builds a scorecard chart spec: the first column is the key value and an
+    /// optional second column is the baseline.
+    private func scorecardChartSpec(
+        parsed: A1Range,
+        sheetId: Int,
+        title: String?,
+        aggregate: SheetsChartAggregateType?
+    ) -> ChartSpec {
+        let columns = parsed.endColumnIndex - parsed.startColumnIndex
+        let keyValue = chartData(
+            sheetId: sheetId, parsed: parsed, column: parsed.startColumnIndex)
+        let baseline = columns >= 2
+            ? chartData(sheetId: sheetId, parsed: parsed, column: parsed.startColumnIndex + 1)
+            : nil
+        return ChartSpec(title: title, scorecardChart: ScorecardChartSpec(
+            keyValueData: keyValue,
+            baselineValueData: baseline,
+            aggregateType: aggregate?.rawValue))
+    }
+
+    /// Builds a candlestick chart spec from exactly five columns, mapped in
+    /// order: domain, open, high, low, close.
+    private func candlestickChartSpec(
+        parsed: A1Range,
+        sheetId: Int,
+        title: String?
+    ) -> ChartSpec {
+        let base = parsed.startColumnIndex
+        func column(_ offset: Int) -> ChartData {
+            chartData(sheetId: sheetId, parsed: parsed, column: base + offset)
+        }
+        let group = CandlestickData(
+            lowSeries: CandlestickSeries(data: column(3)),
+            openSeries: CandlestickSeries(data: column(1)),
+            closeSeries: CandlestickSeries(data: column(4)),
+            highSeries: CandlestickSeries(data: column(2)))
+        return ChartSpec(title: title, candlestickChart: CandlestickChartSpec(
+            domain: CandlestickDomain(data: column(0)),
+            data: [group]))
     }
 
     // MARK: - Sheets (tabs)
@@ -446,23 +660,55 @@ public struct SheetsClient: Sendable {
 
     // MARK: - Cell formatting
 
-    /// Applies a cell format across an A1 `range`, via `repeatCell`. At least one
-    /// of `bold`, `backgroundColor`, `numberFormat`, or `horizontalAlignment`
-    /// must be set; the `fields` mask names only the ones provided, so unset
-    /// aspects of the existing format are left intact. `numberFormat` is a
-    /// pattern applied with the `NUMBER` type.
+    /// Applies a cell format across an A1 `range`, via `repeatCell`.
+    ///
+    /// At least one aspect must be set or cleared. The `fields` mask names only
+    /// the aspects provided, so unset ones are left intact. An aspect named in
+    /// the mask but sent with no value is cleared back to the cell default; the
+    /// `clear*` flags do exactly that for the background, number format, and
+    /// alignment. `bold` is a tri-state: `true`/`false` set the value and `nil`
+    /// leaves it, so `--no-bold` explicitly turns bold off.
+    ///
+    /// The number format's `type` defaults to `NUMBER`; `numberFormat` is its
+    /// optional pattern. Colors are written as the non-deprecated
+    /// `backgroundColorStyle` / `foregroundColorStyle`.
     public func formatCells(
         spreadsheetId: String,
         range: String,
         bold: Bool? = nil,
         backgroundColor: SheetsColor? = nil,
+        clearBackground: Bool = false,
         numberFormat: String? = nil,
-        horizontalAlignment: SheetsHorizontalAlignment? = nil
+        numberFormatType: SheetsNumberFormatType? = nil,
+        clearNumberFormat: Bool = false,
+        horizontalAlignment: SheetsHorizontalAlignment? = nil,
+        clearAlignment: Bool = false,
+        textColor: SheetsColor? = nil,
+        fontFamily: String? = nil,
+        fontSize: Int? = nil
     ) async throws {
-        guard bold != nil || backgroundColor != nil || numberFormat != nil
-                || horizontalAlignment != nil else {
-            throw GrahamError.invalidArgument("provide at least one format to set")
+        let setsNumberFormat = numberFormat != nil || numberFormatType != nil
+        let touchesSomething = bold != nil
+            || backgroundColor != nil || clearBackground
+            || setsNumberFormat || clearNumberFormat
+            || horizontalAlignment != nil || clearAlignment
+            || textColor != nil || fontFamily != nil || fontSize != nil
+        guard touchesSomething else {
+            throw GrahamError.invalidArgument("provide at least one format to set or clear")
         }
+        if backgroundColor != nil, clearBackground {
+            throw GrahamError.invalidArgument("set or clear the background, not both")
+        }
+        if setsNumberFormat, clearNumberFormat {
+            throw GrahamError.invalidArgument("set or clear the number format, not both")
+        }
+        if horizontalAlignment != nil, clearAlignment {
+            throw GrahamError.invalidArgument("set or clear the alignment, not both")
+        }
+        if let fontSize, fontSize <= 0 {
+            throw GrahamError.invalidArgument("the font size must be positive")
+        }
+
         let parsed = try A1Range.parse(range)
         let targetSheetId: Int
         if let name = parsed.sheetName {
@@ -473,14 +719,39 @@ public struct SheetsClient: Sendable {
 
         var fields: [String] = []
         if bold != nil { fields.append("userEnteredFormat.textFormat.bold") }
-        if backgroundColor != nil { fields.append("userEnteredFormat.backgroundColor") }
-        if numberFormat != nil { fields.append("userEnteredFormat.numberFormat") }
-        if horizontalAlignment != nil { fields.append("userEnteredFormat.horizontalAlignment") }
+        if textColor != nil { fields.append("userEnteredFormat.textFormat.foregroundColorStyle") }
+        if fontFamily != nil { fields.append("userEnteredFormat.textFormat.fontFamily") }
+        if fontSize != nil { fields.append("userEnteredFormat.textFormat.fontSize") }
+        if backgroundColor != nil || clearBackground {
+            fields.append("userEnteredFormat.backgroundColorStyle")
+        }
+        if setsNumberFormat || clearNumberFormat {
+            fields.append("userEnteredFormat.numberFormat")
+        }
+        if horizontalAlignment != nil || clearAlignment {
+            fields.append("userEnteredFormat.horizontalAlignment")
+        }
+
+        let textFormat: SheetsTextFormat?
+        if bold != nil || textColor != nil || fontFamily != nil || fontSize != nil {
+            textFormat = SheetsTextFormat(
+                bold: bold,
+                foregroundColorStyle: textColor.map { SheetsColorStyle(rgbColor: $0) },
+                fontFamily: fontFamily,
+                fontSize: fontSize)
+        } else {
+            textFormat = nil
+        }
+        // A cleared aspect keeps its mask path but sends no value, so Sheets
+        // resets it: nil here is exactly that.
+        let numberFormatModel = setsNumberFormat
+            ? SheetsNumberFormat(type: (numberFormatType ?? .number).rawValue, pattern: numberFormat)
+            : nil
 
         let format = SheetsCellFormat(
-            backgroundColor: backgroundColor,
-            textFormat: bold.map { SheetsTextFormat(bold: $0) },
-            numberFormat: numberFormat.map { SheetsNumberFormat(type: "NUMBER", pattern: $0) },
+            backgroundColorStyle: backgroundColor.map { SheetsColorStyle(rgbColor: $0) },
+            textFormat: textFormat,
+            numberFormat: numberFormatModel,
             horizontalAlignment: horizontalAlignment?.rawValue)
         let request = SheetsBatchUpdateRequest.repeatCell(RepeatCellRequest(
             range: GridRange(
@@ -492,6 +763,374 @@ public struct SheetsClient: Sendable {
             cell: SheetsCellData(userEnteredFormat: format),
             fields: fields.joined(separator: ",")))
         _ = try await batchUpdate(spreadsheetId: spreadsheetId, requests: [request])
+    }
+
+    // MARK: - Data tooling
+
+    /// Resolves an A1 `range` to a ``GridRange``: the sheet id comes from the
+    /// range's tab name, or the spreadsheet's first sheet when the range names
+    /// none. This is the shared range-to-grid path for the data-tooling and
+    /// structure writes.
+    private func resolveGridRange(
+        spreadsheetId: String,
+        range: String
+    ) async throws -> GridRange {
+        let parsed = try A1Range.parse(range)
+        let targetSheetId = try await resolveSheetId(
+            spreadsheetId: spreadsheetId, sheetName: parsed.sheetName)
+        return gridRange(from: parsed, sheetId: targetSheetId)
+    }
+
+    /// Resolves the sheet a parsed range targets: its tab name, or the first
+    /// sheet when the range named none.
+    private func resolveSheetId(
+        spreadsheetId: String,
+        sheetName: String?
+    ) async throws -> Int {
+        if let sheetName {
+            return try await sheetId(spreadsheetId: spreadsheetId, title: sheetName)
+        }
+        return try await firstSheetId(spreadsheetId: spreadsheetId)
+    }
+
+    /// Builds a zero-based ``GridRange`` from an already-parsed A1 range and its
+    /// resolved sheet id.
+    private func gridRange(from parsed: A1Range, sheetId: Int) -> GridRange {
+        GridRange(
+            sheetId: sheetId,
+            startRowIndex: parsed.startRowIndex,
+            endRowIndex: parsed.endRowIndex,
+            startColumnIndex: parsed.startColumnIndex,
+            endColumnIndex: parsed.endColumnIndex)
+    }
+
+    /// Adds a conditional-format rule over an A1 `range`: when a cell satisfies
+    /// the boolean condition (`type` + `values`), its background is set to
+    /// `backgroundColor`. `index` is the zero-based insertion position within the
+    /// sheet's rule list. The condition's value count is validated before any
+    /// request is sent.
+    public func addConditionalFormatRule(
+        spreadsheetId: String,
+        range: String,
+        type: SheetsConditionType,
+        values: [String],
+        backgroundColor: SheetsColor,
+        index: Int = 0
+    ) async throws {
+        guard index >= 0 else {
+            throw GrahamError.invalidArgument("the rule index must be non-negative")
+        }
+        let condition = try SheetsBooleanCondition.make(type: type, values: values)
+        let gridRange = try await resolveGridRange(spreadsheetId: spreadsheetId, range: range)
+        let rule = ConditionalFormatRule(
+            ranges: [gridRange],
+            booleanRule: BooleanRule(
+                condition: condition,
+                format: SheetsCellFormat(
+                    backgroundColorStyle: SheetsColorStyle(rgbColor: backgroundColor))))
+        _ = try await batchUpdate(
+            spreadsheetId: spreadsheetId,
+            requests: [.addConditionalFormatRule(
+                AddConditionalFormatRuleRequest(rule: rule, index: index))])
+    }
+
+    /// Deletes the conditional-format rule at `index` on `sheetId`.
+    public func deleteConditionalFormatRule(
+        spreadsheetId: String,
+        sheetId: Int,
+        index: Int
+    ) async throws {
+        guard index >= 0 else {
+            throw GrahamError.invalidArgument("the rule index must be non-negative")
+        }
+        _ = try await batchUpdate(
+            spreadsheetId: spreadsheetId,
+            requests: [.deleteConditionalFormatRule(
+                DeleteConditionalFormatRuleRequest(sheetId: sheetId, index: index))])
+    }
+
+    /// Sets a data-validation rule on an A1 `range` from a boolean condition.
+    /// `strict` rejects invalid input; `showCustomUi` draws the in-cell dropdown;
+    /// `inputMessage` is the hover help. The value count is validated before any
+    /// request is sent.
+    public func setDataValidation(
+        spreadsheetId: String,
+        range: String,
+        type: SheetsConditionType,
+        values: [String],
+        strict: Bool? = nil,
+        showCustomUi: Bool? = nil,
+        inputMessage: String? = nil
+    ) async throws {
+        let condition = try SheetsBooleanCondition.make(type: type, values: values)
+        let gridRange = try await resolveGridRange(spreadsheetId: spreadsheetId, range: range)
+        let rule = DataValidationRule(
+            condition: condition,
+            inputMessage: inputMessage,
+            strict: strict,
+            showCustomUi: showCustomUi)
+        _ = try await batchUpdate(
+            spreadsheetId: spreadsheetId,
+            requests: [.setDataValidation(
+                SetDataValidationRequest(range: gridRange, rule: rule))])
+    }
+
+    /// Clears data validation on an A1 `range` by sending a `nil` rule.
+    public func clearDataValidation(
+        spreadsheetId: String,
+        range: String
+    ) async throws {
+        let gridRange = try await resolveGridRange(spreadsheetId: spreadsheetId, range: range)
+        _ = try await batchUpdate(
+            spreadsheetId: spreadsheetId,
+            requests: [.setDataValidation(
+                SetDataValidationRequest(range: gridRange, rule: nil))])
+    }
+
+    /// Sets the basic filter over an A1 `range`. One basic filter exists per
+    /// sheet, so setting it replaces any existing one.
+    public func setBasicFilter(
+        spreadsheetId: String,
+        range: String
+    ) async throws {
+        let gridRange = try await resolveGridRange(spreadsheetId: spreadsheetId, range: range)
+        _ = try await batchUpdate(
+            spreadsheetId: spreadsheetId,
+            requests: [.setBasicFilter(SetBasicFilterRequest(filter: BasicFilter(range: gridRange)))])
+    }
+
+    /// Clears the basic filter from `sheetId`.
+    public func clearBasicFilter(
+        spreadsheetId: String,
+        sheetId: Int
+    ) async throws {
+        _ = try await batchUpdate(
+            spreadsheetId: spreadsheetId,
+            requests: [.clearBasicFilter(ClearBasicFilterRequest(sheetId: sheetId))])
+    }
+
+    /// Adds a titled filter view over an A1 `range` and returns its new numeric
+    /// id.
+    public func addFilterView(
+        spreadsheetId: String,
+        range: String,
+        title: String
+    ) async throws -> Int {
+        let gridRange = try await resolveGridRange(spreadsheetId: spreadsheetId, range: range)
+        let response = try await batchUpdate(
+            spreadsheetId: spreadsheetId,
+            requests: [.addFilterView(AddFilterViewRequest(
+                filter: FilterViewRequest(title: title, range: gridRange)))])
+        guard let id = response.replies?.first?.addFilterView?.filter?.filterViewId else {
+            throw GrahamError.invalidResponse("addFilterView returned no filterViewId")
+        }
+        return id
+    }
+
+    /// Adds a protected range over an A1 `range` and returns its new numeric id.
+    /// `warningOnly` makes the protection advisory rather than enforced.
+    public func addProtectedRange(
+        spreadsheetId: String,
+        range: String,
+        description: String? = nil,
+        warningOnly: Bool? = nil
+    ) async throws -> Int {
+        let gridRange = try await resolveGridRange(spreadsheetId: spreadsheetId, range: range)
+        let response = try await batchUpdate(
+            spreadsheetId: spreadsheetId,
+            requests: [.addProtectedRange(AddProtectedRangeRequest(
+                protectedRange: ProtectedRangeRequest(
+                    range: gridRange, description: description, warningOnly: warningOnly)))])
+        guard let id = response.replies?.first?.addProtectedRange?.protectedRange?.protectedRangeId
+        else {
+            throw GrahamError.invalidResponse("addProtectedRange returned no protectedRangeId")
+        }
+        return id
+    }
+
+    /// Deletes a protected range by its numeric id.
+    public func deleteProtectedRange(
+        spreadsheetId: String,
+        protectedRangeId: Int
+    ) async throws {
+        _ = try await batchUpdate(
+            spreadsheetId: spreadsheetId,
+            requests: [.deleteProtectedRange(
+                DeleteProtectedRangeRequest(protectedRangeId: protectedRangeId))])
+    }
+
+    // MARK: - Cell borders
+
+    /// Sets or clears cell borders across an A1 `range`, via `updateBorders`.
+    ///
+    /// Every requested side gets the same `style` and optional `color`. At least
+    /// one side must be requested. `updateBorders` carries no `fields` mask: only
+    /// the sides sent are changed, and the `NONE` style clears a side. The sheet
+    /// comes from the range's tab name, or the first sheet when the range names
+    /// none.
+    public func setBorders(
+        spreadsheetId: String,
+        range: String,
+        style: SheetsBorderStyle,
+        color: SheetsColor? = nil,
+        top: Bool = false,
+        bottom: Bool = false,
+        left: Bool = false,
+        right: Bool = false,
+        innerHorizontal: Bool = false,
+        innerVertical: Bool = false
+    ) async throws {
+        guard top || bottom || left || right || innerHorizontal || innerVertical else {
+            throw GrahamError.invalidArgument("provide at least one side to set a border on")
+        }
+        let gridRange = try await resolveGridRange(spreadsheetId: spreadsheetId, range: range)
+        let border = SheetsBorder(
+            style: style.rawValue,
+            colorStyle: color.map { SheetsColorStyle(rgbColor: $0) })
+        let request = SheetsBatchUpdateRequest.updateBorders(UpdateBordersRequest(
+            range: gridRange,
+            top: top ? border : nil,
+            bottom: bottom ? border : nil,
+            left: left ? border : nil,
+            right: right ? border : nil,
+            innerHorizontal: innerHorizontal ? border : nil,
+            innerVertical: innerVertical ? border : nil))
+        _ = try await batchUpdate(spreadsheetId: spreadsheetId, requests: [request])
+    }
+
+    // MARK: - Structure
+
+    /// Merges the cells in an A1 `range`. `mergeType` chooses whether the whole
+    /// range becomes one cell, or each row / column merges on its own. The sheet
+    /// comes from the range's tab name, or the first sheet when it names none.
+    public func mergeCells(
+        spreadsheetId: String,
+        range: String,
+        mergeType: SheetsMergeType
+    ) async throws {
+        let gridRange = try await resolveGridRange(spreadsheetId: spreadsheetId, range: range)
+        _ = try await batchUpdate(
+            spreadsheetId: spreadsheetId,
+            requests: [.mergeCells(MergeCellsRequest(
+                range: gridRange, mergeType: mergeType.rawValue))])
+    }
+
+    /// Splits any merged cells overlapping an A1 `range` back into single cells.
+    public func unmergeCells(
+        spreadsheetId: String,
+        range: String
+    ) async throws {
+        let gridRange = try await resolveGridRange(spreadsheetId: spreadsheetId, range: range)
+        _ = try await batchUpdate(
+            spreadsheetId: spreadsheetId,
+            requests: [.unmergeCells(UnmergeCellsRequest(range: gridRange))])
+    }
+
+    /// Sorts the rows of an A1 `range` by one or more of its columns.
+    ///
+    /// Each ``SheetsSortKey`` names a one-based column within the range; the
+    /// client validates it falls inside the range and translates it to the
+    /// absolute zero-based sheet `dimensionIndex` the API expects. The specs
+    /// apply in order, so the first is the primary sort key.
+    public func sortRange(
+        spreadsheetId: String,
+        range: String,
+        specs: [SheetsSortKey]
+    ) async throws {
+        guard !specs.isEmpty else {
+            throw GrahamError.invalidArgument("provide at least one --by sort column")
+        }
+        // The range width is known from the A1 parse alone, so bad sort columns
+        // are rejected before any metadata read or write.
+        let parsed = try A1Range.parse(range)
+        let width = parsed.endColumnIndex - parsed.startColumnIndex
+        let sortSpecs = try specs.map { key -> SortSpec in
+            guard key.column >= 1, key.column <= width else {
+                throw GrahamError.invalidArgument(
+                    "sort column \(key.column) is outside the range's \(width) column(s)")
+            }
+            return SortSpec(
+                dimensionIndex: parsed.startColumnIndex + (key.column - 1),
+                sortOrder: key.order.rawValue)
+        }
+        let targetSheetId = try await resolveSheetId(
+            spreadsheetId: spreadsheetId, sheetName: parsed.sheetName)
+        let requestRange = gridRange(from: parsed, sheetId: targetSheetId)
+        _ = try await batchUpdate(
+            spreadsheetId: spreadsheetId,
+            requests: [.sortRange(SortRangeRequest(range: requestRange, sortSpecs: sortSpecs))])
+    }
+
+    /// Auto-sizes a span of rows or columns to fit their contents.
+    ///
+    /// `start` and `end` are one-based, inclusive positions (the CLI
+    /// convention); they translate to the API's zero-based, half-open
+    /// ``DimensionRange``. Omit `end` (pass it equal to `start`) to size a
+    /// single row or column.
+    public func autoResizeDimension(
+        spreadsheetId: String,
+        sheetId: Int,
+        dimension: SheetsDimension,
+        start: Int,
+        end: Int
+    ) async throws {
+        guard start >= 1 else {
+            throw GrahamError.invalidArgument("the start position must be one-based (>= 1)")
+        }
+        guard end >= start else {
+            throw GrahamError.invalidArgument("the end position must be at or after the start")
+        }
+        let request = SheetsBatchUpdateRequest.autoResizeDimensions(
+            AutoResizeDimensionsRequest(dimensions: DimensionRange(
+                sheetId: sheetId,
+                dimension: dimension.rawValue,
+                startIndex: start - 1,
+                endIndex: end)))
+        _ = try await batchUpdate(spreadsheetId: spreadsheetId, requests: [request])
+    }
+
+    // MARK: - Named ranges
+
+    /// Defines a named range over an A1 `range` and returns its new id. The
+    /// sheet comes from the range's tab name, or the first sheet when it names
+    /// none.
+    public func addNamedRange(
+        spreadsheetId: String,
+        name: String,
+        range: String
+    ) async throws -> String {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            throw GrahamError.invalidArgument("the named range needs a non-empty name")
+        }
+        let gridRange = try await resolveGridRange(spreadsheetId: spreadsheetId, range: range)
+        let request = SheetsBatchUpdateRequest.addNamedRange(AddNamedRangeRequest(
+            namedRange: NamedRangeRequest(name: trimmedName, range: gridRange)))
+        let response = try await batchUpdate(spreadsheetId: spreadsheetId, requests: [request])
+        guard let id = response.replies?.first?.addNamedRange?.namedRange?.namedRangeId else {
+            throw GrahamError.invalidResponse("addNamedRange returned no namedRangeId")
+        }
+        return id
+    }
+
+    /// Deletes a named range by its id.
+    public func deleteNamedRange(
+        spreadsheetId: String,
+        namedRangeId: String
+    ) async throws {
+        let trimmed = namedRangeId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw GrahamError.invalidArgument("provide the named range id to delete")
+        }
+        _ = try await batchUpdate(
+            spreadsheetId: spreadsheetId,
+            requests: [.deleteNamedRange(DeleteNamedRangeRequest(namedRangeId: trimmed))])
+    }
+
+    /// Lists the named ranges defined on a spreadsheet, read from its metadata.
+    public func namedRanges(spreadsheetId: String) async throws -> [NamedRange] {
+        let metadata = try await spreadsheet(id: spreadsheetId)
+        return metadata.namedRanges ?? []
     }
 }
 

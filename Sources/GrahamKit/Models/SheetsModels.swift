@@ -11,6 +11,7 @@ public struct Spreadsheet: Codable, Sendable {
     public let properties: Properties?
     public let sheets: [Sheet]?
     public let spreadsheetUrl: String?
+    public let namedRanges: [NamedRange]?
 }
 
 /// One sheet (tab) inside a spreadsheet.
@@ -75,6 +76,71 @@ extension Sheet: GrahamRow {
 
     public var idValue: String {
         properties?.sheetId.map(String.init) ?? ""
+    }
+}
+
+/// A named range defined on a spreadsheet, read from `spreadsheets.namedRanges`.
+/// Only the fields graham lists are modeled.
+public struct NamedRange: Codable, Sendable, Equatable {
+    public let namedRangeId: String?
+    public let name: String?
+    public let range: GridRange?
+
+    public init(namedRangeId: String? = nil, name: String? = nil, range: GridRange? = nil) {
+        self.namedRangeId = namedRangeId
+        self.name = name
+        self.range = range
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        namedRangeId = try container.decodeIfPresent(String.self, forKey: .namedRangeId)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        // A named range that spans whole rows or columns omits some GridRange
+        // bounds, which the strict GridRange decode would reject. Tolerate that
+        // partial shape as a nil range rather than failing the whole
+        // spreadsheet metadata decode.
+        range = try? container.decodeIfPresent(GridRange.self, forKey: .range)
+    }
+}
+
+extension NamedRange: GrahamRow {
+    public static var tableColumns: [String] {
+        ["NAMED_RANGE_ID", "NAME", "SHEET_ID", "RANGE"]
+    }
+
+    public var tableValues: [String] {
+        [
+            namedRangeId ?? "",
+            name ?? "",
+            range.map { String($0.sheetId) } ?? "",
+            range.map(Self.a1(_:)) ?? "",
+        ]
+    }
+
+    public var idValue: String {
+        namedRangeId ?? ""
+    }
+
+    /// Renders a zero-based, half-open ``GridRange`` as a bounded A1 range,
+    /// for example `A1:B2`.
+    static func a1(_ range: GridRange) -> String {
+        let lastColumn = max(range.startColumnIndex, range.endColumnIndex - 1)
+        let start = "\(columnLetters(range.startColumnIndex))\(range.startRowIndex + 1)"
+        let end = "\(columnLetters(lastColumn))\(max(range.startRowIndex + 1, range.endRowIndex))"
+        return "\(start):\(end)"
+    }
+
+    /// Converts a zero-based column index to its A1 letters (0 -> A, 26 -> AA).
+    private static func columnLetters(_ index: Int) -> String {
+        var value = max(0, index)
+        var letters = ""
+        repeat {
+            let remainder = value % 26
+            letters = String(UnicodeScalar(UInt8(65 + remainder))) + letters
+            value = value / 26 - 1
+        } while value >= 0
+        return letters
     }
 }
 

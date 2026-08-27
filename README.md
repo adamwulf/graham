@@ -16,10 +16,15 @@ Named after Graham's number — a contrast to the googol that named Google.
   its values (formatted, raw, or as formulas, one range or several at once);
   write cell values from comma rows, a JSON array, or tab-separated stdin; append
   rows after a table; clear a range; add, rename, and delete tabs; freeze rows
-  or columns and resize them; format a range (bold, background, number pattern,
-  alignment); add, update, and delete charts (basic, pie, or combo; on a new
-  sheet or as an overlay) and list them; and run a live end-to-end smoke test of
-  the Sheets command surface; read a document,
+  or columns and resize them; format a range (bold, text and background color,
+  font family and size, number type and pattern, alignment — each set, toggled,
+  or cleared) and draw cell borders; merge and unmerge cells, sort ranges,
+  auto-size dimensions, and name ranges (add, list, delete); add and delete
+  conditional-format rules, set and clear data validation, turn on basic filters
+  and add filter views, and add and delete protected ranges; add, update, move,
+  and delete charts (basic, pie, combo, histogram, scorecard, or candlestick; on
+  a new sheet or as an overlay) and list them; and run a live end-to-end smoke
+  test of the Sheets command surface; read a document,
   render it as Markdown,
   and list its block structure with index ranges; list or download its images;
   create a blank document; and through the shared `documents.batchUpdate` write
@@ -164,15 +169,48 @@ graham sheets freeze <spreadsheet-id> --rows 1 --columns 1
 # Resize rows or columns to a pixel size (--from/--to are one-based inclusive).
 graham sheets resize <spreadsheet-id> --dimension columns --from 1 --to 3 --pixels 120
 # Format a range: bold, a hex background, a number pattern, and/or alignment.
+# Colors write the non-deprecated *ColorStyle. --no-bold turns bold off; the
+# --clear-* flags reset an aspect; --number-type picks DATE/CURRENCY/PERCENT/...
 graham sheets format <spreadsheet-id> "Sheet1!A1:B1" --bold --background "#FFF2CC" --align center
-graham sheets format <spreadsheet-id> "Sheet1!B2:B10" --number-format "#,##0.00"
+graham sheets format <spreadsheet-id> "Sheet1!B2:B10" --number-format "#,##0.00" --number-type currency
+graham sheets format <spreadsheet-id> "Sheet1!A1:B1" --text-color "#202124" --font Roboto --font-size 12
+graham sheets format <spreadsheet-id> "Sheet1!A1:B1" --no-bold --clear-background
+# Draw cell borders: any of --all/--top/--bottom/--left/--right/--inner, one style.
+graham sheets border <spreadsheet-id> "Sheet1!A1:B4" --all --style solid_thick --color "#000000"
+# Merge or unmerge cells (--type merge_all|merge_columns|merge_rows).
+graham sheets merge <spreadsheet-id> "Sheet1!A1:C1" --type merge_columns
+graham sheets unmerge <spreadsheet-id> "Sheet1!A1:C1"
+# Sort a range by one or more one-based columns (append :asc or :desc).
+graham sheets sort <spreadsheet-id> "Sheet1!A2:D20" --by 2:desc --by 1
+# Auto-size rows or columns to their content (one-based; omit the selector for the first sheet).
+graham sheets autoresize <spreadsheet-id> --dimension columns --from 1 --to 3
+# Name a range, list the named ranges, or delete one by id.
+graham sheets named-range add <spreadsheet-id> "Totals" "Sheet1!A1:B10"
+graham sheets named-range list <spreadsheet-id>
+graham sheets named-range delete <spreadsheet-id> --named-range-id abc123
+# Highlight cells that match a condition, or delete a rule by its zero-based index.
+graham sheets conditional-format add <spreadsheet-id> "Sheet1!A2:A100" --type NUMBER_GREATER --value 10 --background "#FFCC00"
+graham sheets conditional-format delete <spreadsheet-id> --index 0 --sheet "Sheet1"
+# Restrict cell input, optionally with an in-cell dropdown; clear it again.
+graham sheets validation set <spreadsheet-id> "Sheet1!B2:B100" --type ONE_OF_LIST --value yes --value no --dropdown
+graham sheets validation clear <spreadsheet-id> "Sheet1!B2:B100"
+# Turn on a basic filter over a range, add a saved filter view, or clear the filter.
+graham sheets filter set <spreadsheet-id> "Sheet1!A1:D100"
+graham sheets filter-view add <spreadsheet-id> "Sheet1!A1:D100" --title "High priority"
+graham sheets filter clear <spreadsheet-id> --sheet "Sheet1"
+# Protect a range (prints its id); --warning-only warns instead of blocking edits.
+graham sheets protect add <spreadsheet-id> "Sheet1!A1:D10" --description "Locked"
+graham sheets protect delete <spreadsheet-id> --protected-range-id 42
 # Add a chart and print the chart id; pass it to `slides create chart --chart-id`.
+# --kind selects: column/bar/line/area/scatter/combo/pie/histogram/scorecard/candlestick.
 graham sheets chart add <spreadsheet-id> --range "Sheet1!A1:B3" --title "Sales" --type column
+graham sheets chart add <spreadsheet-id> --range "Sheet1!A1:E20" --kind candlestick
 # A pie chart, or an overlay chart floated over a sheet at an anchor cell.
 graham sheets chart add <spreadsheet-id> --range "Sheet1!A1:B7" --pie
 graham sheets chart add <spreadsheet-id> --range "Sheet1!A1:B7" --anchor "Sheet1!D2" --width 400 --height 300
-# Replace a chart's spec, or delete a chart, by its numeric id.
+# Replace a chart's spec, move it to an anchor or its own sheet, or delete it.
 graham sheets chart update <spreadsheet-id> --chart-id 12345 --range "Sheet1!A1:C7" --type line
+graham sheets chart move <spreadsheet-id> --chart-id 12345 --anchor "Sheet2!D2" --width 300 --height 200
 graham sheets chart delete <spreadsheet-id> --chart-id 12345
 # Exercise the live Sheets API surface (a value write and read-back, metadata,
 # and a chart add) inside the root-level "graham test" folder. The spreadsheet
