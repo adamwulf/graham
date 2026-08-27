@@ -11,7 +11,7 @@ struct Docs: AsyncParsableCommand {
             Unbullet.self, Table.self, Images.self, PageBreak.self, Image.self,
             SectionBreak.self, Header.self, Footer.self, Footnote.self,
             NamedRange.self, PageSetup.self, SectionStyle.self, NamedStyle.self,
-            Test.self,
+            Chip.self, Test.self,
         ]
     )
 
@@ -2589,6 +2589,166 @@ struct Docs: AsyncParsableCommand {
             print("Redefined the \(style.namedStyleType) named style.")
         }
     }
+
+    struct Chip: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "chip",
+            abstract: "Insert a smart chip: a person, a rich link, or a date.",
+            subcommands: [Person.self, RichLink.self, DateChip.self]
+        )
+
+        /// Shared insert-target check: exactly one of --at or --end.
+        static func validateInsertTarget(at: Int?, end: Bool) throws {
+            if end && at != nil {
+                throw ValidationError(
+                    "Pass either --at <index> or --end, not both: --end appends to the "
+                    + "end of the segment and takes no index.")
+            }
+            guard end || at != nil else {
+                throw ValidationError(
+                    "Provide --at <index>, or pass --end to append to the end of the segment.")
+            }
+        }
+
+        struct Person: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Insert a person smart chip (an email, with an optional name)."
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "The person's email (required).")
+            var email: String
+
+            @Option(help: "An optional display name.")
+            var name: String?
+
+            @Option(help: "Zero-based UTF-16 index to insert at (min 1 in the body, 0 in a segment). Not needed with --end.")
+            var at: Int?
+
+            @Flag(help: "Append to the end of the segment (or body). Mutually exclusive with --at.")
+            var end = false
+
+            @Option(help: "A header, footer, or footnote segment id. Omit for the body.")
+            var segment: String?
+
+            @Option(help: "Scope to one tab by its id. Omit for a document with no explicit tabs.")
+            var tabId: String?
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func validate() throws { try Chip.validateInsertTarget(at: at, end: end) }
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                _ = try await client.insertPerson(
+                    documentId: documentID, email: email, name: name,
+                    index: at ?? 1, segmentId: segment, endOfSegment: end, tabId: tabId,
+                    requiredRevisionId: requireRevision)
+                print("Inserted a person chip for \(email).")
+            }
+        }
+
+        struct RichLink: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "rich-link",
+                abstract: "Insert a rich-link smart chip from a Drive/YouTube/Calendar URI."
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "The link URI (required).")
+            var uri: String
+
+            @Option(help: "An optional title (the API otherwise fetches it).")
+            var title: String?
+
+            @Option(help: "An optional MIME type hint.")
+            var mimeType: String?
+
+            @Option(help: "Zero-based UTF-16 index to insert at (min 1 in the body, 0 in a segment). Not needed with --end.")
+            var at: Int?
+
+            @Flag(help: "Append to the end of the segment (or body). Mutually exclusive with --at.")
+            var end = false
+
+            @Option(help: "A header, footer, or footnote segment id. Omit for the body.")
+            var segment: String?
+
+            @Option(help: "Scope to one tab by its id. Omit for a document with no explicit tabs.")
+            var tabId: String?
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func validate() throws { try Chip.validateInsertTarget(at: at, end: end) }
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                _ = try await client.insertRichLink(
+                    documentId: documentID, uri: uri, title: title, mimeType: mimeType,
+                    index: at ?? 1, segmentId: segment, endOfSegment: end, tabId: tabId,
+                    requiredRevisionId: requireRevision)
+                print("Inserted a rich-link chip for \(uri).")
+            }
+        }
+
+        struct DateChip: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "date",
+                abstract: "Insert a date smart chip from an RFC 3339 timestamp."
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "The timestamp, an RFC 3339 date-time like 2026-08-27T00:00:00Z (required).")
+            var timestamp: String
+
+            @Option(help: "An optional BCP-47 locale, such as en-US.")
+            var locale: String?
+
+            @Option(help: "An optional IANA time zone id, such as America/Chicago.")
+            var timeZone: String?
+
+            @Option(help: "The date format: month-day-abbrev, month-day-full, month-day-year-abbrev, or iso8601.")
+            var dateFormat: DocsDateFormatArgument?
+
+            @Option(help: "The time format: disabled, hour-minute, or hour-minute-tz.")
+            var timeFormat: DocsTimeFormatArgument?
+
+            @Option(help: "Zero-based UTF-16 index to insert at (min 1 in the body, 0 in a segment). Not needed with --end.")
+            var at: Int?
+
+            @Flag(help: "Append to the end of the segment (or body). Mutually exclusive with --at.")
+            var end = false
+
+            @Option(help: "A header, footer, or footnote segment id. Omit for the body.")
+            var segment: String?
+
+            @Option(help: "Scope to one tab by its id. Omit for a document with no explicit tabs.")
+            var tabId: String?
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func validate() throws { try Chip.validateInsertTarget(at: at, end: end) }
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                _ = try await client.insertDate(
+                    documentId: documentID, timestamp: timestamp,
+                    locale: locale, timeZoneId: timeZone,
+                    dateFormat: dateFormat?.dateFormat, timeFormat: timeFormat?.timeFormat,
+                    index: at ?? 1, segmentId: segment, endOfSegment: end, tabId: tabId,
+                    requiredRevisionId: requireRevision)
+                print("Inserted a date chip.")
+            }
+        }
+    }
 }
 
 // MARK: - Docs styling argument enums
@@ -2720,6 +2880,43 @@ enum DocsColumnSeparatorArgument: String, ExpressibleByArgument {
         switch self {
         case .none: return .none
         case .between: return .betweenEachColumn
+        }
+    }
+}
+
+/// CLI-facing date-chip date-format names, lower-kebab, mapping to the API
+/// ``DocsDateFormat``. The custom format needs a pattern the API exposes no
+/// field for, so it is not offered.
+enum DocsDateFormatArgument: String, ExpressibleByArgument {
+    case monthDayAbbrev = "month-day-abbrev"
+    case monthDayFull = "month-day-full"
+    case monthDayYearAbbrev = "month-day-year-abbrev"
+    case iso8601
+
+    /// The Docs API date format this argument maps to.
+    var dateFormat: DocsDateFormat {
+        switch self {
+        case .monthDayAbbrev: return .monthDayAbbreviated
+        case .monthDayFull: return .monthDayFull
+        case .monthDayYearAbbrev: return .monthDayYearAbbreviated
+        case .iso8601: return .iso8601
+        }
+    }
+}
+
+/// CLI-facing date-chip time-format names, lower-kebab, mapping to the API
+/// ``DocsTimeFormat``. `disabled` hides the time-of-day.
+enum DocsTimeFormatArgument: String, ExpressibleByArgument {
+    case disabled
+    case hourMinute = "hour-minute"
+    case hourMinuteTz = "hour-minute-tz"
+
+    /// The Docs API time format this argument maps to.
+    var timeFormat: DocsTimeFormat {
+        switch self {
+        case .disabled: return .disabled
+        case .hourMinute: return .hourMinute
+        case .hourMinuteTz: return .hourMinuteTimezone
         }
     }
 }

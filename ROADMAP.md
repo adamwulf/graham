@@ -64,11 +64,10 @@ encoded body, decoded reply, error propagation), then a thin subcommand in
   `Tab`/`DocumentTab` model, and tab-aware `blockRows`. Also surface
   `tabsCriteria` on `replaceAllText` and the named-range operations, and `tabId`
   on locations, once tabs are modeled.
-- **`insertPerson`** *(advanced)* — insert a person smart chip (email required).
-- **`insertRichLink`** *(advanced)* — insert a Drive/YouTube/Calendar smart chip
-  from a URI.
-- **`insertDate`** *(advanced)* — insert a date smart chip (timestamp, locale,
-  date and time format enums).
+- **`insertPerson` / `insertRichLink` / `insertDate`** — built as
+  `docs chip person|rich-link|date` (each inserts at a zero-based `--at` index or
+  the segment end `--end`, with `--segment` and `--tab-id`). The date chip's
+  `DATE_FORMAT_CUSTOM` (no pattern field) and the read-only `displayText` are out.
 - **Suggestions-aware reads** *(advanced)* — the `suggested*` fields and
   `suggestionsViewMode` render modes; skip until a real need appears.
 

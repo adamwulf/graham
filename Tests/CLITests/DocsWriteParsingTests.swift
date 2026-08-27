@@ -148,4 +148,76 @@ final class DocsWriteParsingTests: XCTestCase {
         XCTAssertThrowsError(try Docs.Replace.parse(["doc-1", "--find", "old"]))
         XCTAssertThrowsError(try Docs.Replace.parse(["doc-1", "--replace", "new"]))
     }
+
+    // MARK: - docs chip
+
+    func testDocsRegistersChipSubcommand() {
+        let names = Docs.configuration.subcommands.map { String(describing: $0) }
+        XCTAssertTrue(names.contains("Chip"), "docs should list a Chip subcommand: \(names)")
+        let chipNames = Docs.Chip.configuration.subcommands.map { String(describing: $0) }
+        for expected in ["Person", "RichLink", "DateChip"] {
+            XCTAssertTrue(chipNames.contains(expected), "chip should list \(expected): \(chipNames)")
+        }
+    }
+
+    func testChipPersonParsesEmailNameAndTarget() throws {
+        let command = try Docs.Chip.Person.parse([
+            "doc-1", "--email", "a@b.com", "--name", "Ada", "--at", "5",
+            "--segment", "h.0", "--tab-id", "t.0",
+        ])
+        XCTAssertEqual(command.documentID, "doc-1")
+        XCTAssertEqual(command.email, "a@b.com")
+        XCTAssertEqual(command.name, "Ada")
+        XCTAssertEqual(command.at, 5)
+        XCTAssertEqual(command.segment, "h.0")
+        XCTAssertEqual(command.tabId, "t.0")
+        XCTAssertFalse(command.end)
+    }
+
+    func testChipPersonRequiresEmailAndExactlyOneTarget() {
+        // --email is required.
+        XCTAssertThrowsError(try Docs.Chip.Person.parse(["doc-1", "--at", "1"]))
+        // Neither --at nor --end.
+        XCTAssertThrowsError(try Docs.Chip.Person.parse(["doc-1", "--email", "a@b.com"]))
+        // Both --at and --end.
+        XCTAssertThrowsError(try Docs.Chip.Person.parse([
+            "doc-1", "--email", "a@b.com", "--at", "1", "--end",
+        ]))
+    }
+
+    func testChipRichLinkParsesUriTitleAndMime() throws {
+        let command = try Docs.Chip.RichLink.parse([
+            "doc-1", "--uri", "https://drive.google.com/x",
+            "--title", "Doc", "--mime-type", "application/pdf", "--end",
+        ])
+        XCTAssertEqual(command.uri, "https://drive.google.com/x")
+        XCTAssertEqual(command.title, "Doc")
+        XCTAssertEqual(command.mimeType, "application/pdf")
+        XCTAssertTrue(command.end)
+    }
+
+    func testChipRichLinkRequiresUri() {
+        XCTAssertThrowsError(try Docs.Chip.RichLink.parse(["doc-1", "--end"]))
+    }
+
+    func testChipDateParsesTimestampFormatsAndLocale() throws {
+        let command = try Docs.Chip.DateChip.parse([
+            "doc-1", "--timestamp", "2026-08-27T00:00:00Z",
+            "--locale", "en-US", "--time-zone", "America/Chicago",
+            "--date-format", "iso8601", "--time-format", "disabled", "--at", "2",
+        ])
+        XCTAssertEqual(command.timestamp, "2026-08-27T00:00:00Z")
+        XCTAssertEqual(command.locale, "en-US")
+        XCTAssertEqual(command.timeZone, "America/Chicago")
+        XCTAssertEqual(command.dateFormat, .iso8601)
+        XCTAssertEqual(command.timeFormat, .disabled)
+        XCTAssertEqual(command.at, 2)
+    }
+
+    func testChipDateRequiresTimestampAndRejectsBadFormat() {
+        XCTAssertThrowsError(try Docs.Chip.DateChip.parse(["doc-1", "--at", "1"]))
+        XCTAssertThrowsError(try Docs.Chip.DateChip.parse([
+            "doc-1", "--timestamp", "2026-08-27T00:00:00Z", "--date-format", "weekday", "--at", "1",
+        ]))
+    }
 }

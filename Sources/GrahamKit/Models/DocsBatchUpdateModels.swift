@@ -104,6 +104,12 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
     /// Redefines a named style (e.g. `HEADING_2`) document-wide; the `fields`
     /// mask must include `namedStyleType` so the API knows which style applies.
     case updateNamedStyle(DocsUpdateNamedStyleRequest)
+    /// Inserts a person smart chip (an email, with an optional display name).
+    case insertPerson(DocsInsertPersonRequest)
+    /// Inserts a rich-link smart chip (a Drive/YouTube/Calendar URI).
+    case insertRichLink(DocsInsertRichLinkRequest)
+    /// Inserts a date smart chip (a timestamp with optional format).
+    case insertDate(DocsInsertDateRequest)
 
     private enum CodingKeys: String, CodingKey {
         case insertText
@@ -139,6 +145,9 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
         case updateDocumentStyle
         case updateSectionStyle
         case updateNamedStyle
+        case insertPerson
+        case insertRichLink
+        case insertDate
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -210,6 +219,12 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
             try container.encode(request, forKey: .updateSectionStyle)
         case .updateNamedStyle(let request):
             try container.encode(request, forKey: .updateNamedStyle)
+        case .insertPerson(let request):
+            try container.encode(request, forKey: .insertPerson)
+        case .insertRichLink(let request):
+            try container.encode(request, forKey: .insertRichLink)
+        case .insertDate(let request):
+            try container.encode(request, forKey: .insertDate)
         }
     }
 }
@@ -1787,6 +1802,149 @@ public struct DocsUpdateNamedStyleRequest: Codable, Sendable, Equatable {
         self.namedStyle = namedStyle
         self.fields = fields
         self.tabId = tabId
+    }
+}
+
+// MARK: - Smart chips
+
+/// The properties of a person smart chip: the linked `email` (required) and an
+/// optional display `name`.
+public struct DocsPersonProperties: Codable, Sendable, Equatable {
+    public let email: String
+    public let name: String?
+
+    public init(email: String, name: String? = nil) {
+        self.email = email
+        self.name = name
+    }
+}
+
+/// The `insertPerson` operation. Exactly one of `location` or
+/// `endOfSegmentLocation` is set (each dedicated init sets one), so a
+/// dual-target body is unrepresentable.
+public struct DocsInsertPersonRequest: Codable, Sendable, Equatable {
+    public let personProperties: DocsPersonProperties
+    public let location: DocsLocation?
+    public let endOfSegmentLocation: DocsEndOfSegmentLocation?
+
+    public init(personProperties: DocsPersonProperties, location: DocsLocation) {
+        self.personProperties = personProperties
+        self.location = location
+        self.endOfSegmentLocation = nil
+    }
+
+    public init(
+        personProperties: DocsPersonProperties,
+        endOfSegmentLocation: DocsEndOfSegmentLocation
+    ) {
+        self.personProperties = personProperties
+        self.location = nil
+        self.endOfSegmentLocation = endOfSegmentLocation
+    }
+}
+
+/// The properties of a rich-link smart chip (a Drive file, YouTube video, or
+/// Calendar event): the `uri` (required) and an optional `title` and
+/// `mimeType`. The API fetches the link's metadata at insertion time.
+public struct DocsRichLinkProperties: Codable, Sendable, Equatable {
+    public let uri: String
+    public let title: String?
+    public let mimeType: String?
+
+    public init(uri: String, title: String? = nil, mimeType: String? = nil) {
+        self.uri = uri
+        self.title = title
+        self.mimeType = mimeType
+    }
+}
+
+/// The `insertRichLink` operation. Exactly one of `location` or
+/// `endOfSegmentLocation` is set.
+public struct DocsInsertRichLinkRequest: Codable, Sendable, Equatable {
+    public let richLinkProperties: DocsRichLinkProperties
+    public let location: DocsLocation?
+    public let endOfSegmentLocation: DocsEndOfSegmentLocation?
+
+    public init(richLinkProperties: DocsRichLinkProperties, location: DocsLocation) {
+        self.richLinkProperties = richLinkProperties
+        self.location = location
+        self.endOfSegmentLocation = nil
+    }
+
+    public init(
+        richLinkProperties: DocsRichLinkProperties,
+        endOfSegmentLocation: DocsEndOfSegmentLocation
+    ) {
+        self.richLinkProperties = richLinkProperties
+        self.location = nil
+        self.endOfSegmentLocation = endOfSegmentLocation
+    }
+}
+
+/// A Docs v1 `DateElementProperties.dateFormat`: how a date smart chip renders
+/// its date. The `DATE_FORMAT_CUSTOM` value needs a custom pattern the API does
+/// not expose a field for, so it is intentionally omitted.
+public enum DocsDateFormat: String, Codable, Sendable, Equatable {
+    case monthDayAbbreviated = "DATE_FORMAT_MONTH_DAY_ABBREVIATED"
+    case monthDayFull = "DATE_FORMAT_MONTH_DAY_FULL"
+    case monthDayYearAbbreviated = "DATE_FORMAT_MONTH_DAY_YEAR_ABBREVIATED"
+    case iso8601 = "DATE_FORMAT_ISO8601"
+}
+
+/// A Docs v1 `DateElementProperties.timeFormat`: how a date smart chip renders
+/// the time-of-day (or `DISABLED` to omit it).
+public enum DocsTimeFormat: String, Codable, Sendable, Equatable {
+    case disabled = "TIME_FORMAT_DISABLED"
+    case hourMinute = "TIME_FORMAT_HOUR_MINUTE"
+    case hourMinuteTimezone = "TIME_FORMAT_HOUR_MINUTE_TIMEZONE"
+}
+
+/// The properties of a date smart chip: the `timestamp` (required, an RFC 3339
+/// date-time), an optional `locale` and `timeZoneId`, and optional date and
+/// time format enums. The read-only `displayText` (the rendered string the
+/// server computes) is not set here.
+public struct DocsDateElementProperties: Codable, Sendable, Equatable {
+    public let timestamp: String
+    public let locale: String?
+    public let timeZoneId: String?
+    public let dateFormat: DocsDateFormat?
+    public let timeFormat: DocsTimeFormat?
+
+    public init(
+        timestamp: String,
+        locale: String? = nil,
+        timeZoneId: String? = nil,
+        dateFormat: DocsDateFormat? = nil,
+        timeFormat: DocsTimeFormat? = nil
+    ) {
+        self.timestamp = timestamp
+        self.locale = locale
+        self.timeZoneId = timeZoneId
+        self.dateFormat = dateFormat
+        self.timeFormat = timeFormat
+    }
+}
+
+/// The `insertDate` operation. Exactly one of `location` or
+/// `endOfSegmentLocation` is set.
+public struct DocsInsertDateRequest: Codable, Sendable, Equatable {
+    public let dateElementProperties: DocsDateElementProperties
+    public let location: DocsLocation?
+    public let endOfSegmentLocation: DocsEndOfSegmentLocation?
+
+    public init(dateElementProperties: DocsDateElementProperties, location: DocsLocation) {
+        self.dateElementProperties = dateElementProperties
+        self.location = location
+        self.endOfSegmentLocation = nil
+    }
+
+    public init(
+        dateElementProperties: DocsDateElementProperties,
+        endOfSegmentLocation: DocsEndOfSegmentLocation
+    ) {
+        self.dateElementProperties = dateElementProperties
+        self.location = nil
+        self.endOfSegmentLocation = endOfSegmentLocation
     }
 }
 

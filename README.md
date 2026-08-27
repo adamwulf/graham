@@ -42,8 +42,9 @@ Named after Graham's number — a contrast to the googol that named Google.
   (page size, margins, first-page and even-page header/footer flags, background,
   and page mode), set the style of the sections a range overlaps (margins, page
   numbering, direction, and column separator), redefine a named style
-  (HEADING_2, TITLE, ...) document-wide, and run a live end-to-end smoke
-  test of the complete Docs command surface.
+  (HEADING_2, TITLE, ...) document-wide, insert smart chips (a person, a rich
+  link, or a date), and run a live end-to-end smoke test of the complete Docs
+  command surface.
 - **Slides** — read presentation text; list every page element with its type,
   geometry, text, links, and alt text; list or download every image, including
   images nested in groups; add, move, and delete slides through the shared
@@ -371,6 +372,13 @@ graham docs section-style <document-id> --from 1 --to 20 --column-separator betw
 # is required. --tab-id scopes the change to one tab.
 graham docs named-style <document-id> --style heading-2 --bold --color "#1155CC" --size 18 --font Arial
 graham docs named-style <document-id> --style normal-text --line-spacing 150 --align justified
+# Insert a smart chip: a person (email + optional name), a rich link (a
+# Drive/YouTube/Calendar URI), or a date (an RFC 3339 timestamp). Each inserts at
+# a zero-based --at index or the end of the segment (--end); --segment and --tab-id
+# scope the target.
+graham docs chip person <document-id> --email person@example.com --name "A. Person" --at 1
+graham docs chip rich-link <document-id> --uri https://drive.google.com/file/d/ID --end
+graham docs chip date <document-id> --timestamp 2026-08-27T00:00:00Z --date-format month-day-year-abbrev --at 1
 # Exercise the complete live Docs API surface inside the root-level "graham test" folder.
 # The run creates a disposable document and exercises text, styling, lists, tables,
 # images, headers/footers/footnotes, named ranges, and page setup.
