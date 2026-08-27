@@ -44,16 +44,12 @@ final class DocsTabsReadTests: XCTestCase {
         try GoogleJSON.decoder.decode(Document.self, from: Data(Self.tabbedJSON.utf8))
     }
 
-    private func makeClient(transport: StubTransport) -> DocsClient {
-        transport.stubTokenEndpoint()
-        return DocsClient(api: TestSupport.makeAPI(transport: transport))
-    }
 
     // MARK: - includeTabsContent query
 
     func testDocumentWithTabsContentAddsQueryAndDecodesTabs() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: "/documents/doc-1", json: Self.tabbedJSON)
 
         let document = try await client.document(id: "doc-1", includeTabsContent: true)
@@ -67,7 +63,7 @@ final class DocsTabsReadTests: XCTestCase {
 
     func testDocumentWithoutTabsContentOmitsTheQuery() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: "/documents/doc-1", json: #"{"documentId":"doc-1"}"#)
 
         _ = try await client.document(id: "doc-1")

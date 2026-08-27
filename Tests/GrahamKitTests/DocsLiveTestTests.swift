@@ -76,13 +76,13 @@ final class DocsLiveTestTests: XCTestCase {
         // The write path was exercised for real: the seed insert carried the
         // markers, the table was created, and one write carried a revision id.
         XCTAssertTrue(fixture.batchRequests.contains {
-            fixture.bodyString($0).contains("graham heading")
+            TestSupport.bodyString($0).contains("graham heading")
         })
         XCTAssertTrue(fixture.batchRequests.contains {
-            fixture.bodyString($0).contains(#""insertTable""#)
+            TestSupport.bodyString($0).contains(#""insertTable""#)
         })
         XCTAssertTrue(fixture.batchRequests.contains {
-            let body = fixture.bodyString($0)
+            let body = TestSupport.bodyString($0)
             return body.contains(#""writeControl""#) && body.contains(#""requiredRevisionId""#)
         })
         // The folder-parented document is trashed in cleanup.
@@ -420,9 +420,6 @@ private final class DocsLiveFixture: @unchecked Sendable {
         )
     }
 
-    func bodyString(_ request: HTTPRequest) -> String {
-        request.body.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-    }
 
     func createBody(_ request: HTTPRequest) -> DriveFileCreateRequest? {
         request.body.flatMap {

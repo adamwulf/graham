@@ -5,11 +5,7 @@ import XCTest
 /// data validation, basic filters and filter views, and protected ranges. Each
 /// operation asserts its exact encoded batch-update body, the id-returning ops
 /// assert reply decoding, and the guarded inputs assert no request is sent.
-final class SheetsDataToolingWriteTests: XCTestCase {
-    private func makeClient(transport: StubTransport) -> SheetsClient {
-        transport.stubTokenEndpoint()
-        return SheetsClient(api: TestSupport.makeAPI(transport: transport))
-    }
+final class SheetsDataToolingWriteTests: GrahamTestCase {
 
     // MARK: - Shared boolean condition
 
@@ -25,16 +21,16 @@ final class SheetsDataToolingWriteTests: XCTestCase {
 
     func testBooleanConditionMakeValidatesValueArity() {
         // Zero-value types reject any values.
-        assertInvalidArgument { _ = try SheetsBooleanCondition.make(type: .blank, values: ["x"]) }
-        assertInvalidArgument { _ = try SheetsBooleanCondition.make(type: .notBlank, values: ["x"]) }
+        assertInvalidArgumentSync { _ = try SheetsBooleanCondition.make(type: .blank, values: ["x"]) }
+        assertInvalidArgumentSync { _ = try SheetsBooleanCondition.make(type: .notBlank, values: ["x"]) }
         // *_BETWEEN types need exactly two values.
-        assertInvalidArgument { _ = try SheetsBooleanCondition.make(type: .numberBetween, values: ["1"]) }
-        assertInvalidArgument {
+        assertInvalidArgumentSync { _ = try SheetsBooleanCondition.make(type: .numberBetween, values: ["1"]) }
+        assertInvalidArgumentSync {
             _ = try SheetsBooleanCondition.make(type: .numberNotBetween, values: ["1", "2", "3"])
         }
         // Otherwise at least one value is required.
-        assertInvalidArgument { _ = try SheetsBooleanCondition.make(type: .numberGreater, values: []) }
-        assertInvalidArgument { _ = try SheetsBooleanCondition.make(type: .textContains, values: []) }
+        assertInvalidArgumentSync { _ = try SheetsBooleanCondition.make(type: .numberGreater, values: []) }
+        assertInvalidArgumentSync { _ = try SheetsBooleanCondition.make(type: .textContains, values: []) }
     }
 
     func testBooleanConditionMakeAllowsValidCounts() throws {
@@ -47,7 +43,7 @@ final class SheetsDataToolingWriteTests: XCTestCase {
 
     func testAddConditionalFormatRuleEncodesBooleanRuleAndResolvesSheet() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(5, "Data")])
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
@@ -65,14 +61,14 @@ final class SheetsDataToolingWriteTests: XCTestCase {
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(request.method, "POST")
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"addConditionalFormatRule":{"index":2,"rule":{"booleanRule":{"condition":{"type":"NUMBER_GREATER","values":[{"userEnteredValue":"10"}]},"format":{"backgroundColorStyle":{"rgbColor":{"blue":0,"green":0,"red":1}}}},"ranges":[{"endColumnIndex":1,"endRowIndex":100,"sheetId":5,"startColumnIndex":0,"startRowIndex":1}]}}}]}"#
         )
     }
 
     func testAddConditionalFormatRuleBetweenEncodesTwoValues() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(5, "Data")])
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
@@ -83,7 +79,7 @@ final class SheetsDataToolingWriteTests: XCTestCase {
             values: ["1", "10"],
             backgroundColor: try SheetsColor.parse("#00FF00"))
 
-        let body = Self.bodyString(try XCTUnwrap(
+        let body = TestSupport.bodyString(try XCTUnwrap(
             transport.requests(urlContains: ":batchUpdate").first))
         XCTAssertTrue(body.contains(#""type":"NUMBER_BETWEEN""#), "unexpected body: \(body)")
         XCTAssertTrue(
@@ -95,22 +91,22 @@ final class SheetsDataToolingWriteTests: XCTestCase {
 
     func testAddConditionalFormatRuleValidatesInputWithoutWriting() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
 
         // Wrong value counts, and a negative index, all fail before any request.
-        await assertInvalidArgumentAsync {
+        await assertInvalidArgument {
             try await client.addConditionalFormatRule(
                 spreadsheetId: "sheet-1", range: "Data!A2:A100",
                 type: .numberGreater, values: [],
                 backgroundColor: try SheetsColor.parse("#FF0000"))
         }
-        await assertInvalidArgumentAsync {
+        await assertInvalidArgument {
             try await client.addConditionalFormatRule(
                 spreadsheetId: "sheet-1", range: "Data!A2:A100",
                 type: .blank, values: ["x"],
                 backgroundColor: try SheetsColor.parse("#FF0000"))
         }
-        await assertInvalidArgumentAsync {
+        await assertInvalidArgument {
             try await client.addConditionalFormatRule(
                 spreadsheetId: "sheet-1", range: "Data!A2:A100",
                 type: .numberGreater, values: ["1"],
@@ -123,16 +119,16 @@ final class SheetsDataToolingWriteTests: XCTestCase {
 
     func testInterpolationPointMakeValidatesValueArity() throws {
         // MIN/MAX read the range's own extreme and reject a value.
-        assertInvalidArgument {
+        assertInvalidArgumentSync {
             _ = try InterpolationPoint.make(
                 color: try SheetsColor.parse("#000000"), type: .min, value: "5")
         }
         // NUMBER/PERCENT/PERCENTILE each need a value.
-        assertInvalidArgument {
+        assertInvalidArgumentSync {
             _ = try InterpolationPoint.make(
                 color: try SheetsColor.parse("#000000"), type: .percent, value: nil)
         }
-        assertInvalidArgument {
+        assertInvalidArgumentSync {
             _ = try InterpolationPoint.make(
                 color: try SheetsColor.parse("#000000"), type: .number, value: "   ")
         }
@@ -151,7 +147,7 @@ final class SheetsDataToolingWriteTests: XCTestCase {
 
     func testAddGradientConditionalFormatRuleEncodesThreePointsAndResolvesSheet() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(5, "Data")])
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
@@ -168,14 +164,14 @@ final class SheetsDataToolingWriteTests: XCTestCase {
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(request.method, "POST")
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"addConditionalFormatRule":{"index":0,"rule":{"gradientRule":{"maxpoint":{"colorStyle":{"rgbColor":{"blue":0,"green":0,"red":1}},"type":"MAX"},"midpoint":{"colorStyle":{"rgbColor":{"blue":1,"green":1,"red":1}},"type":"PERCENT","value":"50"},"minpoint":{"colorStyle":{"rgbColor":{"blue":1,"green":0,"red":0}},"type":"MIN"}},"ranges":[{"endColumnIndex":1,"endRowIndex":10,"sheetId":5,"startColumnIndex":0,"startRowIndex":0}]}}}]}"#
         )
     }
 
     func testAddGradientConditionalFormatRuleTwoColorOmitsMidpoint() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(5, "Data")])
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
@@ -187,7 +183,7 @@ final class SheetsDataToolingWriteTests: XCTestCase {
             maxColor: try SheetsColor.parse("#FF0000"), maxType: .max, maxValue: nil,
             index: 3)
 
-        let body = Self.bodyString(try XCTUnwrap(
+        let body = TestSupport.bodyString(try XCTUnwrap(
             transport.requests(urlContains: ":batchUpdate").first))
         XCTAssertFalse(body.contains("midpoint"), "two-color scale should omit the midpoint: \(body)")
         XCTAssertTrue(body.contains(#""index":3"#), "unexpected body: \(body)")
@@ -196,10 +192,10 @@ final class SheetsDataToolingWriteTests: XCTestCase {
 
     func testAddGradientConditionalFormatRuleValidatesPointsAndIndexWithoutWriting() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
 
         // A NUMBER stop with no value fails before any request.
-        await assertInvalidArgumentAsync {
+        await assertInvalidArgument {
             try await client.addGradientConditionalFormatRule(
                 spreadsheetId: "sheet-1", range: "Data!A1:A10",
                 minColor: try SheetsColor.parse("#FFFFFF"), minType: .number, minValue: nil,
@@ -207,7 +203,7 @@ final class SheetsDataToolingWriteTests: XCTestCase {
                 maxColor: try SheetsColor.parse("#FF0000"), maxType: .max, maxValue: nil)
         }
         // A MAX stop given a value fails.
-        await assertInvalidArgumentAsync {
+        await assertInvalidArgument {
             try await client.addGradientConditionalFormatRule(
                 spreadsheetId: "sheet-1", range: "Data!A1:A10",
                 minColor: try SheetsColor.parse("#FFFFFF"), minType: .min, minValue: nil,
@@ -215,7 +211,7 @@ final class SheetsDataToolingWriteTests: XCTestCase {
                 maxColor: try SheetsColor.parse("#FF0000"), maxType: .max, maxValue: "9")
         }
         // A MIN/MAX midpoint is rejected.
-        await assertInvalidArgumentAsync {
+        await assertInvalidArgument {
             try await client.addGradientConditionalFormatRule(
                 spreadsheetId: "sheet-1", range: "Data!A1:A10",
                 minColor: try SheetsColor.parse("#FFFFFF"), minType: .min, minValue: nil,
@@ -223,7 +219,7 @@ final class SheetsDataToolingWriteTests: XCTestCase {
                 maxColor: try SheetsColor.parse("#FF0000"), maxType: .max, maxValue: nil)
         }
         // A negative index is rejected.
-        await assertInvalidArgumentAsync {
+        await assertInvalidArgument {
             try await client.addGradientConditionalFormatRule(
                 spreadsheetId: "sheet-1", range: "Data!A1:A10",
                 minColor: try SheetsColor.parse("#FFFFFF"), minType: .min, minValue: nil,
@@ -236,14 +232,14 @@ final class SheetsDataToolingWriteTests: XCTestCase {
 
     func testDeleteConditionalFormatRuleEncodesSheetIdAndIndexWithoutReadingMetadata() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         try await client.deleteConditionalFormatRule(spreadsheetId: "sheet-1", sheetId: 5, index: 1)
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"deleteConditionalFormatRule":{"index":1,"sheetId":5}}]}"#)
         // Deleting by id needs no metadata fetch.
         XCTAssertTrue(transport.requests(urlContains: "/spreadsheets/sheet-1?").isEmpty)
@@ -251,9 +247,9 @@ final class SheetsDataToolingWriteTests: XCTestCase {
 
     func testDeleteConditionalFormatRuleRejectsNegativeIndexWithoutWriting() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
 
-        await assertInvalidArgumentAsync {
+        await assertInvalidArgument {
             try await client.deleteConditionalFormatRule(
                 spreadsheetId: "sheet-1", sheetId: 5, index: -1)
         }
@@ -264,7 +260,7 @@ final class SheetsDataToolingWriteTests: XCTestCase {
 
     func testSetDataValidationEncodesConditionAndOptions() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(8, "Data")])
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
@@ -280,14 +276,14 @@ final class SheetsDataToolingWriteTests: XCTestCase {
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(request.method, "POST")
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"setDataValidation":{"range":{"endColumnIndex":2,"endRowIndex":3,"sheetId":8,"startColumnIndex":1,"startRowIndex":1},"rule":{"condition":{"type":"ONE_OF_LIST","values":[{"userEnteredValue":"Yes"},{"userEnteredValue":"No"}]},"inputMessage":"Pick one","showCustomUi":true,"strict":true}}}]}"#
         )
     }
 
     func testSetDataValidationOmitsUnsetOptions() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(8, "Data")])
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
@@ -296,14 +292,14 @@ final class SheetsDataToolingWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"setDataValidation":{"range":{"endColumnIndex":2,"endRowIndex":3,"sheetId":8,"startColumnIndex":1,"startRowIndex":1},"rule":{"condition":{"type":"NUMBER_GREATER","values":[{"userEnteredValue":"5"}]}}}}]}"#
         )
     }
 
     func testClearDataValidationSendsANilRule() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(8, "Data")])
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
@@ -312,20 +308,20 @@ final class SheetsDataToolingWriteTests: XCTestCase {
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         // A cleared range carries no `rule` key.
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"setDataValidation":{"range":{"endColumnIndex":2,"endRowIndex":3,"sheetId":8,"startColumnIndex":1,"startRowIndex":1}}}]}"#
         )
     }
 
     func testSetDataValidationValidatesValueCountWithoutWriting() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
 
-        await assertInvalidArgumentAsync {
+        await assertInvalidArgument {
             try await client.setDataValidation(
                 spreadsheetId: "sheet-1", range: "Data!B2:B3", type: .blank, values: ["x"])
         }
-        await assertInvalidArgumentAsync {
+        await assertInvalidArgument {
             try await client.setDataValidation(
                 spreadsheetId: "sheet-1", range: "Data!B2:B3", type: .numberBetween, values: ["1"])
         }
@@ -336,7 +332,7 @@ final class SheetsDataToolingWriteTests: XCTestCase {
 
     func testSetBasicFilterEncodesTheRangeAndFallsBackToFirstSheet() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(3, "Sheet1"), (4, "Other")])
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
@@ -345,28 +341,28 @@ final class SheetsDataToolingWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"setBasicFilter":{"filter":{"range":{"endColumnIndex":4,"endRowIndex":100,"sheetId":3,"startColumnIndex":0,"startRowIndex":0}}}}]}"#
         )
     }
 
     func testClearBasicFilterEncodesSheetIdWithoutReadingMetadata() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         try await client.clearBasicFilter(spreadsheetId: "sheet-1", sheetId: 3)
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"clearBasicFilter":{"sheetId":3}}]}"#)
         XCTAssertTrue(transport.requests(urlContains: "/spreadsheets/sheet-1?").isEmpty)
     }
 
     func testAddFilterViewEncodesTitleAndRangeAndReturnsId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(6, "Data")])
         transport.stub(
             urlContains: ":batchUpdate",
@@ -378,14 +374,14 @@ final class SheetsDataToolingWriteTests: XCTestCase {
         XCTAssertEqual(id, 123)
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"addFilterView":{"filter":{"range":{"endColumnIndex":4,"endRowIndex":100,"sheetId":6,"startColumnIndex":0,"startRowIndex":0},"title":"Q1"}}}]}"#
         )
     }
 
     func testAddFilterViewRejectsAReplyWithNoId() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(6, "Data")])
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{"addFilterView":{"filter":{}}}]}"#)
 
@@ -404,7 +400,7 @@ final class SheetsDataToolingWriteTests: XCTestCase {
 
     func testAddProtectedRangeEncodesEveryFieldAndReturnsId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(9, "Data")])
         transport.stub(
             urlContains: ":batchUpdate",
@@ -419,14 +415,14 @@ final class SheetsDataToolingWriteTests: XCTestCase {
         XCTAssertEqual(id, 55)
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"addProtectedRange":{"protectedRange":{"description":"Locked","range":{"endColumnIndex":4,"endRowIndex":10,"sheetId":9,"startColumnIndex":0,"startRowIndex":0},"warningOnly":true}}}]}"#
         )
     }
 
     func testAddProtectedRangeOmitsUnsetFields() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(9, "Data")])
         transport.stub(
             urlContains: ":batchUpdate",
@@ -436,14 +432,14 @@ final class SheetsDataToolingWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"addProtectedRange":{"protectedRange":{"range":{"endColumnIndex":4,"endRowIndex":10,"sheetId":9,"startColumnIndex":0,"startRowIndex":0}}}}]}"#
         )
     }
 
     func testAddProtectedRangeRejectsAReplyWithNoId() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(9, "Data")])
         transport.stub(
             urlContains: ":batchUpdate",
@@ -461,14 +457,14 @@ final class SheetsDataToolingWriteTests: XCTestCase {
 
     func testDeleteProtectedRangeEncodesTheIdWithoutReadingMetadata() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         try await client.deleteProtectedRange(spreadsheetId: "sheet-1", protectedRangeId: 55)
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"deleteProtectedRange":{"protectedRangeId":55}}]}"#)
         XCTAssertTrue(transport.requests(urlContains: "/spreadsheets/sheet-1?").isEmpty)
     }
@@ -477,7 +473,7 @@ final class SheetsDataToolingWriteTests: XCTestCase {
 
     func testDeleteProtectedRangePropagatesGoogleErrorEnvelope() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"error":{"code":400,"message":"No such range","status":"INVALID_ARGUMENT"}}"#,
@@ -498,7 +494,7 @@ final class SheetsDataToolingWriteTests: XCTestCase {
 
     func testSetDataValidationPropagatesGoogleErrorEnvelope() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(8, "Data")])
         transport.stub(
             urlContains: ":batchUpdate",
@@ -534,35 +530,7 @@ final class SheetsDataToolingWriteTests: XCTestCase {
     }
 
     /// Asserts a synchronous throwing body throws ``GrahamError/invalidArgument``.
-    private func assertInvalidArgument(
-        file: StaticString = #filePath,
-        line: UInt = #line,
-        _ body: () throws -> Void
-    ) {
-        XCTAssertThrowsError(try body(), file: file, line: line) { error in
-            guard case GrahamError.invalidArgument = error else {
-                return XCTFail("Wrong error: \(error)", file: file, line: line)
-            }
-        }
-    }
 
     /// Asserts an async throwing body throws ``GrahamError/invalidArgument``.
-    private func assertInvalidArgumentAsync(
-        file: StaticString = #filePath,
-        line: UInt = #line,
-        _ body: () async throws -> Void
-    ) async {
-        do {
-            try await body()
-            XCTFail("Expected an error", file: file, line: line)
-        } catch {
-            guard case GrahamError.invalidArgument = error else {
-                return XCTFail("Wrong error: \(error)", file: file, line: line)
-            }
-        }
-    }
 
-    private static func bodyString(_ request: HTTPRequest) -> String {
-        request.body.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-    }
 }

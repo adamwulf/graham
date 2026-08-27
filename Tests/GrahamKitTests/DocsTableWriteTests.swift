@@ -9,11 +9,7 @@ import XCTest
 /// deterministic). One-based CLI rows and columns are translated to the API's
 /// zero-based indices at the client boundary, and the assertions lock that
 /// translation. Mirrors `SlidesTableWriteTests`.
-final class DocsTableWriteTests: XCTestCase {
-    private func makeClient(transport: StubTransport) -> DocsClient {
-        transport.stubTokenEndpoint()
-        return DocsClient(api: TestSupport.makeAPI(transport: transport))
-    }
+final class DocsTableWriteTests: GrahamTestCase {
 
     // MARK: - Exact request-union JSON
 
@@ -77,7 +73,7 @@ final class DocsTableWriteTests: XCTestCase {
 
     func testEveryTableClientMethodPostsItsExactBody() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         for _ in 0..<9 { transport.stub(urlContains: ":batchUpdate", json: #"{}"#) }
 
         // insertTable at index 5 (body): the location index goes on the wire; the
@@ -128,7 +124,7 @@ final class DocsTableWriteTests: XCTestCase {
 
     func testInsertTableReturnsStartIndexOfLocationPlusOne() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"documentId":"doc-1","replies":[{}]}"#)
@@ -145,7 +141,7 @@ final class DocsTableWriteTests: XCTestCase {
 
     func testInsertTableAtEndOfBodyHasNoComputableStartIndex() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
 
         // Appending to the end of the body encodes an empty endOfSegmentLocation
@@ -163,7 +159,7 @@ final class DocsTableWriteTests: XCTestCase {
 
     func testInsertTableInSegmentAllowsIndexZeroAndCarriesSegmentId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
 
         // A named segment starts its content at index 0, which the body guard
@@ -184,7 +180,7 @@ final class DocsTableWriteTests: XCTestCase {
 
     func testTableCellOpInSegmentCarriesSegmentIdOnTheStartLocation() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
 
         _ = try await client.insertTableRow(
@@ -200,7 +196,7 @@ final class DocsTableWriteTests: XCTestCase {
 
     func testEmptySegmentIdNormalizesToBodyWithNoSegmentId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
 
         // An empty segment id means the body: no empty segmentId leaks into the
@@ -220,7 +216,7 @@ final class DocsTableWriteTests: XCTestCase {
 
     func testTableOpDecodesEmptyReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: "{}")
 
         let response = try await client.deleteTableRow(
@@ -234,7 +230,7 @@ final class DocsTableWriteTests: XCTestCase {
 
     func testTableOpWithRequiredRevisionCarriesWriteControl() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
 
         _ = try await client.mergeTableCells(
@@ -252,7 +248,7 @@ final class DocsTableWriteTests: XCTestCase {
 
     func testInsertTableRejectsBadDimensionsAndIndexWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         // rows/columns must be 1 or greater.
         await assertInvalid { _ = try await client.insertTable(
@@ -280,7 +276,7 @@ final class DocsTableWriteTests: XCTestCase {
 
     func testCellAndSpanValidationSendNothing() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         // Row and column must be one-based (1 or greater).
         await assertInvalid { _ = try await client.insertTableRow(
@@ -309,7 +305,7 @@ final class DocsTableWriteTests: XCTestCase {
 
     func testTableMethodPropagatesGoogleErrorEnvelope() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"error":{"code":400,"message":"bad table","status":"INVALID_ARGUMENT"}}"#,
@@ -374,7 +370,7 @@ final class DocsTableWriteTests: XCTestCase {
 
     func testEveryStylingClientMethodPostsItsExactBody() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         for _ in 0..<6 { transport.stub(urlContains: ":batchUpdate", json: #"{}"#) }
 
         // Cell style, whole table, background only (no range -> tableStartLocation).
@@ -459,7 +455,7 @@ final class DocsTableWriteTests: XCTestCase {
 
     func testCellStyleWholeTableUsesStartLocationNotARange() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
         // No row/column: the whole table is styled through a tableStartLocation,
@@ -476,7 +472,7 @@ final class DocsTableWriteTests: XCTestCase {
 
     func testCellStyleRangeDefaultsSpansToOne() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
         // A cell with a row and column but no spans styles a single cell: the
@@ -494,7 +490,7 @@ final class DocsTableWriteTests: XCTestCase {
 
     func testCellStyleBorderDefaultsWidthOneAndSolidDash() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
         // --border with no width or dash: the width defaults to 1pt and the dash
@@ -519,7 +515,7 @@ final class DocsTableWriteTests: XCTestCase {
 
     func testRowStyleWithBothStylesEmitsFullMaskInBuilderOrder() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
         // Setting min height and overflow together exercises the full row-style
@@ -540,7 +536,7 @@ final class DocsTableWriteTests: XCTestCase {
 
     func testStylingCarriesSegmentIdAndNormalizesEmptyToBody() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         for _ in 0..<2 { transport.stub(urlContains: ":batchUpdate", json: #"{}"#) }
 
         // A named segment carries onto the tableStartLocation.
@@ -565,7 +561,7 @@ final class DocsTableWriteTests: XCTestCase {
 
     func testStylingOpDecodesEmptyReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: "{}")
 
         let response = try await client.styleTableRow(
@@ -579,7 +575,7 @@ final class DocsTableWriteTests: XCTestCase {
 
     func testStylingOpWithRequiredRevisionCarriesWriteControl() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
         _ = try await client.styleTableColumnWidth(
@@ -596,7 +592,7 @@ final class DocsTableWriteTests: XCTestCase {
 
     func testCellStyleValidationSendsNothing() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         // No style option at all.
         await assertInvalid { _ = try await client.styleTableCells(
@@ -630,7 +626,7 @@ final class DocsTableWriteTests: XCTestCase {
 
     func testCellStyleAcceptsZeroBorderWidthAndZeroPadding() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         for _ in 0..<2 { transport.stub(urlContains: ":batchUpdate", json: #"{}"#) }
 
         // A border width of 0 hides the border and is valid: it encodes a border
@@ -665,7 +661,7 @@ final class DocsTableWriteTests: XCTestCase {
 
     func testRowStyleValidationSendsNothing() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         // No style option.
         await assertInvalid { _ = try await client.styleTableRow(
@@ -682,7 +678,7 @@ final class DocsTableWriteTests: XCTestCase {
 
     func testColumnWidthValidationSendsNothing() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         // Neither a width nor evenly-distributed.
         await assertInvalid { _ = try await client.styleTableColumnWidth(
@@ -704,7 +700,7 @@ final class DocsTableWriteTests: XCTestCase {
 
     func testStylingMethodPropagatesGoogleErrorEnvelope() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"error":{"code":400,"message":"bad style","status":"INVALID_ARGUMENT"}}"#,
@@ -733,26 +729,6 @@ final class DocsTableWriteTests: XCTestCase {
         }
     }
 
-    private func assertGoogleError(
-        code expectedCode: Int,
-        status expectedStatus: String,
-        message expectedMessage: String,
-        file: StaticString = #filePath,
-        line: UInt = #line,
-        _ body: () async throws -> Void
-    ) async {
-        do {
-            try await body()
-            XCTFail("Expected an error", file: file, line: line)
-        } catch {
-            guard case GrahamError.googleAPIError(let code, let status, let message) = error else {
-                return XCTFail("Wrong error: \(error)", file: file, line: line)
-            }
-            XCTAssertEqual(code, expectedCode, file: file, line: line)
-            XCTAssertEqual(status, expectedStatus, file: file, line: line)
-            XCTAssertEqual(message, expectedMessage, file: file, line: line)
-        }
-    }
 
     private func encode(_ request: DocsBatchUpdateRequest) throws -> String {
         String(data: try GoogleJSON.encoder.encode(request), encoding: .utf8) ?? ""

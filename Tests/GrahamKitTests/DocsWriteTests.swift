@@ -7,17 +7,13 @@ import XCTest
 /// `createFootnote` ops. Every fixture is static JSON; no test touches the
 /// network, and the request bodies are asserted exactly (the shared encoder
 /// sorts keys, so the strings are deterministic).
-final class DocsWriteTests: XCTestCase {
-    private func makeClient(transport: StubTransport) -> DocsClient {
-        transport.stubTokenEndpoint()
-        return DocsClient(api: TestSupport.makeAPI(transport: transport))
-    }
+final class DocsWriteTests: GrahamTestCase {
 
     // MARK: - insertText
 
     func testInsertTextPostsExactBodyAndDecodesReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"documentId":"doc-1","replies":[{}]}"#
@@ -34,7 +30,7 @@ final class DocsWriteTests: XCTestCase {
         )
         XCTAssertEqual(request.headers["Content-Type"], "application/json")
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertText":{"location":{"index":5},"text":"Hello"}}]}"#
         )
         XCTAssertEqual(response.documentId, "doc-1")
@@ -43,7 +39,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testInsertTextDecodesEmptyReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: "{}")
 
         let response = try await client.insertText(
@@ -55,7 +51,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testInsertTextRejectsBadArgumentsWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         await assertInvalidArgument {
             _ = try await client.insertText(documentId: "doc-1", text: "", index: 1)
@@ -73,7 +69,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testInsertTextPropagatesGoogleErrorEnvelope() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"error":{"code":400,"message":"Bad insert","status":"INVALID_ARGUMENT"}}"#,
@@ -87,7 +83,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testInsertTextWithTabIdEncodesTabIdOnLocation() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.insertText(
@@ -95,14 +91,14 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertText":{"location":{"index":5,"tabId":"t.0"},"text":"Hi"}}]}"#
         )
     }
 
     func testInsertTextAtEndWithTabIdEncodesTabIdOnEndOfSegment() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.insertText(
@@ -110,7 +106,7 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertText":{"endOfSegmentLocation":{"tabId":"t.0"},"text":"Hi"}}]}"#
         )
     }
@@ -119,7 +115,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testDeleteContentRangePostsExactBodyAndDecodesReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"documentId":"doc-1","replies":[{}]}"#
@@ -135,7 +131,7 @@ final class DocsWriteTests: XCTestCase {
             "https://docs.googleapis.com/v1/documents/doc-1:batchUpdate"
         )
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"deleteContentRange":{"range":{"endIndex":12,"startIndex":5}}}]}"#
         )
         XCTAssertEqual(response.documentId, "doc-1")
@@ -144,7 +140,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testDeleteContentRangeDecodesEmptyReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: "{}")
 
         let response = try await client.deleteContentRange(
@@ -156,7 +152,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testDeleteContentRangeRejectsBadRangesWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         // startIndex 0 lands inside the initial section break; the guard
         // rejects it before any request goes out.
@@ -181,7 +177,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testDeleteContentRangePropagatesGoogleErrorEnvelope() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"error":{"code":403,"message":"No access","status":"PERMISSION_DENIED"}}"#,
@@ -196,7 +192,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testDeleteContentRangeWithTabIdEncodesTabIdOnRange() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.deleteContentRange(
@@ -204,7 +200,7 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"deleteContentRange":{"range":{"endIndex":5,"startIndex":1,"tabId":"t.0"}}}]}"#
         )
     }
@@ -213,7 +209,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testReplaceAllTextPostsExactBodyAndReturnsCount() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"documentId":"doc-1","replies":[{"replaceAllText":{"occurrencesChanged":3}}]}"#
@@ -229,7 +225,7 @@ final class DocsWriteTests: XCTestCase {
             "https://docs.googleapis.com/v1/documents/doc-1:batchUpdate"
         )
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"replaceAllText":{"containsText":{"matchCase":true,"text":"old"},"replaceText":"new"}}]}"#
         )
         XCTAssertEqual(count, 3)
@@ -237,7 +233,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testReplaceAllTextWithTabsCriteriaEncodesTabIds() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"replies":[{"replaceAllText":{"occurrencesChanged":2}}]}"#
@@ -248,7 +244,7 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"replaceAllText":{"containsText":{"matchCase":false,"text":"old"},"replaceText":"new","tabsCriteria":{"tabIds":["t.0","t.1"]}}}]}"#
         )
         XCTAssertEqual(count, 2)
@@ -256,7 +252,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testReplaceAllTextDefaultsToCaseInsensitive() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"replies":[{"replaceAllText":{"occurrencesChanged":1}}]}"#
@@ -267,7 +263,7 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"replaceAllText":{"containsText":{"matchCase":false,"text":"cat"},"replaceText":"dog"}}]}"#
         )
     }
@@ -277,7 +273,7 @@ final class DocsWriteTests: XCTestCase {
         // both decode to zero occurrences changed.
         for json in ["{}", #"{"documentId":"doc-1","replies":[{}]}"#] {
             let transport = StubTransport()
-            let client = makeClient(transport: transport)
+            let client = TestSupport.docsClient(transport)
             transport.stub(urlContains: ":batchUpdate", json: json)
 
             let count = try await client.replaceAllText(
@@ -289,7 +285,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testReplaceAllTextRejectsEmptyFindWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         await assertInvalidArgument {
             _ = try await client.replaceAllText(documentId: "doc-1", find: "", replace: "new")
@@ -299,7 +295,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testReplaceAllTextPropagatesGoogleErrorEnvelope() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"error":{"code":404,"message":"No document","status":"NOT_FOUND"}}"#,
@@ -315,7 +311,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testInsertTextIntoSegmentAllowsIndexZeroAndCarriesSegmentId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
 
         // A named segment starts its content at index 0, which the body guard
@@ -325,7 +321,7 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertText":{"location":{"index":0,"segmentId":"hdr-1"},"text":"Hi"}}]}"#
         )
     }
@@ -334,7 +330,7 @@ final class DocsWriteTests: XCTestCase {
         // The body guard is unchanged: index 0 in the body (no segment) is
         // rejected before any request goes out.
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         await assertInvalidArgument {
             _ = try await client.insertText(documentId: "doc-1", text: "Hi", index: 0)
@@ -349,7 +345,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testInsertTextEndOfSegmentEncodesEndOfSegmentLocation() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
 
         _ = try await client.insertText(
@@ -359,14 +355,14 @@ final class DocsWriteTests: XCTestCase {
         // Appending encodes endOfSegmentLocation instead of location; no index
         // is present at all.
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertText":{"endOfSegmentLocation":{"segmentId":"hdr-1"},"text":"Hi"}}]}"#
         )
     }
 
     func testInsertTextEndOfBodyIgnoresIndexAndEncodesEmptyEndOfSegment() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
 
         // No segment and end-of-segment: the destination is the end of the
@@ -376,14 +372,14 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertText":{"endOfSegmentLocation":{},"text":"Hi"}}]}"#
         )
     }
 
     func testDeleteContentRangeInSegmentAllowsIndexZeroAndCarriesSegmentId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
 
         _ = try await client.deleteContentRange(
@@ -391,14 +387,14 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"deleteContentRange":{"range":{"endIndex":4,"segmentId":"ftr-2","startIndex":0}}}]}"#
         )
     }
 
     func testDeleteContentRangeBodyGuardStillRejectsIndexZeroWithoutSegment() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         // Body: index 0 rejected, unchanged.
         await assertInvalidArgument {
@@ -419,7 +415,7 @@ final class DocsWriteTests: XCTestCase {
         // The Docs API reads an empty segment id as the body, so the body guard
         // applies: index 0 is rejected before any request goes out.
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         await assertInvalidArgument {
             _ = try await client.insertText(
@@ -430,7 +426,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testInsertTextEmptySegmentIdEncodesLocationWithoutSegmentId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
 
         // An empty segment id at a body-legal index encodes a plain body
@@ -440,14 +436,14 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertText":{"location":{"index":1},"text":"Hi"}}]}"#
         )
     }
 
     func testInsertTextEndOfSegmentEmptySegmentIdEncodesEmptyEndOfSegment() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
 
         // An empty segment id on the append path means the end of the body,
@@ -457,14 +453,14 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertText":{"endOfSegmentLocation":{},"text":"Hi"}}]}"#
         )
     }
 
     func testDeleteContentRangeEmptySegmentIdUsesTheBodyGuardAndEncodesNoSegmentId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
 
         // Empty segment id: the body guard rejects startIndex 0.
@@ -481,7 +477,7 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"deleteContentRange":{"range":{"endIndex":4,"startIndex":1}}}]}"#
         )
     }
@@ -490,7 +486,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testInsertTextWithRequiredRevisionCarriesWriteControl() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
 
         _ = try await client.insertText(
@@ -500,14 +496,14 @@ final class DocsWriteTests: XCTestCase {
         // The write control rides alongside the requests, carrying only the
         // required revision (targetRevisionId stays nil and is omitted).
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertText":{"location":{"index":5},"text":"Hello"}}],"writeControl":{"requiredRevisionId":"rev-1"}}"#
         )
     }
 
     func testDeleteContentRangeWithRequiredRevisionCarriesWriteControl() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
 
         _ = try await client.deleteContentRange(
@@ -515,14 +511,14 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"deleteContentRange":{"range":{"endIndex":12,"startIndex":5}}}],"writeControl":{"requiredRevisionId":"rev-9"}}"#
         )
     }
 
     func testReplaceAllTextWithRequiredRevisionCarriesWriteControl() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"replies":[{"replaceAllText":{"occurrencesChanged":1}}]}"#
@@ -534,7 +530,7 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"replaceAllText":{"containsText":{"matchCase":true,"text":"old"},"replaceText":"new"}}],"writeControl":{"requiredRevisionId":"rev-3"}}"#
         )
     }
@@ -543,22 +539,22 @@ final class DocsWriteTests: XCTestCase {
         // The default (no required revision) sends an ordinary body with no
         // writeControl key at all, so existing callers are unchanged.
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
 
         _ = try await client.insertText(documentId: "doc-1", text: "Hello", index: 5)
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertText":{"location":{"index":5},"text":"Hello"}}]}"#
         )
-        XCTAssertFalse(Self.bodyString(request).contains("writeControl"))
+        XCTAssertFalse(TestSupport.bodyString(request).contains("writeControl"))
     }
 
     func testBatchUpdateDecodesWriteControlInTheResponse() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"documentId":"doc-1","replies":[{}],"writeControl":{"requiredRevisionId":"rev-2"}}"#
@@ -600,7 +596,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testCreateParagraphBulletsPostsExactBodyAndDecodesReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"documentId":"doc-1","replies":[{}]}"#
@@ -618,7 +614,7 @@ final class DocsWriteTests: XCTestCase {
         )
         XCTAssertEqual(request.headers["Content-Type"], "application/json")
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createParagraphBullets":{"bulletPreset":"BULLET_DISC_CIRCLE_SQUARE","range":{"endIndex":9,"startIndex":1}}}]}"#
         )
         XCTAssertEqual(response.documentId, "doc-1")
@@ -627,7 +623,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testCreateParagraphBulletsDecodesEmptyReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: "{}")
 
         let response = try await client.createParagraphBullets(
@@ -640,7 +636,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testCreateParagraphBulletsInSegmentAllowsIndexZeroAndCarriesSegmentId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
 
         // A named segment starts its content at index 0, which the body guard
@@ -651,14 +647,14 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createParagraphBullets":{"bulletPreset":"BULLET_CHECKBOX","range":{"endIndex":4,"segmentId":"ftr-2","startIndex":0}}}]}"#
         )
     }
 
     func testCreateParagraphBulletsAcceptsThePresetCaseInsensitively() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
 
         // A lowercased API spelling is uppercased before it is matched, so it
@@ -669,14 +665,14 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createParagraphBullets":{"bulletPreset":"NUMBERED_DECIMAL_ALPHA_ROMAN","range":{"endIndex":9,"startIndex":1}}}]}"#
         )
     }
 
     func testCreateParagraphBulletsWithRequiredRevisionCarriesWriteControl() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
 
         _ = try await client.createParagraphBullets(
@@ -685,14 +681,14 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createParagraphBullets":{"bulletPreset":"BULLET_DISC_CIRCLE_SQUARE","range":{"endIndex":9,"startIndex":1}}}],"writeControl":{"requiredRevisionId":"rev-4"}}"#
         )
     }
 
     func testCreateParagraphBulletsRejectsBadInputWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         // startIndex 0 in the body lands inside the initial section break; the
         // range guard rejects it before any request goes out.
@@ -724,7 +720,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testCreateParagraphBulletsPropagatesGoogleErrorEnvelope() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"error":{"code":400,"message":"Bad bullets","status":"INVALID_ARGUMENT"}}"#,
@@ -767,7 +763,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testDeleteParagraphBulletsPostsExactBodyAndDecodesReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"documentId":"doc-1","replies":[{}]}"#
@@ -783,7 +779,7 @@ final class DocsWriteTests: XCTestCase {
             "https://docs.googleapis.com/v1/documents/doc-1:batchUpdate"
         )
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"deleteParagraphBullets":{"range":{"endIndex":9,"startIndex":1}}}]}"#
         )
         XCTAssertEqual(response.documentId, "doc-1")
@@ -792,7 +788,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testDeleteParagraphBulletsDecodesEmptyReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: "{}")
 
         let response = try await client.deleteParagraphBullets(
@@ -804,7 +800,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testDeleteParagraphBulletsInSegmentAllowsIndexZeroAndCarriesSegmentId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
 
         _ = try await client.deleteParagraphBullets(
@@ -812,14 +808,14 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"deleteParagraphBullets":{"range":{"endIndex":4,"segmentId":"ftr-2","startIndex":0}}}]}"#
         )
     }
 
     func testDeleteParagraphBulletsWithRequiredRevisionCarriesWriteControl() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
 
         _ = try await client.deleteParagraphBullets(
@@ -827,14 +823,14 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"deleteParagraphBullets":{"range":{"endIndex":9,"startIndex":1}}}],"writeControl":{"requiredRevisionId":"rev-5"}}"#
         )
     }
 
     func testDeleteParagraphBulletsRejectsBadRangesWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         // startIndex 0 in the body lands inside the initial section break.
         await assertInvalidArgument {
@@ -859,7 +855,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testDeleteParagraphBulletsPropagatesGoogleErrorEnvelope() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"error":{"code":403,"message":"No access","status":"PERMISSION_DENIED"}}"#,
@@ -916,7 +912,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testCreateHeaderPostsExactBodyAndReturnsHeaderId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"documentId":"doc-1","replies":[{"createHeader":{"headerId":"kix.hdr1"}}]}"#
@@ -933,7 +929,7 @@ final class DocsWriteTests: XCTestCase {
         XCTAssertEqual(request.headers["Content-Type"], "application/json")
         // The only valid type is DEFAULT, and it is always sent.
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createHeader":{"type":"DEFAULT"}}]}"#
         )
         // The reply segment id is returned so a follow-up write can target it.
@@ -943,7 +939,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testCreateHeaderWithSectionBreakIndexEncodesLocation() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"replies":[{"createHeader":{"headerId":"kix.hdr2"}}]}"#
@@ -955,14 +951,14 @@ final class DocsWriteTests: XCTestCase {
         // The section-break body location scopes the header to a section; sorted
         // keys put sectionBreakLocation before type.
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createHeader":{"sectionBreakLocation":{"index":12},"type":"DEFAULT"}}]}"#
         )
     }
 
     func testCreateHeaderWithRequiredRevisionCarriesWriteControl() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"replies":[{"createHeader":{"headerId":"kix.hdr3"}}]}"#
@@ -972,14 +968,14 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createHeader":{"type":"DEFAULT"}}],"writeControl":{"requiredRevisionId":"rev-1"}}"#
         )
     }
 
     func testCreateHeaderReturnsNilHeaderIdForEmptyReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: "{}")
 
         let result = try await client.createHeader(documentId: "doc-1")
@@ -990,7 +986,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testCreateHeaderRejectsBadSectionBreakIndexWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         // A provided section-break index follows the body guard: index 0 lands
         // inside the initial section break, so it is rejected before any request.
@@ -1005,7 +1001,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testCreateHeaderPropagatesGoogleErrorEnvelope() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"error":{"code":400,"message":"Bad header","status":"INVALID_ARGUMENT"}}"#,
@@ -1021,7 +1017,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testCreateFooterPostsExactBodyAndReturnsFooterId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"documentId":"doc-1","replies":[{"createFooter":{"footerId":"kix.ftr1"}}]}"#
@@ -1036,7 +1032,7 @@ final class DocsWriteTests: XCTestCase {
             "https://docs.googleapis.com/v1/documents/doc-1:batchUpdate"
         )
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createFooter":{"type":"DEFAULT"}}]}"#
         )
         XCTAssertEqual(result.footerId, "kix.ftr1")
@@ -1045,7 +1041,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testCreateFooterWithSectionBreakIndexEncodesLocation() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"replies":[{"createFooter":{"footerId":"kix.ftr2"}}]}"#
@@ -1055,14 +1051,14 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createFooter":{"sectionBreakLocation":{"index":7},"type":"DEFAULT"}}]}"#
         )
     }
 
     func testCreateFooterWithRequiredRevisionCarriesWriteControl() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"replies":[{"createFooter":{"footerId":"kix.ftr3"}}]}"#
@@ -1072,14 +1068,14 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createFooter":{"type":"DEFAULT"}}],"writeControl":{"requiredRevisionId":"rev-2"}}"#
         )
     }
 
     func testCreateFooterReturnsNilFooterIdForEmptyReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: "{}")
 
         let result = try await client.createFooter(documentId: "doc-1")
@@ -1090,7 +1086,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testCreateFooterRejectsBadSectionBreakIndexWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         await assertInvalidArgument {
             _ = try await client.createFooter(documentId: "doc-1", sectionBreakIndex: 0)
@@ -1103,7 +1099,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testCreateFooterPropagatesGoogleErrorEnvelope() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"error":{"code":403,"message":"No access","status":"PERMISSION_DENIED"}}"#,
@@ -1119,7 +1115,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testDeleteHeaderPostsExactBodyAndDecodesReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"documentId":"doc-1","replies":[{}]}"#
@@ -1134,7 +1130,7 @@ final class DocsWriteTests: XCTestCase {
             "https://docs.googleapis.com/v1/documents/doc-1:batchUpdate"
         )
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"deleteHeader":{"headerId":"kix.hdr1"}}]}"#
         )
         XCTAssertEqual(response.documentId, "doc-1")
@@ -1143,7 +1139,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testDeleteHeaderDecodesEmptyReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: "{}")
 
         let response = try await client.deleteHeader(documentId: "doc-1", headerId: "kix.hdr1")
@@ -1154,7 +1150,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testDeleteHeaderWithRequiredRevisionCarriesWriteControl() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
 
         _ = try await client.deleteHeader(
@@ -1162,14 +1158,14 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"deleteHeader":{"headerId":"kix.hdr1"}}],"writeControl":{"requiredRevisionId":"rev-3"}}"#
         )
     }
 
     func testDeleteHeaderRejectsEmptyIdWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         await assertInvalidArgument {
             _ = try await client.deleteHeader(documentId: "doc-1", headerId: "")
@@ -1179,7 +1175,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testDeleteHeaderPropagatesGoogleErrorEnvelope() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"error":{"code":404,"message":"No header","status":"NOT_FOUND"}}"#,
@@ -1195,7 +1191,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testDeleteFooterPostsExactBodyAndDecodesReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"documentId":"doc-1","replies":[{}]}"#
@@ -1210,7 +1206,7 @@ final class DocsWriteTests: XCTestCase {
             "https://docs.googleapis.com/v1/documents/doc-1:batchUpdate"
         )
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"deleteFooter":{"footerId":"kix.ftr1"}}]}"#
         )
         XCTAssertEqual(response.documentId, "doc-1")
@@ -1219,7 +1215,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testDeleteFooterDecodesEmptyReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: "{}")
 
         let response = try await client.deleteFooter(documentId: "doc-1", footerId: "kix.ftr1")
@@ -1230,7 +1226,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testDeleteFooterWithRequiredRevisionCarriesWriteControl() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
 
         _ = try await client.deleteFooter(
@@ -1238,14 +1234,14 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"deleteFooter":{"footerId":"kix.ftr1"}}],"writeControl":{"requiredRevisionId":"rev-4"}}"#
         )
     }
 
     func testDeleteFooterRejectsEmptyIdWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         await assertInvalidArgument {
             _ = try await client.deleteFooter(documentId: "doc-1", footerId: "")
@@ -1255,7 +1251,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testDeleteFooterPropagatesGoogleErrorEnvelope() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"error":{"code":404,"message":"No footer","status":"NOT_FOUND"}}"#,
@@ -1271,7 +1267,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testCreateFootnotePostsExactBodyAndReturnsFootnoteId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"documentId":"doc-1","replies":[{"createFootnote":{"footnoteId":"kix.fn1"}}]}"#
@@ -1287,7 +1283,7 @@ final class DocsWriteTests: XCTestCase {
         )
         XCTAssertEqual(request.headers["Content-Type"], "application/json")
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createFootnote":{"location":{"index":5}}}]}"#
         )
         XCTAssertEqual(result.footnoteId, "kix.fn1")
@@ -1296,7 +1292,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testCreateFootnoteEndOfBodyEncodesEmptyEndOfSegment() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"replies":[{"createFootnote":{"footnoteId":"kix.fn2"}}]}"#
@@ -1308,14 +1304,14 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createFootnote":{"endOfSegmentLocation":{}}}]}"#
         )
     }
 
     func testCreateFootnoteReturnsNilFootnoteIdForEmptyReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: "{}")
 
         let result = try await client.createFootnote(documentId: "doc-1", index: 5)
@@ -1326,7 +1322,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testCreateFootnoteWithRequiredRevisionCarriesWriteControl() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"replies":[{"createFootnote":{"footnoteId":"kix.fn3"}}]}"#
@@ -1337,14 +1333,14 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createFootnote":{"location":{"index":5}}}],"writeControl":{"requiredRevisionId":"rev-6"}}"#
         )
     }
 
     func testCreateFootnoteWithTextMakesTwoBatchUpdatesInOrder() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         // Two responses in order: the first createFootnote reply carries the
         // footnoteId, and the second is the insertText reply.
         transport.stub(urlContains: ":batchUpdate", responses: [
@@ -1360,14 +1356,14 @@ final class DocsWriteTests: XCTestCase {
         XCTAssertEqual(requests.count, 2)
         // First: the createFootnote reference at the body index.
         XCTAssertEqual(
-            Self.bodyString(requests[0]),
+            TestSupport.bodyString(requests[0]),
             #"{"requests":[{"createFootnote":{"location":{"index":5}}}]}"#
         )
         // Second: insertText into the returned footnote segment. The segment's
         // content starts with an auto-inserted space and newline, so the text
         // goes at index 1, carrying the returned footnoteId as its segment id.
         XCTAssertEqual(
-            Self.bodyString(requests[1]),
+            TestSupport.bodyString(requests[1]),
             #"{"requests":[{"insertText":{"location":{"index":1,"segmentId":"kix.fn9"},"text":"See note"}}]}"#
         )
         XCTAssertEqual(result.footnoteId, "kix.fn9")
@@ -1375,7 +1371,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testCreateFootnoteWithTextButNoReturnedIdThrowsAfterTheFirstCall() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         // The createFootnote reply carries no footnoteId, so the text cannot be
         // inserted into the (unknown) segment.
         transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
@@ -1389,7 +1385,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testCreateFootnoteRejectsBadInputWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         // Index 0 lands inside the initial section break; the body guard rejects
         // it before any request goes out.
@@ -1416,7 +1412,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testCreateFootnotePropagatesGoogleErrorEnvelope() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"error":{"code":400,"message":"Bad footnote","status":"INVALID_ARGUMENT"}}"#,
@@ -1485,7 +1481,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testCreateNamedRangePostsExactBodyAndReturnsNamedRangeId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"documentId":"doc-1","replies":[{"createNamedRange":{"namedRangeId":"nr-1"}}]}"#
@@ -1502,7 +1498,7 @@ final class DocsWriteTests: XCTestCase {
         )
         XCTAssertEqual(request.headers["Content-Type"], "application/json")
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createNamedRange":{"name":"greeting","range":{"endIndex":8,"startIndex":2}}}]}"#
         )
         // The reply id is returned so the delete and fill ops can address it.
@@ -1512,7 +1508,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testCreateNamedRangeInSegmentCarriesSegmentIdAndAllowsIndexZero() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"replies":[{"createNamedRange":{"namedRangeId":"nr-2"}}]}"#
@@ -1526,14 +1522,14 @@ final class DocsWriteTests: XCTestCase {
         // A named segment starts its content at index 0, and the segment id rides
         // in the range (sorted keys put endIndex, segmentId, then startIndex).
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createNamedRange":{"name":"note","range":{"endIndex":3,"segmentId":"kix.ftn1","startIndex":0}}}]}"#
         )
     }
 
     func testCreateNamedRangeWithRequiredRevisionCarriesWriteControl() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"replies":[{"createNamedRange":{"namedRangeId":"nr-3"}}]}"#
@@ -1545,14 +1541,14 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createNamedRange":{"name":"greeting","range":{"endIndex":8,"startIndex":2}}}],"writeControl":{"requiredRevisionId":"rev-1"}}"#
         )
     }
 
     func testCreateNamedRangeReturnsNilIdForEmptyReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: "{}")
 
         let result = try await client.createNamedRange(
@@ -1564,7 +1560,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testCreateNamedRangeRejectsBadInputWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         // Empty name.
         await assertInvalidArgument {
@@ -1592,7 +1588,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testCreateNamedRangeMeasuresNameInUTF16CodeUnits() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"replies":[{"createNamedRange":{"namedRangeId":"nr-4"}}]}"#
@@ -1620,7 +1616,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testCreateNamedRangePropagatesGoogleErrorEnvelope() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"error":{"code":400,"message":"Bad range","status":"INVALID_ARGUMENT"}}"#,
@@ -1637,7 +1633,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testDeleteNamedRangeByIdPostsExactBodyAndDecodesReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"documentId":"doc-1","replies":[{}]}"#
@@ -1653,7 +1649,7 @@ final class DocsWriteTests: XCTestCase {
             "https://docs.googleapis.com/v1/documents/doc-1:batchUpdate"
         )
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"deleteNamedRange":{"namedRangeId":"nr-1"}}]}"#
         )
         // A delete replies with an empty object.
@@ -1662,7 +1658,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testDeleteNamedRangeByNamePostsExactBody() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.deleteNamedRange(documentId: "doc-1", name: "greeting")
@@ -1670,14 +1666,14 @@ final class DocsWriteTests: XCTestCase {
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         // The name selector deletes every range sharing the name.
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"deleteNamedRange":{"name":"greeting"}}]}"#
         )
     }
 
     func testDeleteNamedRangeWithRequiredRevisionCarriesWriteControl() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.deleteNamedRange(
@@ -1685,14 +1681,14 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"deleteNamedRange":{"namedRangeId":"nr-1"}}],"writeControl":{"requiredRevisionId":"rev-2"}}"#
         )
     }
 
     func testDeleteNamedRangeRejectsBadSelectorsWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         // Neither selector.
         await assertInvalidArgument {
@@ -1716,7 +1712,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testDeleteNamedRangePropagatesGoogleErrorEnvelope() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"error":{"code":404,"message":"No range","status":"NOT_FOUND"}}"#,
@@ -1732,7 +1728,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testReplaceNamedRangeContentByIdPostsExactBodyAndDecodesReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"documentId":"doc-1","replies":[{}]}"#
@@ -1748,7 +1744,7 @@ final class DocsWriteTests: XCTestCase {
             "https://docs.googleapis.com/v1/documents/doc-1:batchUpdate"
         )
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"replaceNamedRangeContent":{"namedRangeId":"nr-1","text":"World"}}]}"#
         )
         XCTAssertEqual(response.replies?.count, 1)
@@ -1756,7 +1752,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testReplaceNamedRangeContentByNameUsesNamedRangeNameField() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.replaceNamedRangeContent(
@@ -1766,14 +1762,14 @@ final class DocsWriteTests: XCTestCase {
         // The name selector uses the `namedRangeName` field (not `name`), matching
         // the API's ReplaceNamedRangeContentRequest.
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"replaceNamedRangeContent":{"namedRangeName":"greeting","text":"Hi"}}]}"#
         )
     }
 
     func testReplaceNamedRangeContentAllowsEmptyTextToClearTheRange() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.replaceNamedRangeContent(
@@ -1782,14 +1778,14 @@ final class DocsWriteTests: XCTestCase {
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         // An empty replacement clears the range and is allowed.
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"replaceNamedRangeContent":{"namedRangeId":"nr-1","text":""}}]}"#
         )
     }
 
     func testReplaceNamedRangeContentWithRequiredRevisionCarriesWriteControl() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.replaceNamedRangeContent(
@@ -1798,14 +1794,14 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"replaceNamedRangeContent":{"namedRangeId":"nr-1","text":"World"}}],"writeControl":{"requiredRevisionId":"rev-3"}}"#
         )
     }
 
     func testReplaceNamedRangeContentRejectsBadSelectorsWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         // Neither selector.
         await assertInvalidArgument {
@@ -1831,7 +1827,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testReplaceNamedRangeContentPropagatesGoogleErrorEnvelope() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"error":{"code":400,"message":"Bad id","status":"INVALID_ARGUMENT"}}"#,
@@ -1848,7 +1844,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testUpdateDocumentStyleWithAllOptionsPostsExactBodyAndMask() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"documentId":"doc-1","replies":[{}]}"#
@@ -1871,14 +1867,14 @@ final class DocsWriteTests: XCTestCase {
         // The fields mask is the fixed documented order; the documentStyle keys
         // are sorted by the shared encoder. pageSize is one Size (width+height).
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateDocumentStyle":{"documentStyle":{"background":{"color":{"color":{"rgbColor":{"blue":1,"green":1,"red":1}}}},"marginBottom":{"magnitude":72,"unit":"PT"},"marginLeft":{"magnitude":90,"unit":"PT"},"marginRight":{"magnitude":90,"unit":"PT"},"marginTop":{"magnitude":72,"unit":"PT"},"pageSize":{"height":{"magnitude":792,"unit":"PT"},"width":{"magnitude":612,"unit":"PT"}},"useEvenPageHeaderFooter":false,"useFirstPageHeaderFooter":true},"fields":"pageSize,marginTop,marginBottom,marginLeft,marginRight,useFirstPageHeaderFooter,useEvenPageHeaderFooter,background"}}]}"#
         )
     }
 
     func testUpdateDocumentStyleMarginsOnlyEmitsMinimalMaskAndBody() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.updateDocumentStyle(
@@ -1888,14 +1884,14 @@ final class DocsWriteTests: XCTestCase {
         // Only the provided margins appear in the mask, in the fixed order
         // (marginTop before marginLeft); absent fields are omitted entirely.
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateDocumentStyle":{"documentStyle":{"marginLeft":{"magnitude":54,"unit":"PT"},"marginTop":{"magnitude":36,"unit":"PT"}},"fields":"marginTop,marginLeft"}}]}"#
         )
     }
 
     func testUpdateDocumentStyleHeaderFooterFlagsAndBackground() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         let background = try DocsOptionalColor.parse("#000000")
@@ -1906,14 +1902,14 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateDocumentStyle":{"documentStyle":{"background":{"color":{"color":{"rgbColor":{"blue":0,"green":0,"red":0}}}},"useEvenPageHeaderFooter":true,"useFirstPageHeaderFooter":true},"fields":"useFirstPageHeaderFooter,useEvenPageHeaderFooter,background"}}]}"#
         )
     }
 
     func testUpdateDocumentStylePagelessModeEmitsNestedMaskPathAndValue() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.updateDocumentStyle(documentId: "doc-1", documentMode: .pageless)
@@ -1922,14 +1918,14 @@ final class DocsWriteTests: XCTestCase {
         // The mode rides in a nested documentFormat, and the mask names the nested
         // path documentFormat.documentMode so only the mode is set.
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateDocumentStyle":{"documentStyle":{"documentFormat":{"documentMode":"PAGELESS"}},"fields":"documentFormat.documentMode"}}]}"#
         )
     }
 
     func testUpdateDocumentStyleModeWithMarginKeepsFixedMaskOrder() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.updateDocumentStyle(
@@ -1939,14 +1935,14 @@ final class DocsWriteTests: XCTestCase {
         // documentFormat.documentMode is last in the fixed mask order (after
         // marginTop); the documentStyle keys are sorted by the shared encoder.
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateDocumentStyle":{"documentStyle":{"documentFormat":{"documentMode":"PAGES"},"marginTop":{"magnitude":36,"unit":"PT"}},"fields":"marginTop,documentFormat.documentMode"}}]}"#
         )
     }
 
     func testUpdateDocumentStyleWithRequiredRevisionCarriesWriteControl() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.updateDocumentStyle(
@@ -1954,14 +1950,14 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateDocumentStyle":{"documentStyle":{"marginTop":{"magnitude":10,"unit":"PT"}},"fields":"marginTop"}}],"writeControl":{"requiredRevisionId":"rev-1"}}"#
         )
     }
 
     func testUpdateDocumentStyleDecodesEmptyReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: "{}")
 
         let response = try await client.updateDocumentStyle(
@@ -1973,7 +1969,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testUpdateDocumentStyleRejectsBadInputWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         // No option at all.
         await assertInvalidArgument {
@@ -2005,7 +2001,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testUpdateDocumentStyleRejectsNonFiniteDimensionsWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         // NaN is not finite, so it is rejected before reaching the JSON encoder.
         await assertInvalidArgument {
@@ -2029,7 +2025,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testUpdateDocumentStylePropagatesGoogleErrorEnvelope() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"error":{"code":400,"message":"Bad style","status":"INVALID_ARGUMENT"}}"#,
@@ -2045,14 +2041,14 @@ final class DocsWriteTests: XCTestCase {
 
     func testUpdateDocumentStylePageNumberStartAlone() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.updateDocumentStyle(documentId: "doc-1", pageNumberStart: 3)
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateDocumentStyle":{"documentStyle":{"pageNumberStart":3},"fields":"pageNumberStart"}}]}"#
         )
     }
@@ -2062,7 +2058,7 @@ final class DocsWriteTests: XCTestCase {
     /// client sends the margins alone and never sets or masks that flag.
     func testUpdateDocumentStyleHeaderFooterMarginsSentWithoutTheReadOnlyFlag() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.updateDocumentStyle(
@@ -2070,7 +2066,7 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateDocumentStyle":{"documentStyle":{"marginFooter":{"magnitude":24,"unit":"PT"},"marginHeader":{"magnitude":24,"unit":"PT"}},"fields":"marginHeader,marginFooter"}}]}"#
         )
     }
@@ -2078,28 +2074,28 @@ final class DocsWriteTests: XCTestCase {
     /// A single header margin is sent alone, still without the read-only flag.
     func testUpdateDocumentStyleMarginHeaderOnlySentWithoutTheReadOnlyFlag() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.updateDocumentStyle(documentId: "doc-1", marginHeader: 18)
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateDocumentStyle":{"documentStyle":{"marginHeader":{"magnitude":18,"unit":"PT"}},"fields":"marginHeader"}}]}"#
         )
     }
 
     func testUpdateDocumentStyleFlipOrientationAlone() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.updateDocumentStyle(documentId: "doc-1", flipPageOrientation: true)
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateDocumentStyle":{"documentStyle":{"flipPageOrientation":true},"fields":"flipPageOrientation"}}]}"#
         )
     }
@@ -2109,7 +2105,7 @@ final class DocsWriteTests: XCTestCase {
     /// `marginTop,pageNumberStart,marginHeader,flipPageOrientation`.
     func testUpdateDocumentStyleNewFieldsAfterExistingKeepFixedMaskOrder() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.updateDocumentStyle(
@@ -2118,14 +2114,14 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateDocumentStyle":{"documentStyle":{"flipPageOrientation":false,"marginHeader":{"magnitude":12,"unit":"PT"},"marginTop":{"magnitude":36,"unit":"PT"},"pageNumberStart":5},"fields":"marginTop,pageNumberStart,marginHeader,flipPageOrientation"}}]}"#
         )
     }
 
     func testUpdateDocumentStyleRejectsPageNumberStartBelowOne() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         await assertInvalidArgument {
             _ = try await client.updateDocumentStyle(documentId: "doc-1", pageNumberStart: 0)
@@ -2138,7 +2134,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testUpdateDocumentStyleRejectsBadHeaderFooterMarginsWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         // Non-positive header/footer margins.
         await assertInvalidArgument {
@@ -2161,7 +2157,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testUpdateSectionStyleWithAllOptionsPostsExactBodyAndMask() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"documentId":"doc-1","replies":[{}]}"#
@@ -2187,7 +2183,7 @@ final class DocsWriteTests: XCTestCase {
         // The fields mask is the fixed documented order; the sectionStyle keys and
         // the body-only range keys are sorted by the shared encoder.
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateSectionStyle":{"fields":"marginTop,marginBottom,marginLeft,marginRight,marginHeader,marginFooter,columnSeparatorStyle,contentDirection,pageNumberStart,useFirstPageHeaderFooter,flipPageOrientation","range":{"endIndex":20,"startIndex":1},"sectionStyle":{"columnSeparatorStyle":"BETWEEN_EACH_COLUMN","contentDirection":"RIGHT_TO_LEFT","flipPageOrientation":true,"marginBottom":{"magnitude":72,"unit":"PT"},"marginFooter":{"magnitude":24,"unit":"PT"},"marginHeader":{"magnitude":24,"unit":"PT"},"marginLeft":{"magnitude":90,"unit":"PT"},"marginRight":{"magnitude":90,"unit":"PT"},"marginTop":{"magnitude":72,"unit":"PT"},"pageNumberStart":1,"useFirstPageHeaderFooter":true}}}]}"#
         )
         XCTAssertEqual(response.documentId, "doc-1")
@@ -2196,7 +2192,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testUpdateSectionStyleMarginOnlyEmitsMinimalMaskAndBody() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.updateSectionStyle(
@@ -2205,14 +2201,14 @@ final class DocsWriteTests: XCTestCase {
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         // Only the provided margin appears; absent fields are omitted entirely.
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateSectionStyle":{"fields":"marginTop","range":{"endIndex":10,"startIndex":2},"sectionStyle":{"marginTop":{"magnitude":36,"unit":"PT"}}}}]}"#
         )
     }
 
     func testUpdateSectionStyleColumnSeparatorNoneAndDirectionKeepFixedMaskOrder() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.updateSectionStyle(
@@ -2222,14 +2218,14 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateSectionStyle":{"fields":"columnSeparatorStyle,contentDirection","range":{"endIndex":5,"startIndex":0},"sectionStyle":{"columnSeparatorStyle":"NONE","contentDirection":"LEFT_TO_RIGHT"}}}]}"#
         )
     }
 
     func testUpdateSectionStyleWithRequiredRevisionCarriesWriteControl() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.updateSectionStyle(
@@ -2238,14 +2234,14 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateSectionStyle":{"fields":"pageNumberStart","range":{"endIndex":4,"startIndex":1},"sectionStyle":{"pageNumberStart":3}}}],"writeControl":{"requiredRevisionId":"rev-1"}}"#
         )
     }
 
     func testUpdateSectionStyleRejectsBadInputWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         // No option at all (empty mask).
         await assertInvalidArgument {
@@ -2283,7 +2279,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testUpdateNamedStyleEncodesSelectorTextAndParagraphMasks() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"documentId":"doc-1","replies":[{}]}"#
@@ -2306,7 +2302,7 @@ final class DocsWriteTests: XCTestCase {
         // The mask leads with namedStyleType, then the set text paths, then the set
         // paragraph paths; the namedStyle keys are sorted by the shared encoder.
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateNamedStyle":{"fields":"namedStyleType,textStyle.bold,textStyle.foregroundColor,textStyle.fontSize,textStyle.weightedFontFamily,textStyle.smallCaps,paragraphStyle.alignment,paragraphStyle.lineSpacing,paragraphStyle.spaceAbove","namedStyle":{"namedStyleType":"HEADING_2","paragraphStyle":{"alignment":"CENTER","lineSpacing":150,"spaceAbove":{"magnitude":6,"unit":"PT"}},"textStyle":{"bold":true,"fontSize":{"magnitude":18,"unit":"PT"},"foregroundColor":{"color":{"rgbColor":{"blue":0,"green":0,"red":1}}},"smallCaps":true,"weightedFontFamily":{"fontFamily":"Arial"}}}}}]}"#
         )
         XCTAssertEqual(response.documentId, "doc-1")
@@ -2314,7 +2310,7 @@ final class DocsWriteTests: XCTestCase {
 
     func testUpdateNamedStyleMinimalSelectorPlusOneTextAttr() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.updateNamedStyle(
@@ -2322,14 +2318,14 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateNamedStyle":{"fields":"namedStyleType,textStyle.bold","namedStyle":{"namedStyleType":"HEADING_1","textStyle":{"bold":true}}}}]}"#
         )
     }
 
     func testUpdateNamedStyleTabIdAndRequiredRevisionEncodeExactly() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.updateNamedStyle(
@@ -2338,14 +2334,14 @@ final class DocsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateNamedStyle":{"fields":"namedStyleType,textStyle.italic","namedStyle":{"namedStyleType":"HEADING_3","textStyle":{"italic":true}},"tabId":"t.0"}}],"writeControl":{"requiredRevisionId":"rev-1"}}"#
         )
     }
 
     func testUpdateNamedStyleParagraphOnlyOmitsTextStyle() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.updateNamedStyle(
@@ -2354,14 +2350,14 @@ final class DocsWriteTests: XCTestCase {
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         // No textStyle key at all when only a paragraph attribute is set.
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateNamedStyle":{"fields":"namedStyleType,paragraphStyle.alignment","namedStyle":{"namedStyleType":"NORMAL_TEXT","paragraphStyle":{"alignment":"JUSTIFIED"}}}}]}"#
         )
     }
 
     func testUpdateNamedStyleRejectsBadInputWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         // An unknown named style.
         await assertInvalidArgument {
@@ -2391,6 +2387,15 @@ final class DocsWriteTests: XCTestCase {
         await assertInvalidArgument {
             _ = try await client.updateNamedStyle(
                 documentId: "doc-1", namedStyleType: "TITLE", lineSpacing: 0)
+        }
+        // Positive measurements must also be finite.
+        await assertInvalidArgument {
+            _ = try await client.updateNamedStyle(
+                documentId: "doc-1", namedStyleType: "TITLE", fontSize: .infinity)
+        }
+        await assertInvalidArgument {
+            _ = try await client.updateNamedStyle(
+                documentId: "doc-1", namedStyleType: "TITLE", lineSpacing: .nan)
         }
         XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
     }
@@ -2458,43 +2463,6 @@ final class DocsWriteTests: XCTestCase {
 
     // MARK: - Helpers
 
-    private func assertInvalidArgument(
-        file: StaticString = #filePath,
-        line: UInt = #line,
-        _ body: () async throws -> Void
-    ) async {
-        do {
-            try await body()
-            XCTFail("Expected an error", file: file, line: line)
-        } catch {
-            guard case GrahamError.invalidArgument = error else {
-                return XCTFail("Wrong error: \(error)", file: file, line: line)
-            }
-        }
-    }
 
-    private func assertGoogleError(
-        code expectedCode: Int,
-        status expectedStatus: String,
-        message expectedMessage: String,
-        file: StaticString = #filePath,
-        line: UInt = #line,
-        _ body: () async throws -> Void
-    ) async {
-        do {
-            try await body()
-            XCTFail("Expected an error", file: file, line: line)
-        } catch {
-            guard case GrahamError.googleAPIError(let code, let status, let message) = error else {
-                return XCTFail("Wrong error: \(error)", file: file, line: line)
-            }
-            XCTAssertEqual(code, expectedCode, file: file, line: line)
-            XCTAssertEqual(status, expectedStatus, file: file, line: line)
-            XCTAssertEqual(message, expectedMessage, file: file, line: line)
-        }
-    }
 
-    private static func bodyString(_ request: HTTPRequest) -> String {
-        request.body.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-    }
 }

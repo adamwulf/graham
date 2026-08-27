@@ -74,37 +74,16 @@ struct Sheets: AsyncParsableCommand {
 
         func run() async throws {
             let api = try CLI.makeAPI()
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withInternetDateTime]
-            let label = formatter.string(from: Date())
             let runner = SheetsLiveTest(
                 drive: DriveClient(api: api),
                 sheets: SheetsClient(api: api),
                 folderName: folder,
                 keep: keep,
-                label: label,
-                onStep: { step in
-                    let ids = step.createdIDs.isEmpty
-                        ? ""
-                        : " [\(step.createdIDs.joined(separator: ", "))]"
-                    switch step.outcome {
-                    case .pass:
-                        print("\(StatusColor.green.wrap("PASS")) \(step.name)\(ids)")
-                    case .fail(let reason):
-                        print("\(StatusColor.red.wrap("FAIL")) \(step.name): \(reason)\(ids)")
-                    case .skip(let reason):
-                        print("\(StatusColor.yellow.wrap("SKIP")) \(step.name): \(reason)\(ids)")
-                    }
-                }
+                label: CLI.iso8601Label(),
+                onStep: CLI.liveTestStepHandler(for: SheetsLiveTestStep.self)
             )
             let summary = await runner.run()
-            print(
-                "Summary: \(summary.passed) passed, \(summary.failed) failed, "
-                    + "\(summary.skipped) skipped"
-            )
-            if summary.failed > 0 {
-                throw ExitCode.failure
-            }
+            try CLI.printLiveTestSummary(summary)
         }
     }
 
@@ -1521,62 +1500,13 @@ struct Sheets: AsyncParsableCommand {
     }
 }
 
-extension BasicChartType: ExpressibleByArgument {
-    public init?(argument: String) {
-        self.init(rawValue: argument.uppercased())
-    }
-}
-
-extension SheetsChartKind: ExpressibleByArgument {
-    public init?(argument: String) {
-        self.init(rawValue: argument.uppercased())
-    }
-}
-
-extension SheetsChartAggregateType: ExpressibleByArgument {
-    public init?(argument: String) {
-        self.init(rawValue: argument.uppercased())
-    }
-}
-
-extension SheetsDimension: ExpressibleByArgument {
-    public init?(argument: String) {
-        self.init(rawValue: argument.uppercased())
-    }
-}
-
-extension SheetsHorizontalAlignment: ExpressibleByArgument {
-    public init?(argument: String) {
-        self.init(rawValue: argument.uppercased())
-    }
-}
-
-extension SheetsConditionType: ExpressibleByArgument {
-    public init?(argument: String) {
-        self.init(rawValue: argument.uppercased())
-    }
-}
-
-extension InterpolationPointType: ExpressibleByArgument {
-    public init?(argument: String) {
-        self.init(rawValue: argument.uppercased())
-    }
-}
-
-extension SheetsNumberFormatType: ExpressibleByArgument {
-    public init?(argument: String) {
-        self.init(rawValue: argument.uppercased())
-    }
-}
-
-extension SheetsBorderStyle: ExpressibleByArgument {
-    public init?(argument: String) {
-        self.init(rawValue: argument.uppercased())
-    }
-}
-
-extension SheetsMergeType: ExpressibleByArgument {
-    public init?(argument: String) {
-        self.init(rawValue: argument.uppercased())
-    }
-}
+extension BasicChartType: UppercasedRawArgument {}
+extension SheetsChartKind: UppercasedRawArgument {}
+extension SheetsChartAggregateType: UppercasedRawArgument {}
+extension SheetsDimension: UppercasedRawArgument {}
+extension SheetsHorizontalAlignment: UppercasedRawArgument {}
+extension SheetsConditionType: UppercasedRawArgument {}
+extension InterpolationPointType: UppercasedRawArgument {}
+extension SheetsNumberFormatType: UppercasedRawArgument {}
+extension SheetsBorderStyle: UppercasedRawArgument {}
+extension SheetsMergeType: UppercasedRawArgument {}

@@ -6,11 +6,7 @@ import XCTest
 /// methods. Every fixture is static JSON; no test touches the network, and the
 /// JSON bodies are asserted exactly (the shared encoder sorts keys, so the
 /// strings are deterministic).
-final class SlidesWriteTests: XCTestCase {
-    private func makeClient(transport: StubTransport) -> SlidesClient {
-        transport.stubTokenEndpoint()
-        return SlidesClient(api: TestSupport.makeAPI(transport: transport))
-    }
+final class SlidesWriteTests: GrahamTestCase {
 
     /// A four-slide presentation, ids only, as the move fields mask returns it.
     private static let fourSlidesJSON =
@@ -231,7 +227,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testBatchUpdatePostsAllRequestsInOrder() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(
             urlContains: "p-1:batchUpdate",
             json: #"{"presentationId":"p-1","replies":[{"createSlide":{"objectId":"new-slide"}},{}]}"#
@@ -247,7 +243,7 @@ final class SlidesWriteTests: XCTestCase {
         XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-1:batchUpdate")
         XCTAssertEqual(request.headers["Content-Type"], "application/json")
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createSlide":{}},{"deleteObject":{"objectId":"old"}}]}"#
         )
         // The response decodes: an id-bearing reply and an empty reply.
@@ -258,7 +254,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testBatchUpdateEscapesThePresentationIdInThePath() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
         _ = try await client.batchUpdate(
@@ -275,7 +271,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testBatchUpdatePropagatesAGoogleError() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"error":{"code":400,"message":"Invalid requests[0]","status":"INVALID_ARGUMENT"}}"#,
@@ -301,7 +297,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testCreateSlideAppendsABlankSlideByDefault() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"presentationId":"p-1","replies":[{"createSlide":{"objectId":"new-slide"}}]}"#
@@ -313,14 +309,14 @@ final class SlidesWriteTests: XCTestCase {
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         // No insertionIndex: the slide is appended. The BLANK layout is explicit.
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createSlide":{"slideLayoutReference":{"predefinedLayout":"BLANK"}}}]}"#
         )
     }
 
     func testCreateSlideAtPositionOneUsesInsertionIndexZero() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"replies":[{"createSlide":{"objectId":"first"}}]}"#
@@ -331,7 +327,7 @@ final class SlidesWriteTests: XCTestCase {
         XCTAssertEqual(objectId, "first")
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createSlide":{"insertionIndex":0,"#
             + #""slideLayoutReference":{"predefinedLayout":"BLANK"}}}]}"#
         )
@@ -339,7 +335,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testCreateSlideNormalizesTheLayoutName() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"replies":[{"createSlide":{"objectId":"x"}}]}"#
@@ -349,14 +345,14 @@ final class SlidesWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createSlide":{"slideLayoutReference":{"predefinedLayout":"TITLE_AND_BODY"}}}]}"#
         )
     }
 
     func testCreateSlideRejectsANonPositivePositionWithoutARequest() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         do {
             _ = try await client.createSlide(presentationId: "p-1", at: 0)
@@ -371,7 +367,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testCreateSlideRejectsAnEmptyLayoutName() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         do {
             _ = try await client.createSlide(presentationId: "p-1", layout: "   ")
@@ -386,7 +382,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testCreateSlideThrowsWhenTheReplyHasNoObjectId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         do {
@@ -408,7 +404,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testCreateSlideWithLayoutIdEncodesTheLayoutId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"replies":[{"createSlide":{"objectId":"x"}}]}"#
@@ -418,14 +414,14 @@ final class SlidesWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createSlide":{"slideLayoutReference":{"layoutId":"layout-7"}}}]}"#
         )
     }
 
     func testCreateSlideRejectsBothLayoutNameAndLayoutId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         await assertInvalidArgument {
             _ = try await client.createSlide(
@@ -438,7 +434,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testCreateTextBoxPostsCreateThenInsertAtomicallyAndReturnsReplyId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"replies":[{"createShape":{"objectId":"reply-id"}},{}]}"#
@@ -462,14 +458,14 @@ final class SlidesWriteTests: XCTestCase {
         XCTAssertEqual(request.method, "POST")
         XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-1:batchUpdate")
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createShape":{"elementProperties":{"pageObjectId":"slide-1","size":{"height":{"magnitude":50,"unit":"PT"},"width":{"magnitude":300,"unit":"PT"}},"transform":{"scaleX":1,"scaleY":1,"translateX":25,"translateY":75,"unit":"PT"}},"objectId":"textbox-1","shapeType":"TEXT_BOX"}},{"insertText":{"insertionIndex":0,"objectId":"textbox-1","text":"Hello"}}]}"#
         )
     }
 
     func testCreateTextBoxFallsBackToTheSentIdForAnEmptyReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
         let objectId = try await client.createTextBox(
@@ -484,7 +480,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testCreateTextBoxWithEmptyTextSendsOnlyCreateShape() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.createTextBox(
@@ -496,14 +492,14 @@ final class SlidesWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createShape":{"elementProperties":{"pageObjectId":"slide-1","size":{"height":{"magnitude":50,"unit":"PT"},"width":{"magnitude":300,"unit":"PT"}},"transform":{"scaleX":1,"scaleY":1,"translateX":50,"translateY":50,"unit":"PT"}},"objectId":"textbox-1","shapeType":"TEXT_BOX"}}]}"#
         )
     }
 
     func testCreateTextBoxGeneratesAValidObjectId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
         let objectId = try await client.createTextBox(
@@ -516,13 +512,13 @@ final class SlidesWriteTests: XCTestCase {
             )
         )
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
-        let body = Self.bodyString(request)
+        let body = TestSupport.bodyString(request)
         XCTAssertEqual(body.components(separatedBy: objectId).count - 1, 2)
     }
 
     func testCreateTextBoxEscapesThePresentationIdInThePath() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
         _ = try await client.createTextBox(
@@ -541,7 +537,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testInsertTextPostsTheRequestedIndex() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         try await client.insertText(
@@ -555,14 +551,14 @@ final class SlidesWriteTests: XCTestCase {
         XCTAssertEqual(request.method, "POST")
         XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-1:batchUpdate")
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertText":{"insertionIndex":5,"objectId":"textbox-1","text":" world"}}]}"#
         )
     }
 
     func testInsertTextWithEmptyTextSendsNoRequest() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         try await client.insertText(
             presentationId: "p-1", objectId: "textbox-1", text: "")
@@ -572,7 +568,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testCreateTextBoxPropagatesAGoogleError() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"error":{"code":400,"message":"Invalid requests[0]","status":"INVALID_ARGUMENT"}}"#,
@@ -609,7 +605,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testMoveSlideReadsOnlyTheSlideIds() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         stubMoveEndpoints(transport)
 
         try await client.moveSlide(presentationId: "p-1", slideId: "s1", to: 3)
@@ -624,7 +620,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testMoveSlideForwardAddsOneToTheInsertionIndex() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         stubMoveEndpoints(transport)
 
         // s1 (index 0) to final position 3 (index 2): the pre-move insertion
@@ -633,14 +629,14 @@ final class SlidesWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateSlidesPosition":{"insertionIndex":3,"slideObjectIds":["s1"]}}]}"#
         )
     }
 
     func testMoveSlideForwardFromAMiddleIndex() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         stubMoveEndpoints(transport)
 
         // s2 (index 1) to final position 3 (index 2): a forward move that
@@ -650,14 +646,14 @@ final class SlidesWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateSlidesPosition":{"insertionIndex":3,"slideObjectIds":["s2"]}}]}"#
         )
     }
 
     func testMoveSlideBackwardUsesTheFinalIndexDirectly() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         stubMoveEndpoints(transport)
 
         // s4 (index 3) to final position 2 (index 1): moving backward, the
@@ -666,28 +662,28 @@ final class SlidesWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateSlidesPosition":{"insertionIndex":1,"slideObjectIds":["s4"]}}]}"#
         )
     }
 
     func testMoveSlideToTheFirstPosition() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         stubMoveEndpoints(transport)
 
         try await client.moveSlide(presentationId: "p-1", slideId: "s3", to: 1)
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateSlidesPosition":{"insertionIndex":0,"slideObjectIds":["s3"]}}]}"#
         )
     }
 
     func testMoveSlideToTheLastPosition() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         stubMoveEndpoints(transport)
 
         // s1 (index 0) to final position 4 (index 3), the end of four slides:
@@ -696,14 +692,14 @@ final class SlidesWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateSlidesPosition":{"insertionIndex":4,"slideObjectIds":["s1"]}}]}"#
         )
     }
 
     func testMoveSlideToItsCurrentPositionSendsNoWrite() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         stubMoveEndpoints(transport)
 
         try await client.moveSlide(presentationId: "p-1", slideId: "s2", to: 2)
@@ -715,7 +711,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testMoveSlideRejectsAMissingSlideId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         stubMoveEndpoints(transport)
 
         do {
@@ -731,7 +727,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testMoveSlideRejectsAnOutOfRangePosition() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         stubMoveEndpoints(transport)
 
         do {
@@ -747,7 +743,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testMoveSlideRejectsANonPositivePositionBeforeAnyRequest() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         do {
             try await client.moveSlide(presentationId: "p-1", slideId: "s1", to: 0)
@@ -764,7 +760,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testDeleteObjectPostsExactlyTheGivenId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         // A delete reply is empty; the response still decodes.
         transport.stub(urlContains: ":batchUpdate", json: #"{"presentationId":"p-1","replies":[{}]}"#)
 
@@ -774,7 +770,7 @@ final class SlidesWriteTests: XCTestCase {
         XCTAssertEqual(request.method, "POST")
         XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-1:batchUpdate")
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"deleteObject":{"objectId":"slide-2"}}]}"#
         )
         // Exactly one write; nothing is read, inferred, or expanded.
@@ -783,7 +779,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testDeleteObjectDecodesAnEmptyResponseBody() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
         // Must not throw: a response with no replies at all is valid.
@@ -826,7 +822,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testSetAltTextPostsBothFields() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         try await client.setAltText(
@@ -837,14 +833,14 @@ final class SlidesWriteTests: XCTestCase {
         XCTAssertEqual(request.method, "POST")
         XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-1:batchUpdate")
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updatePageElementAltText":{"description":"A cat on a mat","objectId":"el-1","title":"A cat"}}]}"#
         )
     }
 
     func testSetAltTextClearsWithEmptyStrings() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         // Clearing both fields is the API's "delete alt text".
@@ -853,14 +849,14 @@ final class SlidesWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updatePageElementAltText":{"description":"","objectId":"el-1","title":""}}]}"#
         )
     }
 
     func testSetAltTextRejectsBothNilWithoutARequest() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         await assertInvalidArgument {
             try await client.setAltText(presentationId: "p-1", objectId: "el-1")
@@ -1018,7 +1014,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testCreateImageWithNoGeometryOmitsSizeAndTransform() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"replies":[{"createImage":{"objectId":"img"}}]}"#
@@ -1031,17 +1027,17 @@ final class SlidesWriteTests: XCTestCase {
         // With no geometry arguments the element carries only its page; Google
         // then chooses the default placement and the image keeps its native size.
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createImage":{"elementProperties":{"pageObjectId":"s1"},"objectId":"img","url":"u"}}]}"#
         )
-        let body = Self.bodyString(request)
+        let body = TestSupport.bodyString(request)
         XCTAssertFalse(body.contains("\"size\""))
         XCTAssertFalse(body.contains("\"transform\""))
     }
 
     func testCreateImageWithPositionOnlySendsTransformNotSize() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"replies":[{"createImage":{"objectId":"img"}}]}"#
@@ -1053,14 +1049,14 @@ final class SlidesWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createImage":{"elementProperties":{"pageObjectId":"s1","transform":{"scaleX":1,"scaleY":1,"translateX":25,"translateY":75,"unit":"PT"}},"objectId":"img","url":"u"}}]}"#
         )
     }
 
     func testCreateImageWithXOnlyTranslatesYToZero() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"replies":[{"createImage":{"objectId":"img"}}]}"#
@@ -1072,14 +1068,14 @@ final class SlidesWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createImage":{"elementProperties":{"pageObjectId":"s1","transform":{"scaleX":1,"scaleY":1,"translateX":25,"translateY":0,"unit":"PT"}},"objectId":"img","url":"u"}}]}"#
         )
     }
 
     func testCreateImageRejectsWidthWithoutHeight() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         do {
             _ = try await client.createImage(
@@ -1095,7 +1091,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testCreateImageRejectsHeightWithoutWidth() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         do {
             _ = try await client.createImage(
@@ -1111,7 +1107,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testCreateImageRejectsAZeroWidth() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         do {
             _ = try await client.createImage(
@@ -1127,7 +1123,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testCreateImageRejectsANegativeHeight() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         do {
             _ = try await client.createImage(
@@ -1145,7 +1141,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testCreateImagePostsFullGeometryAndReturnsReplyId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"replies":[{"createImage":{"objectId":"reply-image"}}]}"#
@@ -1166,14 +1162,14 @@ final class SlidesWriteTests: XCTestCase {
         XCTAssertEqual(request.method, "POST")
         XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-1:batchUpdate")
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createImage":{"elementProperties":{"pageObjectId":"s1","size":{"height":{"magnitude":50,"unit":"PT"},"width":{"magnitude":300,"unit":"PT"}},"transform":{"scaleX":1,"scaleY":1,"translateX":25,"translateY":75,"unit":"PT"}},"objectId":"image-1","url":"https:\/\/example.com\/pic.png"}}]}"#
         )
     }
 
     func testCreateImageFallsBackToTheSentIdForAnEmptyReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
         let objectId = try await client.createImage(
@@ -1184,7 +1180,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testCreateImageGeneratesAValidObjectId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
         let objectId = try await client.createImage(
@@ -1197,13 +1193,13 @@ final class SlidesWriteTests: XCTestCase {
             )
         )
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
-        let body = Self.bodyString(request)
+        let body = TestSupport.bodyString(request)
         XCTAssertEqual(body.components(separatedBy: objectId).count - 1, 1)
     }
 
     func testCreateImageRejectsAnEmptyUrl() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         do {
             _ = try await client.createImage(presentationId: "p-1", slideId: "s1", url: "")
@@ -1218,7 +1214,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testCreateImagePropagatesAGoogleError() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"error":{"code":400,"message":"Invalid requests[0]","status":"INVALID_ARGUMENT"}}"#,
@@ -1242,7 +1238,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testCreateVideoPostsSourceAndIdAndReturnsReplyId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"replies":[{"createVideo":{"objectId":"reply-video"}}]}"#
@@ -1262,14 +1258,14 @@ final class SlidesWriteTests: XCTestCase {
         XCTAssertEqual(request.method, "POST")
         XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-1:batchUpdate")
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createVideo":{"elementProperties":{"pageObjectId":"s1","size":{"height":{"magnitude":150,"unit":"PT"},"width":{"magnitude":200,"unit":"PT"}},"transform":{"scaleX":1,"scaleY":1,"translateX":10,"translateY":20,"unit":"PT"}},"id":"abc123","objectId":"video-1","source":"YOUTUBE"}}]}"#
         )
     }
 
     func testCreateVideoDefaultsToTheYouTubeSource() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"replies":[{"createVideo":{"objectId":"v"}}]}"#
@@ -1281,14 +1277,14 @@ final class SlidesWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createVideo":{"elementProperties":{"pageObjectId":"s1"},"id":"abc","objectId":"video-1","source":"YOUTUBE"}}]}"#
         )
     }
 
     func testCreateVideoSendsTheDriveSource() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"replies":[{"createVideo":{"objectId":"v"}}]}"#
@@ -1300,14 +1296,14 @@ final class SlidesWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createVideo":{"elementProperties":{"pageObjectId":"s1"},"id":"file-1","objectId":"video-1","source":"DRIVE"}}]}"#
         )
     }
 
     func testCreateVideoFallsBackToTheSentIdForAnEmptyReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
         let objectId = try await client.createVideo(
@@ -1318,7 +1314,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testCreateVideoRejectsAnEmptyVideoId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         do {
             _ = try await client.createVideo(
@@ -1336,7 +1332,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testCreateLinePostsCategoryAndReturnsReplyId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"replies":[{"createLine":{"objectId":"reply-line"}}]}"#
@@ -1355,14 +1351,14 @@ final class SlidesWriteTests: XCTestCase {
         XCTAssertEqual(request.method, "POST")
         XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-1:batchUpdate")
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createLine":{"category":"BENT","elementProperties":{"pageObjectId":"s1","size":{"height":{"magnitude":2,"unit":"PT"},"width":{"magnitude":100,"unit":"PT"}},"transform":{"scaleX":1,"scaleY":1,"translateX":5,"translateY":6,"unit":"PT"}},"objectId":"line-1"}}]}"#
         )
     }
 
     func testCreateLineDefaultsToTheStraightCategory() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"replies":[{"createLine":{"objectId":"l"}}]}"#
@@ -1373,14 +1369,14 @@ final class SlidesWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createLine":{"category":"STRAIGHT","elementProperties":{"pageObjectId":"s1"},"objectId":"line-1"}}]}"#
         )
     }
 
     func testCreateLineFallsBackToTheSentIdForAnEmptyReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
         let objectId = try await client.createLine(
@@ -1393,7 +1389,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testCreateTablePostsRowsAndColumnsAndReturnsReplyId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"replies":[{"createTable":{"objectId":"reply-table"}}]}"#
@@ -1413,14 +1409,14 @@ final class SlidesWriteTests: XCTestCase {
         XCTAssertEqual(request.method, "POST")
         XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-1:batchUpdate")
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createTable":{"columns":4,"elementProperties":{"pageObjectId":"s1","size":{"height":{"magnitude":200,"unit":"PT"},"width":{"magnitude":400,"unit":"PT"}},"transform":{"scaleX":1,"scaleY":1,"translateX":10,"translateY":20,"unit":"PT"}},"objectId":"table-1","rows":3}}]}"#
         )
     }
 
     func testCreateTableFallsBackToTheSentIdForAnEmptyReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
         let objectId = try await client.createTable(
@@ -1431,7 +1427,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testCreateTableRejectsNonPositiveRows() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         do {
             _ = try await client.createTable(
@@ -1447,7 +1443,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testCreateTableRejectsNonPositiveColumns() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         do {
             _ = try await client.createTable(
@@ -1465,7 +1461,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testCreateSheetsChartUnlinkedByDefaultPostsAndReturnsReplyId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"replies":[{"createSheetsChart":{"objectId":"reply-chart"}}]}"#
@@ -1487,14 +1483,14 @@ final class SlidesWriteTests: XCTestCase {
         XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-1:batchUpdate")
         // linked:false omits the linkingMode key; the API default is NOT_LINKED_IMAGE.
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createSheetsChart":{"chartId":42,"elementProperties":{"pageObjectId":"s1","size":{"height":{"magnitude":300,"unit":"PT"},"width":{"magnitude":400,"unit":"PT"}},"transform":{"scaleX":1,"scaleY":1,"translateX":10,"translateY":20,"unit":"PT"}},"objectId":"chart-1","spreadsheetId":"sheet-1"}}]}"#
         )
     }
 
     func testCreateSheetsChartLinkedIncludesTheLinkingMode() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"replies":[{"createSheetsChart":{"objectId":"c"}}]}"#
@@ -1508,14 +1504,14 @@ final class SlidesWriteTests: XCTestCase {
         // rejects createSheetsChart element properties that omit a size.
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"createSheetsChart":{"chartId":7,"elementProperties":{"pageObjectId":"s1","size":{"height":{"magnitude":300,"unit":"PT"},"width":{"magnitude":480,"unit":"PT"}},"transform":{"scaleX":1,"scaleY":1,"translateX":50,"translateY":50,"unit":"PT"}},"linkingMode":"LINKED","objectId":"chart-1","spreadsheetId":"sheet-1"}}]}"#
         )
     }
 
     func testCreateSheetsChartFallsBackToTheSentIdForAnEmptyReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
         let objectId = try await client.createSheetsChart(
@@ -1527,7 +1523,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testCreateSheetsChartRejectsAnEmptySpreadsheetId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         do {
             _ = try await client.createSheetsChart(
@@ -1545,7 +1541,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testGroupElementsPostsChildrenAndReturnsReplyId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"replies":[{"groupObjects":{"objectId":"reply-group"}}]}"#
@@ -1559,14 +1555,14 @@ final class SlidesWriteTests: XCTestCase {
         XCTAssertEqual(request.method, "POST")
         XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-1:batchUpdate")
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"groupObjects":{"childrenObjectIds":["a","b","c"],"groupObjectId":"group-1"}}]}"#
         )
     }
 
     func testGroupElementsFallsBackToTheSentGroupIdForAnEmptyReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
         let objectId = try await client.groupElements(
@@ -1577,7 +1573,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testGroupElementsGeneratesAValidGroupId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
         let objectId = try await client.groupElements(
@@ -1590,13 +1586,13 @@ final class SlidesWriteTests: XCTestCase {
             )
         )
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
-        let body = Self.bodyString(request)
+        let body = TestSupport.bodyString(request)
         XCTAssertEqual(body.components(separatedBy: objectId).count - 1, 1)
     }
 
     func testGroupElementsRejectsFewerThanTwoChildren() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         do {
             _ = try await client.groupElements(
@@ -1614,7 +1610,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testUngroupElementsPostsTheObjectIds() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         try await client.ungroupElements(presentationId: "p-1", objectIds: ["g1", "g2"])
@@ -1623,14 +1619,14 @@ final class SlidesWriteTests: XCTestCase {
         XCTAssertEqual(request.method, "POST")
         XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-1:batchUpdate")
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"ungroupObjects":{"objectIds":["g1","g2"]}}]}"#
         )
     }
 
     func testUngroupElementsToleratesAnEmptyResponseBody() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
         // ungroupObjects returns an empty reply; this must not throw.
@@ -1639,7 +1635,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testUngroupElementsRejectsAnEmptyList() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         do {
             try await client.ungroupElements(presentationId: "p-1", objectIds: [])
@@ -1668,7 +1664,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testMoveElementToConvertsPointsToEmuAndPreservesTheLinearMatrix() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         stubGeometryEndpoints(transport)
 
         try await client.moveElement(
@@ -1676,7 +1672,7 @@ final class SlidesWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updatePageElementTransform":{"applyMode":"ABSOLUTE","objectId":"top","transform":{"scaleX":2,"scaleY":3,"shearX":0.25,"shearY":0.5,"translateX":25400,"translateY":-38100,"unit":"EMU"}}}]}"#
         )
         let read = try XCTUnwrap(transport.requests(urlContains: "presentations/p-geometry?").first)
@@ -1688,7 +1684,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testMoveElementToDoesNotConvertPointsForAPtElement() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         stubGeometryEndpoints(transport)
 
         try await client.moveElement(
@@ -1703,7 +1699,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testMoveElementByAddsConvertedDeltas() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         stubGeometryEndpoints(transport)
 
         try await client.moveElement(
@@ -1717,7 +1713,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testMoveElementFindsAChildInsideAGroup() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         stubGeometryEndpoints(transport)
 
         try await client.moveElement(
@@ -1735,7 +1731,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testScaleElementPrecomputesAbsoluteBTimesTAboutTheCenter() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         stubGeometryEndpoints(transport)
 
         try await client.scaleElement(
@@ -1754,7 +1750,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testScaleElementRejectsNonPositiveFactorsBeforeReading() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         do {
             try await client.scaleElement(
@@ -1770,7 +1766,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testRotateElementByPrecomputesClockwiseRotationAboutTheCenter() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         stubGeometryEndpoints(transport)
 
         try await client.rotateElement(
@@ -1787,7 +1783,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testRotateElementToUsesTheDeltaFromTheCurrentRotation() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         stubGeometryEndpoints(transport)
 
         try await client.rotateElement(
@@ -1804,7 +1800,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testUnknownElementRejectsAfterReadAndSendsNoWrite() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(
             urlContains: "presentations/p-geometry?fields=",
             json: Self.geometryPresentationJSON
@@ -1826,7 +1822,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testRawTransformSendsVerbatimWithoutARead() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
         let transform = ElementTransform(
             scaleX: 2,
@@ -1854,7 +1850,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testReorderElementsSendsExactBodyAndKeepsIdOrder() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
         try await client.reorderElements(
@@ -1865,14 +1861,14 @@ final class SlidesWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updatePageElementsZOrder":{"operation":"BRING_FORWARD","pageElementObjectIds":["a","b"]}}]}"#
         )
     }
 
     func testReorderElementsRejectsAnEmptyListWithoutARequest() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         do {
             try await client.reorderElements(
@@ -1888,7 +1884,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testComputedTransformPropagatesAGoogleErrorEnvelope() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         stubGeometryEndpoints(
             transport,
             writeJSON: #"{"error":{"code":400,"message":"Bad transform","status":"INVALID_ARGUMENT"}}"#,
@@ -2114,7 +2110,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testStyleShapeSendsFillOutlineShadowAndAlignment() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"presentationId":"p-1","replies":[{}]}"#)
 
         try await client.styleShape(
@@ -2135,14 +2131,14 @@ final class SlidesWriteTests: XCTestCase {
         XCTAssertEqual(request.method, "POST")
         XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-1:batchUpdate")
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":["# + Self.shapeStyleUnionJSON + #"]}"#
         )
     }
 
     func testStyleShapeWithOnlyAFillColorMasksOnlyThatPath() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
         try await client.styleShape(
@@ -2151,28 +2147,28 @@ final class SlidesWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateShapeProperties":{"fields":"shapeBackgroundFill.solidFill.color","objectId":"shape-1","shapeProperties":{"shapeBackgroundFill":{"solidFill":{"color":{"rgbColor":{"blue":1,"green":0,"red":0}}}}}}}]}"#
         )
     }
 
     func testStyleShapeNoFillSendsNotRenderedState() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
         try await client.styleShape(presentationId: "p-1", objectId: "shape-1", noFill: true)
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateShapeProperties":{"fields":"shapeBackgroundFill.propertyState","objectId":"shape-1","shapeProperties":{"shapeBackgroundFill":{"propertyState":"NOT_RENDERED"}}}}]}"#
         )
     }
 
     func testStyleShapeShadowOffsetsBuildOneTransformWithAMissingAxisZero() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
         // Only the x offset is given; the transform still appears once, with a
@@ -2182,14 +2178,14 @@ final class SlidesWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateShapeProperties":{"fields":"shadow.transform","objectId":"shape-1","shapeProperties":{"shadow":{"transform":{"scaleX":1,"scaleY":1,"shearX":0,"shearY":0,"translateX":4,"translateY":0,"unit":"PT"}}}}}]}"#
         )
     }
 
     func testStyleShapeRejectsNoOptionsWithoutARequest() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         await assertInvalidArgument {
             try await client.styleShape(presentationId: "p-1", objectId: "shape-1")
@@ -2199,7 +2195,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testStyleShapeRejectsNoFillWithAFillColor() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         await assertInvalidArgument {
             try await client.styleShape(
@@ -2211,7 +2207,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testStyleShapeRejectsNoOutlineWithAnOutlineColor() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         await assertInvalidArgument {
             try await client.styleShape(
@@ -2223,7 +2219,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testStyleShapeRejectsNoShadowWithAShadowColor() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         await assertInvalidArgument {
             try await client.styleShape(
@@ -2235,7 +2231,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testStyleShapeRejectsAnAlphaOutOfRange() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         await assertInvalidArgument {
             try await client.styleShape(
@@ -2246,7 +2242,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testStyleShapeRejectsANonPositiveOutlineWeight() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         await assertInvalidArgument {
             try await client.styleShape(
@@ -2255,9 +2251,24 @@ final class SlidesWriteTests: XCTestCase {
         XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
     }
 
+    func testStyleShapeRejectsNonFinitePositiveValues() async throws {
+        let transport = StubTransport()
+        let client = TestSupport.slidesClient(transport)
+
+        await assertInvalidArgument {
+            try await client.styleShape(
+                presentationId: "p-1", objectId: "shape-1", outlineWeight: .infinity)
+        }
+        await assertInvalidArgument {
+            try await client.styleShape(
+                presentationId: "p-1", objectId: "shape-1", shadowBlur: .nan)
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
     func testStyleShapeRejectsANonPositiveShadowBlur() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         await assertInvalidArgument {
             try await client.styleShape(
@@ -2268,7 +2279,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testStyleShapePropagatesAGoogleError() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"error":{"code":400,"message":"Invalid requests[0]","status":"INVALID_ARGUMENT"}}"#,
@@ -2292,7 +2303,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testStyleImageSendsOnlyTheOutline() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
         try await client.styleImage(
@@ -2304,14 +2315,14 @@ final class SlidesWriteTests: XCTestCase {
         XCTAssertEqual(request.method, "POST")
         XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-1:batchUpdate")
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateImageProperties":{"fields":"outline.outlineFill.solidFill.color,outline.outlineFill.solidFill.alpha,outline.weight,outline.dashStyle","imageProperties":{"outline":{"dashStyle":"DASH","outlineFill":{"solidFill":{"alpha":0.5,"color":{"themeColor":"ACCENT2"}}},"weight":{"magnitude":2,"unit":"PT"}}},"objectId":"image-1"}}]}"#
         )
     }
 
     func testStyleImageNoOutlineClearsIt() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
         try await client.styleImage(
@@ -2319,14 +2330,14 @@ final class SlidesWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateImageProperties":{"fields":"outline.propertyState","imageProperties":{"outline":{"propertyState":"NOT_RENDERED"}},"objectId":"image-1"}}]}"#
         )
     }
 
     func testStyleImageRejectsNoOptionsWithoutARequest() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         await assertInvalidArgument {
             try await client.styleImage(presentationId: "p-1", objectId: "image-1")
@@ -2336,7 +2347,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testStyleImageRejectsNoOutlineWithAnotherOutlineOption() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         await assertInvalidArgument {
             try await client.styleImage(
@@ -2350,7 +2361,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testStyleLineSendsFillWeightDashAndArrows() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
         try await client.styleLine(
@@ -2363,28 +2374,28 @@ final class SlidesWriteTests: XCTestCase {
         XCTAssertEqual(request.method, "POST")
         XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-1:batchUpdate")
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateLineProperties":{"fields":"lineFill.solidFill.color,lineFill.solidFill.alpha,weight,dashStyle,startArrow,endArrow","lineProperties":{"dashStyle":"DASH_DOT","endArrow":"FILL_ARROW","lineFill":{"solidFill":{"alpha":0.8,"color":{"rgbColor":{"blue":1,"green":0,"red":0}}}},"startArrow":"NONE","weight":{"magnitude":3,"unit":"PT"}},"objectId":"line-1"}}]}"#
         )
     }
 
     func testStyleLineMasksOnlyTheProvidedOption() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
         try await client.styleLine(presentationId: "p-1", objectId: "line-1", dash: .dot)
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateLineProperties":{"fields":"dashStyle","lineProperties":{"dashStyle":"DOT"},"objectId":"line-1"}}]}"#
         )
     }
 
     func testStyleLineRejectsNoOptionsWithoutARequest() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         await assertInvalidArgument {
             try await client.styleLine(presentationId: "p-1", objectId: "line-1")
@@ -2394,7 +2405,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testStyleLineRejectsAnAlphaOutOfRange() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         await assertInvalidArgument {
             try await client.styleLine(presentationId: "p-1", objectId: "line-1", alpha: -0.5)
@@ -2406,7 +2417,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testStyleVideoSendsPlaybackOptionsAndOutline() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
         try await client.styleVideo(
@@ -2418,14 +2429,14 @@ final class SlidesWriteTests: XCTestCase {
         XCTAssertEqual(request.method, "POST")
         XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-1:batchUpdate")
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateVideoProperties":{"fields":"autoPlay,mute,start,end,outline.outlineFill.solidFill.color,outline.weight","objectId":"video-1","videoProperties":{"autoPlay":true,"end":30,"mute":false,"outline":{"outlineFill":{"solidFill":{"color":{"themeColor":"DARK1"}}},"weight":{"magnitude":1.5,"unit":"PT"}},"start":5}}}]}"#
         )
     }
 
     func testStyleVideoTreatsFalseFlagsAsProvided() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
         // autoPlay:false and mute:true are both "provided" (not nil), so both
@@ -2435,14 +2446,14 @@ final class SlidesWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateVideoProperties":{"fields":"autoPlay,mute","objectId":"video-1","videoProperties":{"autoPlay":false,"mute":true}}}]}"#
         )
     }
 
     func testStyleVideoRejectsANegativeStartWithoutARequest() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         await assertInvalidArgument {
             try await client.styleVideo(presentationId: "p-1", objectId: "video-1", start: -1)
@@ -2452,7 +2463,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testStyleVideoRejectsANegativeEndWithoutARequest() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         await assertInvalidArgument {
             try await client.styleVideo(presentationId: "p-1", objectId: "video-1", end: -1)
@@ -2462,7 +2473,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testStyleVideoRejectsAnEndNotGreaterThanStart() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         await assertInvalidArgument {
             try await client.styleVideo(
@@ -2473,7 +2484,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testStyleVideoRejectsNoOptionsWithoutARequest() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         await assertInvalidArgument {
             try await client.styleVideo(presentationId: "p-1", objectId: "video-1")
@@ -2485,7 +2496,7 @@ final class SlidesWriteTests: XCTestCase {
 
     func testRefreshSheetsChartSendsOnlyTheObjectId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"presentationId":"p-1","replies":[{}]}"#)
 
         try await client.refreshSheetsChart(presentationId: "p-1", objectId: "chart-1")
@@ -2494,7 +2505,7 @@ final class SlidesWriteTests: XCTestCase {
         XCTAssertEqual(request.method, "POST")
         XCTAssertEqual(Self.path(request.url), "/v1/presentations/p-1:batchUpdate")
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"refreshSheetsChart":{"objectId":"chart-1"}}]}"#
         )
     }
@@ -2502,20 +2513,6 @@ final class SlidesWriteTests: XCTestCase {
     // MARK: - Helpers
 
     /// Fails unless the async body throws ``GrahamError/invalidArgument(_:)``.
-    private func assertInvalidArgument(
-        file: StaticString = #filePath,
-        line: UInt = #line,
-        _ body: () async throws -> Void
-    ) async {
-        do {
-            try await body()
-            XCTFail("Expected an error", file: file, line: line)
-        } catch {
-            guard case GrahamError.invalidArgument = error else {
-                return XCTFail("Wrong error: \(error)", file: file, line: line)
-            }
-        }
-    }
 
     /// Encodes any Encodable value with the shared encoder (sorted keys).
     private func encodeJSON<T: Encodable>(_ value: T) throws -> String {
@@ -2546,9 +2543,6 @@ final class SlidesWriteTests: XCTestCase {
     }
 
     /// The JSON body of a request, as the exact encoded string.
-    private static func bodyString(_ request: HTTPRequest) -> String {
-        request.body.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-    }
 
     /// The path of a URL, with no query, for endpoint assertions.
     private static func path(_ url: URL) -> String? {

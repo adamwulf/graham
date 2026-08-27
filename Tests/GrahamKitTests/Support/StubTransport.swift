@@ -110,4 +110,28 @@ enum TestSupport {
             sleep: { seconds in onSleep?(seconds) }
         )
     }
+
+    static func docsClient(_ transport: StubTransport) -> DocsClient {
+        transport.stubTokenEndpoint()
+        return DocsClient(api: makeAPI(transport: transport))
+    }
+
+    static func sheetsClient(_ transport: StubTransport) -> SheetsClient {
+        transport.stubTokenEndpoint()
+        return SheetsClient(api: makeAPI(transport: transport))
+    }
+
+    static func slidesClient(_ transport: StubTransport) -> SlidesClient {
+        transport.stubTokenEndpoint()
+        return SlidesClient(api: makeAPI(transport: transport))
+    }
+
+    static func driveClient(_ transport: StubTransport) -> DriveClient {
+        transport.stubTokenEndpoint()
+        return DriveClient(api: makeAPI(transport: transport))
+    }
+
+    static func bodyString(_ request: HTTPRequest) -> String {
+        request.body.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+    }
 }

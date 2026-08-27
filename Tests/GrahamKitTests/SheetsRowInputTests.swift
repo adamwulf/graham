@@ -3,7 +3,7 @@ import XCTest
 
 /// Offline coverage for the `sheets set` / `sheets append` input parsers. Both
 /// forms must let a cell keep a comma, which the legacy comma-split form cannot.
-final class SheetsRowInputTests: XCTestCase {
+final class SheetsRowInputTests: GrahamTestCase {
     // MARK: - JSON
 
     func testFromJSONParsesArrayOfArrays() throws {
@@ -19,14 +19,14 @@ final class SheetsRowInputTests: XCTestCase {
     }
 
     func testFromJSONRejectsMalformedJSON() {
-        assertInvalidArgument { _ = try SheetsRowInput.fromJSON("not json") }
-        assertInvalidArgument { _ = try SheetsRowInput.fromJSON(#"["flat","array"]"#) }
-        assertInvalidArgument { _ = try SheetsRowInput.fromJSON(#"[[1,2]]"#) }
+        assertInvalidArgumentSync { _ = try SheetsRowInput.fromJSON("not json") }
+        assertInvalidArgumentSync { _ = try SheetsRowInput.fromJSON(#"["flat","array"]"#) }
+        assertInvalidArgumentSync { _ = try SheetsRowInput.fromJSON(#"[[1,2]]"#) }
     }
 
     func testFromJSONRejectsEmptyRowsAndEmptyCellsList() {
-        assertInvalidArgument { _ = try SheetsRowInput.fromJSON("[]") }
-        assertInvalidArgument { _ = try SheetsRowInput.fromJSON(#"[["ok"],[]]"#) }
+        assertInvalidArgumentSync { _ = try SheetsRowInput.fromJSON("[]") }
+        assertInvalidArgumentSync { _ = try SheetsRowInput.fromJSON(#"[["ok"],[]]"#) }
     }
 
     // MARK: - Comma rows
@@ -43,7 +43,7 @@ final class SheetsRowInputTests: XCTestCase {
     }
 
     func testFromCommaRowsRejectsNoRows() {
-        assertInvalidArgument { _ = try SheetsRowInput.fromCommaRows([]) }
+        assertInvalidArgumentSync { _ = try SheetsRowInput.fromCommaRows([]) }
     }
 
     // MARK: - TSV
@@ -73,21 +73,10 @@ final class SheetsRowInputTests: XCTestCase {
     }
 
     func testFromTSVRejectsEmptyInput() {
-        assertInvalidArgument { _ = try SheetsRowInput.fromTSV("") }
-        assertInvalidArgument { _ = try SheetsRowInput.fromTSV("\n\n") }
+        assertInvalidArgumentSync { _ = try SheetsRowInput.fromTSV("") }
+        assertInvalidArgumentSync { _ = try SheetsRowInput.fromTSV("\n\n") }
     }
 
     // MARK: - Helper
 
-    private func assertInvalidArgument(
-        file: StaticString = #filePath,
-        line: UInt = #line,
-        _ body: () throws -> Void
-    ) {
-        XCTAssertThrowsError(try body(), file: file, line: line) { error in
-            guard case GrahamError.invalidArgument = error else {
-                return XCTFail("Wrong error: \(error)", file: file, line: line)
-            }
-        }
-    }
 }

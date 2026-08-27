@@ -726,6 +726,15 @@ final class SlidesParsingTests: XCTestCase {
         ]))
     }
 
+    func testSlidesElementScaleRejectsNonFinitePositiveFactors() {
+        XCTAssertThrowsError(try Slides.Element.Scale.parse([
+            "deck-id", "obj-1", "--by", "inf",
+        ]))
+        XCTAssertThrowsError(try Slides.Element.Scale.parse([
+            "deck-id", "obj-1", "--by", "nan",
+        ]))
+    }
+
     // MARK: - element rotate
 
     func testSlidesElementRotateParsesBy() throws {

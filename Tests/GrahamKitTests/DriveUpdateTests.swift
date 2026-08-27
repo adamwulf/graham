@@ -4,16 +4,12 @@ import XCTest
 /// Tests for the `files.update`-backed operations (rename, star/unstar, move,
 /// restore from trash) and shortcut creation.
 final class DriveUpdateTests: XCTestCase {
-    private func makeClient(transport: StubTransport) -> DriveClient {
-        transport.stubTokenEndpoint()
-        return DriveClient(api: TestSupport.makeAPI(transport: transport))
-    }
 
     // MARK: - Rename
 
     func testRenamePatchesTheNameOnly() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(
             urlContains: "/drive/v3/files/f1",
             json: #"{"id":"f1","name":"New Name"}"#
@@ -36,7 +32,7 @@ final class DriveUpdateTests: XCTestCase {
 
     func testRenameEncodesTrickyNamesInTheBodyNotTheURL() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(urlContains: "/drive/v3/files/f1", json: #"{"id":"f1","name":"n"}"#)
 
         let tricky = "Q3 \"Report\"\n\\path — café"
@@ -52,7 +48,7 @@ final class DriveUpdateTests: XCTestCase {
 
     func testStarPatchesStarredTrue() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(urlContains: "/drive/v3/files/f1", json: #"{"id":"f1","name":"n"}"#)
 
         _ = try await client.setStarred(fileId: "f1", starred: true)
@@ -64,7 +60,7 @@ final class DriveUpdateTests: XCTestCase {
 
     func testUnstarPatchesStarredFalse() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(urlContains: "/drive/v3/files/f1", json: #"{"id":"f1","name":"n"}"#)
 
         _ = try await client.setStarred(fileId: "f1", starred: false)
@@ -77,7 +73,7 @@ final class DriveUpdateTests: XCTestCase {
 
     func testUntrashPatchesTrashedFalseAndMirrorsTrash() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(
             urlContains: "/drive/v3/files/f1",
             json: #"{"id":"f1","name":"Report"}"#
@@ -103,7 +99,7 @@ final class DriveUpdateTests: XCTestCase {
 
     func testMoveReadsCurrentParentsThenReparents() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         // First response: the current file with one parent. Second: the moved file.
         transport.stub(urlContains: "/drive/v3/files/f1", responses: [
             StubTransport.json(#"{"id":"f1","name":"Report","parents":["old-1"]}"#),
@@ -131,7 +127,7 @@ final class DriveUpdateTests: XCTestCase {
 
     func testMoveExcludesTheDestinationFromRemoveParents() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         // The file is already in folder-9 alongside old-1; moving to folder-9 must
         // not add and remove folder-9 in the same request.
         transport.stub(urlContains: "/drive/v3/files/f1", responses: [
@@ -149,7 +145,7 @@ final class DriveUpdateTests: XCTestCase {
 
     func testMoveWithNoCurrentParentsSendsNoRemoveParents() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(urlContains: "/drive/v3/files/f1", responses: [
             StubTransport.json(#"{"id":"f1","name":"n"}"#),
             StubTransport.json(#"{"id":"f1","name":"n"}"#),
@@ -167,7 +163,7 @@ final class DriveUpdateTests: XCTestCase {
 
     func testCreateShortcutPostsTheShortcutMimeAndTarget() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(
             urlContains: "/drive/v3/files",
             json: #"{"id":"short-1","name":"Link","mimeType":"application/vnd.google-apps.shortcut"}"#
@@ -191,7 +187,7 @@ final class DriveUpdateTests: XCTestCase {
 
     func testCreateShortcutWithParentEncodesOneParent() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(urlContains: "/drive/v3/files", json: #"{"id":"x","name":"n"}"#)
 
         _ = try await client.createShortcut(name: "Link", targetId: "target-7", parent: "folder-3")
@@ -206,7 +202,7 @@ final class DriveUpdateTests: XCTestCase {
 
     func testRenamePropagatesAGoogleError() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(
             urlContains: "/drive/v3/files/f1",
             json: #"{"error":{"code":404,"message":"File not found.","status":"NOT_FOUND"}}"#,

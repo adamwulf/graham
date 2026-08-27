@@ -72,17 +72,17 @@ final class SheetsLiveTestTests: XCTestCase {
         // raw-read, and clear-read.
         XCTAssertEqual(fixture.valuePutRequests.count, 1)
         XCTAssertTrue(fixture.valuePutRequests.allSatisfy {
-            fixture.bodyString($0).contains(#"["Label","Value"]"#)
+            TestSupport.bodyString($0).contains(#"["Label","Value"]"#)
         })
         XCTAssertEqual(fixture.valueGetRequests.count, 4)
         XCTAssertEqual(fixture.appendRequests.count, 1)
         XCTAssertTrue(fixture.appendRequests.allSatisfy {
-            fixture.bodyString($0).contains(#"["Epsilon","50"]"#)
+            TestSupport.bodyString($0).contains(#"["Epsilon","50"]"#)
         })
         XCTAssertEqual(fixture.clearRequests.count, 1)
         XCTAssertEqual(fixture.batchGetRequests.count, 1)
         XCTAssertTrue(fixture.chartBatchRequests.contains {
-            let body = fixture.bodyString($0)
+            let body = TestSupport.bodyString($0)
             return body.contains(#""addChart""#) && body.contains(#""COLUMN""#)
         })
         XCTAssertEqual(fixture.trashRequests.count, 1)
@@ -315,9 +315,6 @@ private final class SheetsLiveFixture: @unchecked Sendable {
         )
     }
 
-    func bodyString(_ request: HTTPRequest) -> String {
-        request.body.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-    }
 
     func createBody(_ request: HTTPRequest) -> DriveFileCreateRequest? {
         request.body.flatMap {

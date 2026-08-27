@@ -4,16 +4,12 @@ import XCTest
 /// Tests for creating empty Drive files (`files.create`), the
 /// ``DriveCreateType`` mapping, and the ``DriveFileCreateRequest`` body.
 final class DriveCreateTests: XCTestCase {
-    private func makeClient(transport: StubTransport) -> DriveClient {
-        transport.stubTokenEndpoint()
-        return DriveClient(api: TestSupport.makeAPI(transport: transport))
-    }
 
     // MARK: - Request shape
 
     func testCreatePostsToFilesWithNameAndMimeInTheBody() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(
             urlContains: "/drive/v3/files",
             json: #"{"id":"new-1","name":"My Doc","mimeType":"application/vnd.google-apps.document"}"#
@@ -39,7 +35,7 @@ final class DriveCreateTests: XCTestCase {
 
     func testCreateRequestsTheFullFieldSet() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(urlContains: "/drive/v3/files", json: #"{"id":"x","name":"n"}"#)
 
         _ = try await client.create(name: "n", type: .sheets)
@@ -60,7 +56,7 @@ final class DriveCreateTests: XCTestCase {
         ]
         for (type, mime) in expected {
             let transport = StubTransport()
-            let client = makeClient(transport: transport)
+            let client = TestSupport.driveClient(transport)
             transport.stub(urlContains: "/drive/v3/files", json: #"{"id":"x","name":"n"}"#)
 
             _ = try await client.create(name: "n", type: type)
@@ -73,7 +69,7 @@ final class DriveCreateTests: XCTestCase {
 
     func testCreatedFileRendersJustItsIdByDefault() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(
             urlContains: "/drive/v3/files",
             json: #"{"id":"new-99","name":"Deck","mimeType":"application/vnd.google-apps.presentation"}"#
@@ -90,7 +86,7 @@ final class DriveCreateTests: XCTestCase {
 
     func testCreateEncodesTrickyNamesSafely() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(urlContains: "/drive/v3/files", json: #"{"id":"x","name":"n"}"#)
 
         // Quotes, a backslash, a newline, and a non-ASCII character.
@@ -107,7 +103,7 @@ final class DriveCreateTests: XCTestCase {
 
     func testCreateWithParentEncodesOneParentInTheBody() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.driveClient(transport)
         transport.stub(urlContains: "/drive/v3/files", json: #"{"id":"x","name":"n"}"#)
 
         _ = try await client.create(name: "Inside", type: .slides, parent: "folder-7")

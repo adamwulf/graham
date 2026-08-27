@@ -2,11 +2,7 @@ import XCTest
 @testable import GrahamKit
 
 /// Offline coverage for A1 parsing and the Sheets values/batch write paths.
-final class SheetsWriteTests: XCTestCase {
-    private func makeClient(transport: StubTransport) -> SheetsClient {
-        transport.stubTokenEndpoint()
-        return SheetsClient(api: TestSupport.makeAPI(transport: transport))
-    }
+final class SheetsWriteTests: GrahamTestCase {
 
     // MARK: - A1 parsing
 
@@ -84,7 +80,7 @@ final class SheetsWriteTests: XCTestCase {
 
     func testSetValuesPutsUserEnteredValuesToEscapedRange() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         transport.stub(
             urlContains: "/values/",
             json: #"{"updatedRange":"'My Sheet'!A1:B3","updatedRows":3,"updatedColumns":2,"updatedCells":6}"#
@@ -104,7 +100,7 @@ final class SheetsWriteTests: XCTestCase {
         )
         XCTAssertEqual(request.headers["Content-Type"], "application/json")
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"values":[["Label","Value"],["A","10"],["B","20"]]}"#
         )
         XCTAssertEqual(response.updatedRange, "'My Sheet'!A1:B3")
@@ -115,7 +111,7 @@ final class SheetsWriteTests: XCTestCase {
 
     func testSetValuesRejectsEmptyValuesAndRowsWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
 
         await assertInvalidArgument {
             _ = try await client.setValues(spreadsheetId: "sheet-1", range: "A1", values: [])
@@ -131,7 +127,7 @@ final class SheetsWriteTests: XCTestCase {
 
     func testValuesSendsNoRenderOptionByDefault() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         transport.stub(urlContains: "/values/", json: #"{"values":[["1"]]}"#)
 
         _ = try await client.values(spreadsheetId: "sheet-1", range: "A1:B2")
@@ -144,7 +140,7 @@ final class SheetsWriteTests: XCTestCase {
     func testValuesSendsRenderOptionWhenRequested() async throws {
         for option in [SheetsValueRenderOption.unformatted, .formula] {
             let transport = StubTransport()
-            let client = makeClient(transport: transport)
+            let client = TestSupport.sheetsClient(transport)
             transport.stub(urlContains: "/values/", json: #"{"values":[["1"]]}"#)
 
             _ = try await client.values(
@@ -157,7 +153,7 @@ final class SheetsWriteTests: XCTestCase {
 
     func testBatchGetValuesRequestsEveryRangeAndDecodesValueRanges() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         transport.stub(
             urlContains: "/values:batchGet",
             json: #"{"spreadsheetId":"sheet-1","valueRanges":[{"range":"A1:B2","values":[["x"]]},{"range":"C1:D2","values":[["y"]]}]}"#
@@ -177,7 +173,7 @@ final class SheetsWriteTests: XCTestCase {
 
     func testBatchGetValuesRejectsEmptyRangesWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
 
         await assertInvalidArgument {
             _ = try await client.batchGetValues(spreadsheetId: "sheet-1", ranges: [])
@@ -189,7 +185,7 @@ final class SheetsWriteTests: XCTestCase {
 
     func testAppendValuesPostsToTheAppendVerbWithInsertRows() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         transport.stub(
             urlContains: ":append",
             json: #"{"spreadsheetId":"sheet-1","tableRange":"Sheet1!A1:C4","updates":{"updatedRange":"Sheet1!A5:C6","updatedRows":2,"updatedColumns":3,"updatedCells":6}}"#
@@ -209,7 +205,7 @@ final class SheetsWriteTests: XCTestCase {
         )
         XCTAssertEqual(request.headers["Content-Type"], "application/json")
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"values":[["A","B","C"],["D","E","F"]]}"#
         )
         XCTAssertEqual(response.updates?.updatedCells, 6)
@@ -218,7 +214,7 @@ final class SheetsWriteTests: XCTestCase {
 
     func testAppendValuesRejectsEmptyValuesWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
 
         await assertInvalidArgument {
             _ = try await client.appendValues(spreadsheetId: "sheet-1", range: "A1", values: [])
@@ -232,7 +228,7 @@ final class SheetsWriteTests: XCTestCase {
 
     func testClearValuesPostsAnEmptyBodyToTheClearVerb() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         transport.stub(
             urlContains: ":clear",
             json: #"{"spreadsheetId":"sheet-1","clearedRange":"Sheet1!A1:B10"}"#
@@ -248,7 +244,7 @@ final class SheetsWriteTests: XCTestCase {
             "https://sheets.googleapis.com/v4/spreadsheets/sheet-1/values/Sheet1!A1:B10:clear"
         )
         XCTAssertEqual(request.headers["Content-Type"], "application/json")
-        XCTAssertEqual(Self.bodyString(request), "{}")
+        XCTAssertEqual(TestSupport.bodyString(request), "{}")
         XCTAssertEqual(response.clearedRange, "Sheet1!A1:B10")
     }
 
@@ -256,7 +252,7 @@ final class SheetsWriteTests: XCTestCase {
 
     func testAddChartBuildsOneSeriesAndReturnsChartId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(7, "Sales")])
         transport.stub(
             urlContains: ":batchUpdate",
@@ -278,14 +274,14 @@ final class SheetsWriteTests: XCTestCase {
         XCTAssertEqual(Self.path(requests[1].url), "/v4/spreadsheets/sheet-1:batchUpdate")
         XCTAssertEqual(requests[1].method, "POST")
         XCTAssertEqual(
-            Self.bodyString(requests[1]),
+            TestSupport.bodyString(requests[1]),
             #"{"requests":[{"addChart":{"chart":{"position":{"newSheet":true},"spec":{"basicChart":{"chartType":"COLUMN","domains":[{"domain":{"sourceRange":{"sources":[{"endColumnIndex":1,"endRowIndex":4,"sheetId":7,"startColumnIndex":0,"startRowIndex":0}]}}}],"headerCount":1,"legendPosition":"BOTTOM_LEGEND","series":[{"series":{"sourceRange":{"sources":[{"endColumnIndex":2,"endRowIndex":4,"sheetId":7,"startColumnIndex":1,"startRowIndex":0}]}},"targetAxis":"LEFT_AXIS"}]},"title":"Sales"}}}}]}"#
         )
     }
 
     func testAddChartBuildsOneSeriesPerRemainingColumn() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(22, "Data")])
         transport.stub(
             urlContains: ":batchUpdate",
@@ -300,14 +296,14 @@ final class SheetsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"addChart":{"chart":{"position":{"newSheet":true},"spec":{"basicChart":{"chartType":"LINE","domains":[{"domain":{"sourceRange":{"sources":[{"endColumnIndex":2,"endRowIndex":5,"sheetId":22,"startColumnIndex":1,"startRowIndex":1}]}}}],"headerCount":1,"legendPosition":"BOTTOM_LEGEND","series":[{"series":{"sourceRange":{"sources":[{"endColumnIndex":3,"endRowIndex":5,"sheetId":22,"startColumnIndex":2,"startRowIndex":1}]}},"targetAxis":"LEFT_AXIS"},{"series":{"sourceRange":{"sources":[{"endColumnIndex":4,"endRowIndex":5,"sheetId":22,"startColumnIndex":3,"startRowIndex":1}]}},"targetAxis":"LEFT_AXIS"}]}}}}}]}"#
         )
     }
 
     func testAddChartUsesFirstSheetWhenRangeHasNoSheetName() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(41, "First"), (42, "Second")])
         transport.stub(
             urlContains: ":batchUpdate",
@@ -316,7 +312,7 @@ final class SheetsWriteTests: XCTestCase {
 
         _ = try await client.addChart(spreadsheetId: "sheet-1", range: "A1:B2")
 
-        let body = Self.bodyString(try XCTUnwrap(
+        let body = TestSupport.bodyString(try XCTUnwrap(
             transport.requests(urlContains: ":batchUpdate").first))
         XCTAssertTrue(body.contains(#""sheetId":41"#), "unexpected body: \(body)")
         XCTAssertFalse(body.contains(#""sheetId":42"#), "unexpected body: \(body)")
@@ -324,7 +320,7 @@ final class SheetsWriteTests: XCTestCase {
 
     func testAddChartRejectsUnknownSheetWithoutWriting() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(7, "Known")])
 
         do {
@@ -343,7 +339,7 @@ final class SheetsWriteTests: XCTestCase {
     func testAddChartRejectsRangesThatAreTooSmallBeforeReading() async {
         for range in ["A1:A2", "A1:B1"] {
             let transport = StubTransport()
-            let client = makeClient(transport: transport)
+            let client = TestSupport.sheetsClient(transport)
             await assertInvalidArgument {
                 _ = try await client.addChart(spreadsheetId: "sheet-1", range: range)
             }
@@ -353,7 +349,7 @@ final class SheetsWriteTests: XCTestCase {
 
     func testAddChartRejectsMissingSheetId() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         transport.stub(
             urlContains: "/spreadsheets/sheet-1?",
             json: #"{"spreadsheetId":"sheet-1","sheets":[{"properties":{"title":"Data"}}]}"#
@@ -372,7 +368,7 @@ final class SheetsWriteTests: XCTestCase {
 
     func testAddChartRejectsMissingChartId() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(7, "Data")])
         transport.stub(
             urlContains: ":batchUpdate",
@@ -391,7 +387,7 @@ final class SheetsWriteTests: XCTestCase {
 
     func testAddChartPropagatesGoogleErrorEnvelope() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(7, "Data")])
         transport.stub(
             urlContains: ":batchUpdate",
@@ -416,7 +412,7 @@ final class SheetsWriteTests: XCTestCase {
 
     func testAddSheetEncodesTitleAndZeroBasedIndexAndReturnsProperties() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"replies":[{"addSheet":{"properties":{"sheetId":42,"title":"New","index":1}}}]}"#
@@ -428,7 +424,7 @@ final class SheetsWriteTests: XCTestCase {
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(request.method, "POST")
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"addSheet":{"properties":{"index":1,"title":"New"}}}]}"#
         )
         XCTAssertEqual(properties.sheetId, 42)
@@ -437,7 +433,7 @@ final class SheetsWriteTests: XCTestCase {
 
     func testAddSheetOmitsIndexWhenPositionIsNil() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"replies":[{"addSheet":{"properties":{"sheetId":7,"title":"New"}}}]}"#
@@ -447,14 +443,14 @@ final class SheetsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"addSheet":{"properties":{"title":"New"}}}]}"#
         )
     }
 
     func testAddSheetRejectsNonPositivePositionWithoutWriting() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
 
         await assertInvalidArgument {
             _ = try await client.addSheet(spreadsheetId: "sheet-1", title: "New", position: 0)
@@ -464,7 +460,7 @@ final class SheetsWriteTests: XCTestCase {
 
     func testAddSheetRejectsAReplyWithNoProperties() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         do {
@@ -479,35 +475,35 @@ final class SheetsWriteTests: XCTestCase {
 
     func testDeleteSheetEncodesTheSheetId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         try await client.deleteSheet(spreadsheetId: "sheet-1", sheetId: 7)
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"deleteSheet":{"sheetId":7}}]}"#
         )
     }
 
     func testRenameSheetEncodesTitleWithAFieldsMask() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         try await client.renameSheet(spreadsheetId: "sheet-1", sheetId: 7, title: "Renamed")
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateSheetProperties":{"fields":"title","properties":{"sheetId":7,"title":"Renamed"}}}]}"#
         )
     }
 
     func testSheetIdResolvesATitleToItsNumericId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(0, "Sheet1"), (99, "Data")])
 
         let id = try await client.sheetId(spreadsheetId: "sheet-1", title: "Data")
@@ -516,7 +512,7 @@ final class SheetsWriteTests: XCTestCase {
 
     func testSheetIdRejectsAnUnknownTitle() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(0, "Sheet1")])
 
         await assertInvalidArgument {
@@ -528,35 +524,35 @@ final class SheetsWriteTests: XCTestCase {
 
     func testFreezeEncodesRowCountWithAFieldsMask() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         try await client.freeze(spreadsheetId: "sheet-1", sheetId: 0, rows: 1)
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateSheetProperties":{"fields":"gridProperties.frozenRowCount","properties":{"gridProperties":{"frozenRowCount":1},"sheetId":0}}}]}"#
         )
     }
 
     func testFreezeEncodesBothCountsAndMasksBoth() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         try await client.freeze(spreadsheetId: "sheet-1", sheetId: 0, rows: 1, columns: 2)
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateSheetProperties":{"fields":"gridProperties.frozenRowCount,gridProperties.frozenColumnCount","properties":{"gridProperties":{"frozenColumnCount":2,"frozenRowCount":1},"sheetId":0}}}]}"#
         )
     }
 
     func testFreezeRejectsNoCountsAndNegativeCounts() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
 
         await assertInvalidArgument {
             try await client.freeze(spreadsheetId: "sheet-1", sheetId: 0)
@@ -569,7 +565,7 @@ final class SheetsWriteTests: XCTestCase {
 
     func testResizeTranslatesOneBasedInclusiveToZeroBasedHalfOpen() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         try await client.resizeDimension(
@@ -578,14 +574,14 @@ final class SheetsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateDimensionProperties":{"fields":"pixelSize","properties":{"pixelSize":120},"range":{"dimension":"COLUMNS","endIndex":3,"sheetId":0,"startIndex":1}}}]}"#
         )
     }
 
     func testResizeSingleDimensionWhenEndEqualsStart() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         try await client.resizeDimension(
@@ -594,14 +590,14 @@ final class SheetsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateDimensionProperties":{"fields":"pixelSize","properties":{"pixelSize":40},"range":{"dimension":"ROWS","endIndex":2,"sheetId":0,"startIndex":1}}}]}"#
         )
     }
 
     func testResizeRejectsBadRangeAndPixelSize() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
 
         for (start, end, pixels) in [(0, 1, 10), (3, 2, 10), (1, 1, 0)] {
             await assertInvalidArgument {
@@ -615,7 +611,7 @@ final class SheetsWriteTests: XCTestCase {
 
     func testFirstSheetIdReturnsTheFirstSheetsId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(5, "First"), (6, "Second")])
 
         let id = try await client.firstSheetId(spreadsheetId: "sheet-1")
@@ -626,7 +622,7 @@ final class SheetsWriteTests: XCTestCase {
 
     func testFormatCellsEncodesEveryAspectWithFieldsMaskAndResolvesSheetName() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(77, "Data")])
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
@@ -640,14 +636,14 @@ final class SheetsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             ##"{"requests":[{"repeatCell":{"cell":{"userEnteredFormat":{"backgroundColorStyle":{"rgbColor":{"blue":0,"green":0,"red":1}},"horizontalAlignment":"CENTER","numberFormat":{"pattern":"#,##0.00","type":"NUMBER"},"textFormat":{"bold":true}}},"fields":"userEnteredFormat.textFormat.bold,userEnteredFormat.backgroundColorStyle,userEnteredFormat.numberFormat,userEnteredFormat.horizontalAlignment","range":{"endColumnIndex":2,"endRowIndex":1,"sheetId":77,"startColumnIndex":0,"startRowIndex":0}}}]}"##
         )
     }
 
     func testFormatCellsUsesFirstSheetAndMasksOnlyProvidedAspects() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(3, "Sheet1"), (4, "Other")])
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
@@ -655,14 +651,14 @@ final class SheetsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"repeatCell":{"cell":{"userEnteredFormat":{"textFormat":{"bold":true}}},"fields":"userEnteredFormat.textFormat.bold","range":{"endColumnIndex":2,"endRowIndex":1,"sheetId":3,"startColumnIndex":0,"startRowIndex":0}}}]}"#
         )
     }
 
     func testFormatCellsRejectsNoAspectsWithoutWriting() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
 
         await assertInvalidArgument {
             try await client.formatCells(spreadsheetId: "sheet-1", range: "A1:B1")
@@ -691,7 +687,7 @@ final class SheetsWriteTests: XCTestCase {
 
     func testAddChartOverlayEncodesOverlayPositionAndSize() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(7, "Data")])
         transport.stub(
             urlContains: ":batchUpdate",
@@ -702,7 +698,7 @@ final class SheetsWriteTests: XCTestCase {
             overlay: ChartOverlay(anchor: "C1", widthPixels: 300, heightPixels: 200))
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
-        let body = Self.bodyString(request)
+        let body = TestSupport.bodyString(request)
         XCTAssertTrue(
             body.contains(
                 #""overlayPosition":{"anchorCell":{"columnIndex":2,"rowIndex":0,"sheetId":7},"heightPixels":200,"widthPixels":300}"#),
@@ -712,7 +708,7 @@ final class SheetsWriteTests: XCTestCase {
 
     func testAddChartOverlayResolvesAnAnchorSheetName() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(7, "Data"), (9, "Second")])
         transport.stub(
             urlContains: ":batchUpdate",
@@ -722,7 +718,7 @@ final class SheetsWriteTests: XCTestCase {
             spreadsheetId: "sheet-1", range: "Data!A1:B4",
             overlay: ChartOverlay(anchor: "Second!A1"))
 
-        let body = Self.bodyString(try XCTUnwrap(
+        let body = TestSupport.bodyString(try XCTUnwrap(
             transport.requests(urlContains: ":batchUpdate").first))
         // The anchor's sheet name resolves to sheet 9, not the data sheet 7.
         XCTAssertTrue(
@@ -732,7 +728,7 @@ final class SheetsWriteTests: XCTestCase {
 
     func testAddChartPieBuildsAPieChartSpec() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(7, "Data")])
         transport.stub(
             urlContains: ":batchUpdate",
@@ -743,14 +739,14 @@ final class SheetsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"addChart":{"chart":{"position":{"newSheet":true},"spec":{"pieChart":{"domain":{"sourceRange":{"sources":[{"endColumnIndex":1,"endRowIndex":4,"sheetId":7,"startColumnIndex":0,"startRowIndex":0}]}},"legendPosition":"RIGHT_LEGEND","series":{"sourceRange":{"sources":[{"endColumnIndex":2,"endRowIndex":4,"sheetId":7,"startColumnIndex":1,"startRowIndex":0}]}}},"title":"Pie"}}}}]}"#
         )
     }
 
     func testAddChartComboUsesTheComboType() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(7, "Data")])
         transport.stub(
             urlContains: ":batchUpdate",
@@ -759,14 +755,14 @@ final class SheetsWriteTests: XCTestCase {
         _ = try await client.addChart(
             spreadsheetId: "sheet-1", type: .combo, range: "A1:C4")
 
-        let body = Self.bodyString(try XCTUnwrap(
+        let body = TestSupport.bodyString(try XCTUnwrap(
             transport.requests(urlContains: ":batchUpdate").first))
         XCTAssertTrue(body.contains(#""chartType":"COMBO""#), "unexpected body: \(body)")
     }
 
     func testUpdateChartEncodesUpdateChartSpec() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(7, "Data")])
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
@@ -775,21 +771,21 @@ final class SheetsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateChartSpec":{"chartId":42,"spec":{"basicChart":{"chartType":"LINE","domains":[{"domain":{"sourceRange":{"sources":[{"endColumnIndex":1,"endRowIndex":4,"sheetId":7,"startColumnIndex":0,"startRowIndex":0}]}}}],"headerCount":1,"legendPosition":"BOTTOM_LEGEND","series":[{"series":{"sourceRange":{"sources":[{"endColumnIndex":2,"endRowIndex":4,"sheetId":7,"startColumnIndex":1,"startRowIndex":0}]}},"targetAxis":"LEFT_AXIS"}]},"title":"New"}}}]}"#
         )
     }
 
     func testDeleteChartEncodesTheObjectIdWithoutReadingMetadata() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         try await client.deleteChart(spreadsheetId: "sheet-1", chartId: 42)
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"deleteEmbeddedObject":{"objectId":42}}]}"#)
         // No metadata fetch is needed to delete by id.
         XCTAssertTrue(transport.requests(urlContains: "/spreadsheets/sheet-1?").isEmpty)
@@ -829,24 +825,7 @@ final class SheetsWriteTests: XCTestCase {
         }
     }
 
-    private func assertInvalidArgument(
-        file: StaticString = #filePath,
-        line: UInt = #line,
-        _ body: () async throws -> Void
-    ) async {
-        do {
-            try await body()
-            XCTFail("Expected an error", file: file, line: line)
-        } catch {
-            guard case GrahamError.invalidArgument = error else {
-                return XCTFail("Wrong error: \(error)", file: file, line: line)
-            }
-        }
-    }
 
-    private static func bodyString(_ request: HTTPRequest) -> String {
-        request.body.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-    }
 
     private static func path(_ url: URL) -> String? {
         URLComponents(url: url, resolvingAgainstBaseURL: false)?.path

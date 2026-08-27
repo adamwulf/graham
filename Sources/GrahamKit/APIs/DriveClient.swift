@@ -14,6 +14,23 @@ public struct DriveClient: Sendable {
         self.api = api
     }
 
+    /// Builds a Drive files URL and keeps shared-drive support attached to
+    /// every collection or single-file operation routed through it. `extra`
+    /// stays before `supportsAllDrives`; `trailing` preserves the update
+    /// endpoint's existing parent-mutation ordering after it.
+    private static func fileURL(
+        _ id: String? = nil,
+        suffix: String = "",
+        extra: [(String, String?)] = [],
+        trailing: [(String, String?)] = []
+    ) throws -> URL {
+        let idPath = id.map { "/\(GoogleURL.escapePathComponent($0))" } ?? ""
+        return try GoogleURL.build(
+            "\(baseURL)/files\(idPath)\(suffix)",
+            query: extra + [("supportsAllDrives", "true")] + trailing
+        )
+    }
+
     /// Lists files, optionally inside one folder or shared drive, and
     /// optionally filtered by type or a user query.
     ///
@@ -176,10 +193,7 @@ public struct DriveClient: Sendable {
         type: DriveCreateType,
         parent: String? = nil
     ) async throws -> DriveFile {
-        let url = try GoogleURL.build(
-            "\(Self.baseURL)/files",
-            query: [("fields", Self.fileFields), ("supportsAllDrives", "true")]
-        )
+        let url = try Self.fileURL(extra: [("fields", Self.fileFields)])
         let body = DriveFileCreateRequest(
             name: name,
             mimeType: type.mimeType,
@@ -201,10 +215,7 @@ public struct DriveClient: Sendable {
         name: String? = nil,
         parent: String? = nil
     ) async throws -> DriveFile {
-        let url = try GoogleURL.build(
-            "\(Self.baseURL)/files/\(GoogleURL.escapePathComponent(fileId))/copy",
-            query: [("supportsAllDrives", "true")]
-        )
+        let url = try Self.fileURL(fileId, suffix: "/copy")
         let body = DriveFileCopyRequest(name: name, parents: parent.map { [$0] })
         return try await api.sendJSON(DriveFile.self, method: "POST", url: url, body: body)
     }
@@ -215,10 +226,7 @@ public struct DriveClient: Sendable {
     ///
     /// The `trashed` flag travels in a JSON request body, not in the URL.
     public func trash(fileId: String) async throws -> DriveFile {
-        let url = try GoogleURL.build(
-            "\(Self.baseURL)/files/\(GoogleURL.escapePathComponent(fileId))",
-            query: [("supportsAllDrives", "true")]
-        )
+        let url = try Self.fileURL(fileId)
         let body = DriveTrashRequest(trashed: true)
         return try await api.sendJSON(DriveFile.self, method: "PATCH", url: url, body: body)
     }
@@ -229,10 +237,7 @@ public struct DriveClient: Sendable {
     ///
     /// The `trashed` flag travels in a JSON request body, not in the URL.
     public func untrash(fileId: String) async throws -> DriveFile {
-        let url = try GoogleURL.build(
-            "\(Self.baseURL)/files/\(GoogleURL.escapePathComponent(fileId))",
-            query: [("supportsAllDrives", "true")]
-        )
+        let url = try Self.fileURL(fileId)
         let body = DriveTrashRequest(trashed: false)
         return try await api.sendJSON(DriveFile.self, method: "PATCH", url: url, body: body)
     }
@@ -278,19 +283,17 @@ public struct DriveClient: Sendable {
         addParents: [String]? = nil,
         removeParents: [String]? = nil
     ) async throws -> DriveFile {
-        var query: [(String, String)] = [
-            ("fields", Self.fileFields),
-            ("supportsAllDrives", "true"),
-        ]
+        var trailing: [(String, String?)] = []
         if let addParents, !addParents.isEmpty {
-            query.append(("addParents", addParents.joined(separator: ",")))
+            trailing.append(("addParents", addParents.joined(separator: ",")))
         }
         if let removeParents, !removeParents.isEmpty {
-            query.append(("removeParents", removeParents.joined(separator: ",")))
+            trailing.append(("removeParents", removeParents.joined(separator: ",")))
         }
-        let url = try GoogleURL.build(
-            "\(Self.baseURL)/files/\(GoogleURL.escapePathComponent(fileId))",
-            query: query
+        let url = try Self.fileURL(
+            fileId,
+            extra: [("fields", Self.fileFields)],
+            trailing: trailing
         )
         return try await api.sendJSON(DriveFile.self, method: "PATCH", url: url, body: request)
     }
@@ -304,10 +307,7 @@ public struct DriveClient: Sendable {
         targetId: String,
         parent: String? = nil
     ) async throws -> DriveFile {
-        let url = try GoogleURL.build(
-            "\(Self.baseURL)/files",
-            query: [("fields", Self.fileFields), ("supportsAllDrives", "true")]
-        )
+        let url = try Self.fileURL(extra: [("fields", Self.fileFields)])
         let body = DriveShortcutCreateRequest(
             name: name, targetId: targetId, parents: parent.map { [$0] })
         return try await api.sendJSON(DriveFile.self, method: "POST", url: url, body: body)
@@ -318,10 +318,7 @@ public struct DriveClient: Sendable {
     /// is not recoverable from the Drive UI, unlike ``trash(fileId:)``. The
     /// request spans shared drives.
     public func delete(fileId: String) async throws {
-        let url = try GoogleURL.build(
-            "\(Self.baseURL)/files/\(GoogleURL.escapePathComponent(fileId))",
-            query: [("supportsAllDrives", "true")]
-        )
+        let url = try Self.fileURL(fileId)
         try await api.sendNoContent(method: "DELETE", url: url)
     }
 
@@ -329,20 +326,14 @@ public struct DriveClient: Sendable {
     /// file resolves instead of 404-ing (`files.get` scopes to My Drive without
     /// `supportsAllDrives`). `move` relies on this to read a file's parents.
     public func file(id: String) async throws -> DriveFile {
-        let url = try GoogleURL.build(
-            "\(Self.baseURL)/files/\(GoogleURL.escapePathComponent(id))",
-            query: [("fields", Self.fileFields), ("supportsAllDrives", "true")]
-        )
+        let url = try Self.fileURL(id, extra: [("fields", Self.fileFields)])
         return try await api.getJSON(DriveFile.self, from: url)
     }
 
     /// Exports a Google Workspace file (Doc, Sheet, Slides) to another format,
     /// for example `text/plain` or `application/pdf`. Spans shared drives.
     public func export(id: String, mimeType: String) async throws -> Data {
-        let url = try GoogleURL.build(
-            "\(Self.baseURL)/files/\(GoogleURL.escapePathComponent(id))/export",
-            query: [("mimeType", mimeType), ("supportsAllDrives", "true")]
-        )
+        let url = try Self.fileURL(id, suffix: "/export", extra: [("mimeType", mimeType)])
         return try await api.getData(from: url)
     }
 
@@ -350,10 +341,7 @@ public struct DriveClient: Sendable {
     /// `files.get` with `alt=media`, which needs `supportsAllDrives` to reach a
     /// shared-drive file).
     public func download(id: String) async throws -> Data {
-        let url = try GoogleURL.build(
-            "\(Self.baseURL)/files/\(GoogleURL.escapePathComponent(id))",
-            query: [("alt", "media"), ("supportsAllDrives", "true")]
-        )
+        let url = try Self.fileURL(id, extra: [("alt", "media")])
         return try await api.getData(from: url)
     }
 }

@@ -121,6 +121,57 @@ final class DocsMarkdownTests: XCTestCase {
     }
     """#
 
+    /// Non-obvious inline and table rules that are easy to regress: a repeated
+    /// footnote id keeps the number from its first reference, a nested table is
+    /// flattened into its containing cell, and elements with no Markdown
+    /// representation do not disturb the visible text around them.
+    private static let edgeRulesJSON = #"""
+    {
+      "documentId": "doc-edge-rules",
+      "body": {"content": [
+        {"paragraph": {"elements": [
+          {"textRun": {"content": "First"}},
+          {"footnoteReference": {"footnoteId": "same-note", "footnoteNumber": "7"}},
+          {"textRun": {"content": " then again"}},
+          {"footnoteReference": {"footnoteId": "same-note", "footnoteNumber": "99"}},
+          {"textRun": {"content": ".\n"}}
+        ]}},
+        {"table": {"tableRows": [
+          {"tableCells": [
+            {"content": [
+              {"paragraph": {"elements": [{"textRun": {"content": "Outer\n"}}]}},
+              {"table": {"tableRows": [
+                {"tableCells": [
+                  {"content": [{"paragraph": {"elements": [
+                    {"textRun": {"content": "Nested A\n"}}
+                  ]}}]},
+                  {"content": [{"paragraph": {"elements": [
+                    {"textRun": {"content": "Nested B\n"}}
+                  ]}}]}
+                ]}
+              ]}}
+            ]},
+            {"content": [{"paragraph": {"elements": [
+              {"textRun": {"content": "Tail\n"}}
+            ]}}]}
+          ]}
+        ]}},
+        {"paragraph": {"elements": [
+          {"textRun": {"content": "Visible"}},
+          {"columnBreak": {}},
+          {"equation": {}},
+          {"autoText": {"type": "PAGE_NUMBER"}},
+          {"textRun": {"content": " text.\n"}}
+        ]}}
+      ]},
+      "footnotes": {
+        "same-note": {"content": [{"paragraph": {"elements": [
+          {"textRun": {"content": "One note.\n"}}
+        ]}}]}
+      }
+    }
+    """#
+
     /// Decodes a fixture, swapping the `__E907__` token for the real placeholder
     /// character the renderer must strip. The token lets the private-use
     /// placeholder live inside a raw-string fixture.
@@ -373,6 +424,17 @@ final class DocsMarkdownTests: XCTestCase {
         XCTAssertEqual(
             try decode(json).markdown,
             "A[^1] B[^2]\n\n[^1]: First note.\n[^2]: Second note.")
+    }
+
+    func testRepeatedFootnoteNestedTableAndEmptyInlineElements() throws {
+        let expected = [
+            "First[^7] then again[^7].",
+            "| Outer Nested A Nested B | Tail |\n| --- | --- |",
+            "Visible text.",
+            "[^7]: One note.",
+        ].joined(separator: "\n\n")
+
+        XCTAssertEqual(try decode(Self.edgeRulesJSON).markdown, expected)
     }
 
     // MARK: - Inline images and empty input
