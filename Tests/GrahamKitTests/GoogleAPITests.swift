@@ -1,7 +1,7 @@
 import XCTest
 @testable import GrahamKit
 
-final class GoogleAPITests: XCTestCase {
+final class GoogleAPITests: GrahamTestCase {
     private let fileURL = URL(string: "https://www.googleapis.com/drive/v3/files/f1")!
     private let fileJSON = #"{"id":"f1","name":"Report"}"#
 
@@ -45,14 +45,12 @@ final class GoogleAPITests: XCTestCase {
         )
         let api = TestSupport.makeAPI(transport: transport)
 
-        do {
+        await assertGoogleError(
+            code: 401,
+            status: "UNAUTHENTICATED",
+            message: "nope"
+        ) {
             _ = try await api.getJSON(DriveFile.self, from: fileURL)
-            XCTFail("Expected an error")
-        } catch {
-            guard case GrahamError.googleAPIError(let code, _, _) = error else {
-                return XCTFail("Wrong error: \(error)")
-            }
-            XCTAssertEqual(code, 401)
         }
         XCTAssertEqual(transport.requests(urlContains: "/files/f1").count, 2)
     }
@@ -312,14 +310,12 @@ final class GoogleAPITests: XCTestCase {
         let recorder = SleepRecorder()
         let api = TestSupport.makeAPI(transport: transport) { recorder.record($0) }
 
-        do {
+        await assertGoogleError(
+            code: 403,
+            status: "PERMISSION_DENIED",
+            message: "No permission."
+        ) {
             _ = try await api.getJSON(DriveFile.self, from: fileURL)
-            XCTFail("Expected an error")
-        } catch {
-            guard case GrahamError.googleAPIError(let code, _, _) = error else {
-                return XCTFail("Wrong error: \(error)")
-            }
-            XCTAssertEqual(code, 403)
         }
         // A permission 403 is terminal: no retry and no backoff.
         XCTAssertEqual(transport.requests(urlContains: "/files/f1").count, 1)
@@ -373,16 +369,12 @@ final class GoogleAPITests: XCTestCase {
         )
         let api = TestSupport.makeAPI(transport: transport)
 
-        do {
+        await assertGoogleError(
+            code: 403,
+            status: "PERMISSION_DENIED",
+            message: "The user does not have permission."
+        ) {
             _ = try await api.getJSON(DriveFile.self, from: fileURL)
-            XCTFail("Expected an error")
-        } catch {
-            guard case GrahamError.googleAPIError(let code, let status, let message) = error else {
-                return XCTFail("Wrong error: \(error)")
-            }
-            XCTAssertEqual(code, 403)
-            XCTAssertEqual(status, "PERMISSION_DENIED")
-            XCTAssertEqual(message, "The user does not have permission.")
         }
     }
 
@@ -465,15 +457,12 @@ final class GoogleAPITests: XCTestCase {
         )
         let api = TestSupport.makeAPI(transport: transport)
 
-        do {
+        await assertGoogleError(
+            code: 403,
+            status: "PERMISSION_DENIED",
+            message: "The user does not have permission."
+        ) {
             try await api.sendNoContent(method: "DELETE", url: fileURL)
-            XCTFail("Expected an error")
-        } catch {
-            guard case GrahamError.googleAPIError(let code, let status, _) = error else {
-                return XCTFail("Wrong error: \(error)")
-            }
-            XCTAssertEqual(code, 403)
-            XCTAssertEqual(status, "PERMISSION_DENIED")
         }
     }
 }
