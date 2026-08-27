@@ -97,6 +97,25 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
     /// Sets document-wide style (page size, margins, header/footer flags,
     /// background); the `fields` mask decides which properties apply.
     case updateDocumentStyle(DocsUpdateDocumentStyleRequest)
+    /// Sets the style (margins, page numbering, direction, column separator,
+    /// header/footer flags) of every section a range overlaps; the `fields`
+    /// mask decides which properties apply.
+    case updateSectionStyle(DocsUpdateSectionStyleRequest)
+    /// Redefines a named style (e.g. `HEADING_2`) document-wide; the `fields`
+    /// mask must include `namedStyleType` so the API knows which style applies.
+    case updateNamedStyle(DocsUpdateNamedStyleRequest)
+    /// Inserts a person smart chip (an email, with an optional display name).
+    case insertPerson(DocsInsertPersonRequest)
+    /// Inserts a rich-link smart chip (a Drive/YouTube/Calendar URI).
+    case insertRichLink(DocsInsertRichLinkRequest)
+    /// Inserts a date smart chip (a timestamp with optional format).
+    case insertDate(DocsInsertDateRequest)
+    /// Adds a document tab; the reply returns the new tab's `TabProperties`.
+    case addDocumentTab(DocsAddDocumentTabRequest)
+    /// Deletes a tab and its child tabs.
+    case deleteTab(DocsDeleteTabRequest)
+    /// Renames or moves a tab; the `fields` mask decides which properties apply.
+    case updateDocumentTabProperties(DocsUpdateDocumentTabPropertiesRequest)
 
     private enum CodingKeys: String, CodingKey {
         case insertText
@@ -130,6 +149,14 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
         case deleteNamedRange
         case replaceNamedRangeContent
         case updateDocumentStyle
+        case updateSectionStyle
+        case updateNamedStyle
+        case insertPerson
+        case insertRichLink
+        case insertDate
+        case addDocumentTab
+        case deleteTab
+        case updateDocumentTabProperties
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -197,6 +224,22 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
             try container.encode(request, forKey: .replaceNamedRangeContent)
         case .updateDocumentStyle(let request):
             try container.encode(request, forKey: .updateDocumentStyle)
+        case .updateSectionStyle(let request):
+            try container.encode(request, forKey: .updateSectionStyle)
+        case .updateNamedStyle(let request):
+            try container.encode(request, forKey: .updateNamedStyle)
+        case .insertPerson(let request):
+            try container.encode(request, forKey: .insertPerson)
+        case .insertRichLink(let request):
+            try container.encode(request, forKey: .insertRichLink)
+        case .insertDate(let request):
+            try container.encode(request, forKey: .insertDate)
+        case .addDocumentTab(let request):
+            try container.encode(request, forKey: .addDocumentTab)
+        case .deleteTab(let request):
+            try container.encode(request, forKey: .deleteTab)
+        case .updateDocumentTabProperties(let request):
+            try container.encode(request, forKey: .updateDocumentTabProperties)
         }
     }
 }
@@ -395,15 +438,33 @@ public struct DocsSubstringMatchCriteria: Codable, Sendable, Equatable {
     }
 }
 
+/// A Docs v1 `TabsCriteria`: the tabs an operation is scoped to, by id. Used by
+/// `replaceAllText` (and the named-range operations) to limit the change to
+/// specific tabs; when absent, the operation spans every tab.
+public struct DocsTabsCriteria: Codable, Sendable, Equatable {
+    public let tabIds: [String]
+
+    public init(tabIds: [String]) {
+        self.tabIds = tabIds
+    }
+}
+
 /// The `replaceAllText` operation. The replacement text and the match criteria
-/// are required by the API.
+/// are required by the API. `tabsCriteria` optionally scopes the replacement to
+/// specific tabs; it encodes only when set.
 public struct DocsReplaceAllTextRequest: Codable, Sendable, Equatable {
     public let replaceText: String
     public let containsText: DocsSubstringMatchCriteria
+    public let tabsCriteria: DocsTabsCriteria?
 
-    public init(replaceText: String, containsText: DocsSubstringMatchCriteria) {
+    public init(
+        replaceText: String,
+        containsText: DocsSubstringMatchCriteria,
+        tabsCriteria: DocsTabsCriteria? = nil
+    ) {
         self.replaceText = replaceText
         self.containsText = containsText
+        self.tabsCriteria = tabsCriteria
     }
 }
 
@@ -1662,6 +1723,332 @@ public struct DocsUpdateDocumentStyleRequest: Codable, Sendable, Equatable {
     }
 }
 
+// MARK: - Section style
+
+/// A Docs v1 `SectionStyle.columnSeparatorStyle`: the line drawn between columns
+/// of a multi-column section.
+public enum DocsColumnSeparatorStyle: String, Codable, Sendable, Equatable {
+    case none = "NONE"
+    case betweenEachColumn = "BETWEEN_EACH_COLUMN"
+}
+
+/// The writable subset of a Docs `SectionStyle`.
+///
+/// Margins are in points; `columnSeparatorStyle` and `contentDirection` are
+/// enums; `pageNumberStart` is the first page number for the section;
+/// `useFirstPageHeaderFooter` toggles the first-page header/footer for the
+/// section; `flipPageOrientation` swaps the section's page width and height.
+/// The section's header/footer ids and `sectionType` are read-only (the server
+/// assigns them), and the per-column `columnProperties` layout is out of this
+/// slice, so none of those are modeled here.
+public struct DocsSectionStyle: Codable, Sendable, Equatable {
+    public let marginTop: DocsDimension?
+    public let marginBottom: DocsDimension?
+    public let marginLeft: DocsDimension?
+    public let marginRight: DocsDimension?
+    public let marginHeader: DocsDimension?
+    public let marginFooter: DocsDimension?
+    public let columnSeparatorStyle: DocsColumnSeparatorStyle?
+    public let contentDirection: DocsContentDirection?
+    public let pageNumberStart: Int?
+    public let useFirstPageHeaderFooter: Bool?
+    public let flipPageOrientation: Bool?
+
+    public init(
+        marginTop: DocsDimension? = nil,
+        marginBottom: DocsDimension? = nil,
+        marginLeft: DocsDimension? = nil,
+        marginRight: DocsDimension? = nil,
+        marginHeader: DocsDimension? = nil,
+        marginFooter: DocsDimension? = nil,
+        columnSeparatorStyle: DocsColumnSeparatorStyle? = nil,
+        contentDirection: DocsContentDirection? = nil,
+        pageNumberStart: Int? = nil,
+        useFirstPageHeaderFooter: Bool? = nil,
+        flipPageOrientation: Bool? = nil
+    ) {
+        self.marginTop = marginTop
+        self.marginBottom = marginBottom
+        self.marginLeft = marginLeft
+        self.marginRight = marginRight
+        self.marginHeader = marginHeader
+        self.marginFooter = marginFooter
+        self.columnSeparatorStyle = columnSeparatorStyle
+        self.contentDirection = contentDirection
+        self.pageNumberStart = pageNumberStart
+        self.useFirstPageHeaderFooter = useFirstPageHeaderFooter
+        self.flipPageOrientation = flipPageOrientation
+    }
+}
+
+/// The `updateSectionStyle` operation. `range` selects the sections to restyle
+/// (its `segmentId` must be empty — section style is a body-only concept);
+/// `sectionStyle` carries the new values; `fields` is a comma-separated field
+/// mask of the ``DocsSectionStyle`` paths to apply, relative to the style root.
+/// At least one path is required.
+public struct DocsUpdateSectionStyleRequest: Codable, Sendable, Equatable {
+    public let range: DocsRange
+    public let sectionStyle: DocsSectionStyle
+    public let fields: String
+
+    public init(range: DocsRange, sectionStyle: DocsSectionStyle, fields: String) {
+        self.range = range
+        self.sectionStyle = sectionStyle
+        self.fields = fields
+    }
+}
+
+// MARK: - Named style
+
+/// A Docs v1 `NamedStyle`: the definition of how a `namedStyleType` (e.g.
+/// `HEADING_2`) renders document-wide. `namedStyleType` selects the style, and
+/// `textStyle` / `paragraphStyle` carry the new look. The nested paragraph
+/// style never carries its own `namedStyleType` (the selector lives here).
+public struct DocsNamedStyle: Codable, Sendable, Equatable {
+    public let namedStyleType: DocsNamedStyleType
+    public let textStyle: DocsTextStyle?
+    public let paragraphStyle: DocsParagraphStyle?
+
+    public init(
+        namedStyleType: DocsNamedStyleType,
+        textStyle: DocsTextStyle? = nil,
+        paragraphStyle: DocsParagraphStyle? = nil
+    ) {
+        self.namedStyleType = namedStyleType
+        self.textStyle = textStyle
+        self.paragraphStyle = paragraphStyle
+    }
+}
+
+/// The `updateNamedStyle` operation. `namedStyle` selects the style (via its
+/// `namedStyleType`) and carries the new values; `fields` is a comma-separated
+/// field mask, relative to the NamedStyle root, that MUST include
+/// `namedStyleType` so the API knows which style to redefine (text and paragraph
+/// paths are nested, e.g. `textStyle.bold`, `paragraphStyle.alignment`). `tabId`
+/// optionally scopes the change to one tab; it encodes only when set.
+public struct DocsUpdateNamedStyleRequest: Codable, Sendable, Equatable {
+    public let namedStyle: DocsNamedStyle
+    public let fields: String
+    public let tabId: String?
+
+    public init(namedStyle: DocsNamedStyle, fields: String, tabId: String? = nil) {
+        self.namedStyle = namedStyle
+        self.fields = fields
+        self.tabId = tabId
+    }
+}
+
+// MARK: - Smart chips
+
+/// The properties of a person smart chip: the linked `email` (required) and an
+/// optional display `name`.
+public struct DocsPersonProperties: Codable, Sendable, Equatable {
+    public let email: String
+    public let name: String?
+
+    public init(email: String, name: String? = nil) {
+        self.email = email
+        self.name = name
+    }
+}
+
+/// The `insertPerson` operation. Exactly one of `location` or
+/// `endOfSegmentLocation` is set (each dedicated init sets one), so a
+/// dual-target body is unrepresentable.
+public struct DocsInsertPersonRequest: Codable, Sendable, Equatable {
+    public let personProperties: DocsPersonProperties
+    public let location: DocsLocation?
+    public let endOfSegmentLocation: DocsEndOfSegmentLocation?
+
+    public init(personProperties: DocsPersonProperties, location: DocsLocation) {
+        self.personProperties = personProperties
+        self.location = location
+        self.endOfSegmentLocation = nil
+    }
+
+    public init(
+        personProperties: DocsPersonProperties,
+        endOfSegmentLocation: DocsEndOfSegmentLocation
+    ) {
+        self.personProperties = personProperties
+        self.location = nil
+        self.endOfSegmentLocation = endOfSegmentLocation
+    }
+}
+
+/// The properties of a rich-link smart chip (a Drive file, YouTube video, or
+/// Calendar event): the `uri` (required) and an optional `title` and
+/// `mimeType`. The API fetches the link's metadata at insertion time.
+public struct DocsRichLinkProperties: Codable, Sendable, Equatable {
+    public let uri: String
+    public let title: String?
+    public let mimeType: String?
+
+    public init(uri: String, title: String? = nil, mimeType: String? = nil) {
+        self.uri = uri
+        self.title = title
+        self.mimeType = mimeType
+    }
+}
+
+/// The `insertRichLink` operation. Exactly one of `location` or
+/// `endOfSegmentLocation` is set.
+public struct DocsInsertRichLinkRequest: Codable, Sendable, Equatable {
+    public let richLinkProperties: DocsRichLinkProperties
+    public let location: DocsLocation?
+    public let endOfSegmentLocation: DocsEndOfSegmentLocation?
+
+    public init(richLinkProperties: DocsRichLinkProperties, location: DocsLocation) {
+        self.richLinkProperties = richLinkProperties
+        self.location = location
+        self.endOfSegmentLocation = nil
+    }
+
+    public init(
+        richLinkProperties: DocsRichLinkProperties,
+        endOfSegmentLocation: DocsEndOfSegmentLocation
+    ) {
+        self.richLinkProperties = richLinkProperties
+        self.location = nil
+        self.endOfSegmentLocation = endOfSegmentLocation
+    }
+}
+
+/// A Docs v1 `DateElementProperties.dateFormat`: how a date smart chip renders
+/// its date. The `DATE_FORMAT_CUSTOM` value needs a custom pattern the API does
+/// not expose a field for, so it is intentionally omitted.
+public enum DocsDateFormat: String, Codable, Sendable, Equatable {
+    case monthDayAbbreviated = "DATE_FORMAT_MONTH_DAY_ABBREVIATED"
+    case monthDayFull = "DATE_FORMAT_MONTH_DAY_FULL"
+    case monthDayYearAbbreviated = "DATE_FORMAT_MONTH_DAY_YEAR_ABBREVIATED"
+    case iso8601 = "DATE_FORMAT_ISO8601"
+}
+
+/// A Docs v1 `DateElementProperties.timeFormat`: how a date smart chip renders
+/// the time-of-day (or `DISABLED` to omit it).
+public enum DocsTimeFormat: String, Codable, Sendable, Equatable {
+    case disabled = "TIME_FORMAT_DISABLED"
+    case hourMinute = "TIME_FORMAT_HOUR_MINUTE"
+    case hourMinuteTimezone = "TIME_FORMAT_HOUR_MINUTE_TIMEZONE"
+}
+
+/// The properties of a date smart chip: the `timestamp` (required, an RFC 3339
+/// date-time), an optional `locale` and `timeZoneId`, and optional date and
+/// time format enums. The read-only `displayText` (the rendered string the
+/// server computes) is not set here.
+public struct DocsDateElementProperties: Codable, Sendable, Equatable {
+    public let timestamp: String
+    public let locale: String?
+    public let timeZoneId: String?
+    public let dateFormat: DocsDateFormat?
+    public let timeFormat: DocsTimeFormat?
+
+    public init(
+        timestamp: String,
+        locale: String? = nil,
+        timeZoneId: String? = nil,
+        dateFormat: DocsDateFormat? = nil,
+        timeFormat: DocsTimeFormat? = nil
+    ) {
+        self.timestamp = timestamp
+        self.locale = locale
+        self.timeZoneId = timeZoneId
+        self.dateFormat = dateFormat
+        self.timeFormat = timeFormat
+    }
+}
+
+/// The `insertDate` operation. Exactly one of `location` or
+/// `endOfSegmentLocation` is set.
+public struct DocsInsertDateRequest: Codable, Sendable, Equatable {
+    public let dateElementProperties: DocsDateElementProperties
+    public let location: DocsLocation?
+    public let endOfSegmentLocation: DocsEndOfSegmentLocation?
+
+    public init(dateElementProperties: DocsDateElementProperties, location: DocsLocation) {
+        self.dateElementProperties = dateElementProperties
+        self.location = location
+        self.endOfSegmentLocation = nil
+    }
+
+    public init(
+        dateElementProperties: DocsDateElementProperties,
+        endOfSegmentLocation: DocsEndOfSegmentLocation
+    ) {
+        self.dateElementProperties = dateElementProperties
+        self.location = nil
+        self.endOfSegmentLocation = endOfSegmentLocation
+    }
+}
+
+// MARK: - Document tabs
+
+/// The writable subset of a Docs v1 `TabProperties`, also decoded from an
+/// `addDocumentTab` reply. `tabId` identifies an existing tab (a selector on
+/// update, and the server-assigned id in a reply); `title`, `index`,
+/// `iconEmoji`, and `parentTabId` are the writable fields. `index` is
+/// **zero-based**, matching the API; the CLI shows and accepts one-based tab
+/// positions and ``GrahamKit`` translates. `nestingLevel` is read-only (the
+/// server derives it from `parentTabId`). Every field is optional and encodes
+/// only when set.
+public struct DocsTabProperties: Codable, Sendable, Equatable {
+    public let tabId: String?
+    public let title: String?
+    public let index: Int?
+    public let iconEmoji: String?
+    public let parentTabId: String?
+    public let nestingLevel: Int?
+
+    public init(
+        tabId: String? = nil,
+        title: String? = nil,
+        index: Int? = nil,
+        iconEmoji: String? = nil,
+        parentTabId: String? = nil,
+        nestingLevel: Int? = nil
+    ) {
+        self.tabId = tabId
+        self.title = title
+        self.index = index
+        self.iconEmoji = iconEmoji
+        self.parentTabId = parentTabId
+        self.nestingLevel = nestingLevel
+    }
+}
+
+/// The `addDocumentTab` operation. `tabProperties` carries the new tab's fields
+/// (all optional; the server assigns the `tabId` and returns it in the reply).
+public struct DocsAddDocumentTabRequest: Codable, Sendable, Equatable {
+    public let tabProperties: DocsTabProperties
+
+    public init(tabProperties: DocsTabProperties) {
+        self.tabProperties = tabProperties
+    }
+}
+
+/// The `deleteTab` operation: removes the tab `tabId` and its child tabs.
+public struct DocsDeleteTabRequest: Codable, Sendable, Equatable {
+    public let tabId: String
+
+    public init(tabId: String) {
+        self.tabId = tabId
+    }
+}
+
+/// The `updateDocumentTabProperties` operation. `tabProperties.tabId` selects
+/// the tab; the other set fields carry the new values; `fields` is a
+/// comma-separated field mask of the ``DocsTabProperties`` paths to apply
+/// (`tabId` is the selector, never masked). At least one path is required.
+public struct DocsUpdateDocumentTabPropertiesRequest: Codable, Sendable, Equatable {
+    public let tabProperties: DocsTabProperties
+    public let fields: String
+
+    public init(tabProperties: DocsTabProperties, fields: String) {
+        self.tabProperties = tabProperties
+        self.fields = fields
+    }
+}
+
 // MARK: - Responses
 
 /// The response of a `documents.batchUpdate` call.
@@ -1694,6 +2081,14 @@ public struct DocsBatchUpdateReply: Codable, Sendable {
     public let createFooter: DocsCreateFooterReply?
     public let createFootnote: DocsCreateFootnoteReply?
     public let createNamedRange: DocsCreateNamedRangeReply?
+    public let addDocumentTab: DocsAddDocumentTabReply?
+}
+
+/// The reply of an `addDocumentTab` operation, carrying the new tab's
+/// ``DocsTabProperties`` (its server-assigned `tabId`, resolved `index`, and so
+/// on) so a caller can address the tab afterwards.
+public struct DocsAddDocumentTabReply: Codable, Sendable {
+    public let tabProperties: DocsTabProperties?
 }
 
 /// The reply of a `replaceAllText` operation.

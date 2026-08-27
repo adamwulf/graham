@@ -307,6 +307,14 @@ write. Tests remain offline and exercise the real encoding path.
   designation is read-only once the table exists. `DocsTableRowStyle` models
   only `minRowHeight` and `preventOverflow`; mark headers with `pinTableHeaderRows`
   (`docs table pin-headers`) instead.
+- `docs named-style` (`updateNamedStyle`) deliberately exposes only the text
+  attributes (`docs style`) and the paragraph alignment / spacing / indent
+  attributes. The paragraph **pagination toggles** (`keepLinesTogether`,
+  `keepWithNext`, `avoidWidowAndOrphan`, `pageBreakBefore`), **shading**, and
+  **borders** — plus the text `baselineOffset` and `link` — are a **never-
+  implement** decision on this command, not a deferral: do not add flags for
+  them. The API would accept them inside a `NamedStyle`, but a named-style
+  redefinition is not their place; set them per-paragraph with `docs paragraph`.
 
 ## Commands
 

@@ -119,6 +119,121 @@ final class SheetsDataToolingWriteTests: XCTestCase {
         XCTAssertTrue(transport.requests.isEmpty)
     }
 
+    // MARK: - Gradient (color-scale) conditional formatting
+
+    func testInterpolationPointMakeValidatesValueArity() throws {
+        // MIN/MAX read the range's own extreme and reject a value.
+        assertInvalidArgument {
+            _ = try InterpolationPoint.make(
+                color: try SheetsColor.parse("#000000"), type: .min, value: "5")
+        }
+        // NUMBER/PERCENT/PERCENTILE each need a value.
+        assertInvalidArgument {
+            _ = try InterpolationPoint.make(
+                color: try SheetsColor.parse("#000000"), type: .percent, value: nil)
+        }
+        assertInvalidArgument {
+            _ = try InterpolationPoint.make(
+                color: try SheetsColor.parse("#000000"), type: .number, value: "   ")
+        }
+        // A MIN stop writes colorStyle and no value; a NUMBER stop keeps its value.
+        let minStop = try InterpolationPoint.make(
+            color: try SheetsColor.parse("#FFFFFF"), type: .min, value: nil)
+        XCTAssertEqual(minStop.colorStyle, SheetsColorStyle(rgbColor: try SheetsColor.parse("#FFFFFF")))
+        XCTAssertEqual(minStop.type, "MIN")
+        XCTAssertNil(minStop.value)
+        XCTAssertNil(minStop.color)
+        let numberStop = try InterpolationPoint.make(
+            color: try SheetsColor.parse("#FF0000"), type: .number, value: "10")
+        XCTAssertEqual(numberStop.type, "NUMBER")
+        XCTAssertEqual(numberStop.value, "10")
+    }
+
+    func testAddGradientConditionalFormatRuleEncodesThreePointsAndResolvesSheet() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        stubSpreadsheet(transport, sheets: [(5, "Data")])
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        try await client.addGradientConditionalFormatRule(
+            spreadsheetId: "sheet-1",
+            range: "Data!A1:A10",
+            minColor: try SheetsColor.parse("#0000FF"), minType: .min, minValue: nil,
+            midColor: try SheetsColor.parse("#FFFFFF"), midType: .percent, midValue: "50",
+            maxColor: try SheetsColor.parse("#FF0000"), maxType: .max, maxValue: nil)
+
+        // The metadata read plus the batch-update write.
+        let apiRequests = transport.requests.filter { $0.url.host == "sheets.googleapis.com" }
+        XCTAssertEqual(apiRequests.count, 2)
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"addConditionalFormatRule":{"index":0,"rule":{"gradientRule":{"maxpoint":{"colorStyle":{"rgbColor":{"blue":0,"green":0,"red":1}},"type":"MAX"},"midpoint":{"colorStyle":{"rgbColor":{"blue":1,"green":1,"red":1}},"type":"PERCENT","value":"50"},"minpoint":{"colorStyle":{"rgbColor":{"blue":1,"green":0,"red":0}},"type":"MIN"}},"ranges":[{"endColumnIndex":1,"endRowIndex":10,"sheetId":5,"startColumnIndex":0,"startRowIndex":0}]}}}]}"#
+        )
+    }
+
+    func testAddGradientConditionalFormatRuleTwoColorOmitsMidpoint() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        stubSpreadsheet(transport, sheets: [(5, "Data")])
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        try await client.addGradientConditionalFormatRule(
+            spreadsheetId: "sheet-1",
+            range: "Data!A1:A10",
+            minColor: try SheetsColor.parse("#FFFFFF"), minType: .min, minValue: nil,
+            midColor: nil, midType: nil, midValue: nil,
+            maxColor: try SheetsColor.parse("#FF0000"), maxType: .max, maxValue: nil,
+            index: 3)
+
+        let body = Self.bodyString(try XCTUnwrap(
+            transport.requests(urlContains: ":batchUpdate").first))
+        XCTAssertFalse(body.contains("midpoint"), "two-color scale should omit the midpoint: \(body)")
+        XCTAssertTrue(body.contains(#""index":3"#), "unexpected body: \(body)")
+        XCTAssertTrue(body.contains(#""minpoint":{"colorStyle""#), "unexpected body: \(body)")
+    }
+
+    func testAddGradientConditionalFormatRuleValidatesPointsAndIndexWithoutWriting() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        // A NUMBER stop with no value fails before any request.
+        await assertInvalidArgumentAsync {
+            try await client.addGradientConditionalFormatRule(
+                spreadsheetId: "sheet-1", range: "Data!A1:A10",
+                minColor: try SheetsColor.parse("#FFFFFF"), minType: .number, minValue: nil,
+                midColor: nil, midType: nil, midValue: nil,
+                maxColor: try SheetsColor.parse("#FF0000"), maxType: .max, maxValue: nil)
+        }
+        // A MAX stop given a value fails.
+        await assertInvalidArgumentAsync {
+            try await client.addGradientConditionalFormatRule(
+                spreadsheetId: "sheet-1", range: "Data!A1:A10",
+                minColor: try SheetsColor.parse("#FFFFFF"), minType: .min, minValue: nil,
+                midColor: nil, midType: nil, midValue: nil,
+                maxColor: try SheetsColor.parse("#FF0000"), maxType: .max, maxValue: "9")
+        }
+        // A MIN/MAX midpoint is rejected.
+        await assertInvalidArgumentAsync {
+            try await client.addGradientConditionalFormatRule(
+                spreadsheetId: "sheet-1", range: "Data!A1:A10",
+                minColor: try SheetsColor.parse("#FFFFFF"), minType: .min, minValue: nil,
+                midColor: try SheetsColor.parse("#EEEEEE"), midType: .min, midValue: nil,
+                maxColor: try SheetsColor.parse("#FF0000"), maxType: .max, maxValue: nil)
+        }
+        // A negative index is rejected.
+        await assertInvalidArgumentAsync {
+            try await client.addGradientConditionalFormatRule(
+                spreadsheetId: "sheet-1", range: "Data!A1:A10",
+                minColor: try SheetsColor.parse("#FFFFFF"), minType: .min, minValue: nil,
+                midColor: nil, midType: nil, midValue: nil,
+                maxColor: try SheetsColor.parse("#FF0000"), maxType: .max, maxValue: nil,
+                index: -1)
+        }
+        XCTAssertTrue(transport.requests.isEmpty)
+    }
+
     func testDeleteConditionalFormatRuleEncodesSheetIdAndIndexWithoutReadingMetadata() async throws {
         let transport = StubTransport()
         let client = makeClient(transport: transport)

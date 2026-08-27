@@ -85,6 +85,36 @@ final class DocsWriteTests: XCTestCase {
         }
     }
 
+    func testInsertTextWithTabIdEncodesTabIdOnLocation() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.insertText(
+            documentId: "doc-1", text: "Hi", index: 5, tabId: "t.0")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"insertText":{"location":{"index":5,"tabId":"t.0"},"text":"Hi"}}]}"#
+        )
+    }
+
+    func testInsertTextAtEndWithTabIdEncodesTabIdOnEndOfSegment() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.insertText(
+            documentId: "doc-1", text: "Hi", index: 0, endOfSegment: true, tabId: "t.0")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"insertText":{"endOfSegmentLocation":{"tabId":"t.0"},"text":"Hi"}}]}"#
+        )
+    }
+
     // MARK: - deleteContentRange
 
     func testDeleteContentRangePostsExactBodyAndDecodesReply() async throws {
@@ -164,6 +194,21 @@ final class DocsWriteTests: XCTestCase {
         }
     }
 
+    func testDeleteContentRangeWithTabIdEncodesTabIdOnRange() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.deleteContentRange(
+            documentId: "doc-1", startIndex: 1, endIndex: 5, tabId: "t.0")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"deleteContentRange":{"range":{"endIndex":5,"startIndex":1,"tabId":"t.0"}}}]}"#
+        )
+    }
+
     // MARK: - replaceAllText
 
     func testReplaceAllTextPostsExactBodyAndReturnsCount() async throws {
@@ -188,6 +233,25 @@ final class DocsWriteTests: XCTestCase {
             #"{"requests":[{"replaceAllText":{"containsText":{"matchCase":true,"text":"old"},"replaceText":"new"}}]}"#
         )
         XCTAssertEqual(count, 3)
+    }
+
+    func testReplaceAllTextWithTabsCriteriaEncodesTabIds() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"replies":[{"replaceAllText":{"occurrencesChanged":2}}]}"#
+        )
+
+        let count = try await client.replaceAllText(
+            documentId: "doc-1", find: "old", replace: "new", tabIds: ["t.0", "t.1"])
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"replaceAllText":{"containsText":{"matchCase":false,"text":"old"},"replaceText":"new","tabsCriteria":{"tabIds":["t.0","t.1"]}}}]}"#
+        )
+        XCTAssertEqual(count, 2)
     }
 
     func testReplaceAllTextDefaultsToCaseInsensitive() async throws {
@@ -2089,6 +2153,244 @@ final class DocsWriteTests: XCTestCase {
         }
         await assertInvalidArgument {
             _ = try await client.updateDocumentStyle(documentId: "doc-1", marginFooter: .infinity)
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    // MARK: - updateSectionStyle
+
+    func testUpdateSectionStyleWithAllOptionsPostsExactBodyAndMask() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"documentId":"doc-1","replies":[{}]}"#
+        )
+
+        let response = try await client.updateSectionStyle(
+            documentId: "doc-1",
+            startIndex: 1, endIndex: 20,
+            marginTop: 72, marginBottom: 72, marginLeft: 90, marginRight: 90,
+            marginHeader: 24, marginFooter: 24,
+            columnSeparatorStyle: .betweenEachColumn,
+            contentDirection: .rightToLeft,
+            pageNumberStart: 1,
+            useFirstPageHeaderFooter: true,
+            flipPageOrientation: true)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(
+            request.url.absoluteString,
+            "https://docs.googleapis.com/v1/documents/doc-1:batchUpdate"
+        )
+        // The fields mask is the fixed documented order; the sectionStyle keys and
+        // the body-only range keys are sorted by the shared encoder.
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateSectionStyle":{"fields":"marginTop,marginBottom,marginLeft,marginRight,marginHeader,marginFooter,columnSeparatorStyle,contentDirection,pageNumberStart,useFirstPageHeaderFooter,flipPageOrientation","range":{"endIndex":20,"startIndex":1},"sectionStyle":{"columnSeparatorStyle":"BETWEEN_EACH_COLUMN","contentDirection":"RIGHT_TO_LEFT","flipPageOrientation":true,"marginBottom":{"magnitude":72,"unit":"PT"},"marginFooter":{"magnitude":24,"unit":"PT"},"marginHeader":{"magnitude":24,"unit":"PT"},"marginLeft":{"magnitude":90,"unit":"PT"},"marginRight":{"magnitude":90,"unit":"PT"},"marginTop":{"magnitude":72,"unit":"PT"},"pageNumberStart":1,"useFirstPageHeaderFooter":true}}}]}"#
+        )
+        XCTAssertEqual(response.documentId, "doc-1")
+        XCTAssertEqual(response.replies?.count, 1)
+    }
+
+    func testUpdateSectionStyleMarginOnlyEmitsMinimalMaskAndBody() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.updateSectionStyle(
+            documentId: "doc-1", startIndex: 2, endIndex: 10, marginTop: 36)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        // Only the provided margin appears; absent fields are omitted entirely.
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateSectionStyle":{"fields":"marginTop","range":{"endIndex":10,"startIndex":2},"sectionStyle":{"marginTop":{"magnitude":36,"unit":"PT"}}}}]}"#
+        )
+    }
+
+    func testUpdateSectionStyleColumnSeparatorNoneAndDirectionKeepFixedMaskOrder() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.updateSectionStyle(
+            documentId: "doc-1", startIndex: 0, endIndex: 5,
+            columnSeparatorStyle: DocsColumnSeparatorStyle.none,
+            contentDirection: .leftToRight)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateSectionStyle":{"fields":"columnSeparatorStyle,contentDirection","range":{"endIndex":5,"startIndex":0},"sectionStyle":{"columnSeparatorStyle":"NONE","contentDirection":"LEFT_TO_RIGHT"}}}]}"#
+        )
+    }
+
+    func testUpdateSectionStyleWithRequiredRevisionCarriesWriteControl() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.updateSectionStyle(
+            documentId: "doc-1", startIndex: 1, endIndex: 4,
+            pageNumberStart: 3, requiredRevisionId: "rev-1")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateSectionStyle":{"fields":"pageNumberStart","range":{"endIndex":4,"startIndex":1},"sectionStyle":{"pageNumberStart":3}}}],"writeControl":{"requiredRevisionId":"rev-1"}}"#
+        )
+    }
+
+    func testUpdateSectionStyleRejectsBadInputWithoutSendingARequest() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        // No option at all (empty mask).
+        await assertInvalidArgument {
+            _ = try await client.updateSectionStyle(documentId: "doc-1", startIndex: 1, endIndex: 5)
+        }
+        // A negative range start.
+        await assertInvalidArgument {
+            _ = try await client.updateSectionStyle(
+                documentId: "doc-1", startIndex: -1, endIndex: 5, marginTop: 36)
+        }
+        // An end not greater than the start.
+        await assertInvalidArgument {
+            _ = try await client.updateSectionStyle(
+                documentId: "doc-1", startIndex: 5, endIndex: 5, marginTop: 36)
+        }
+        // A non-positive margin.
+        await assertInvalidArgument {
+            _ = try await client.updateSectionStyle(
+                documentId: "doc-1", startIndex: 1, endIndex: 5, marginTop: 0)
+        }
+        // A non-finite margin.
+        await assertInvalidArgument {
+            _ = try await client.updateSectionStyle(
+                documentId: "doc-1", startIndex: 1, endIndex: 5, marginLeft: .infinity)
+        }
+        // A page number below one.
+        await assertInvalidArgument {
+            _ = try await client.updateSectionStyle(
+                documentId: "doc-1", startIndex: 1, endIndex: 5, pageNumberStart: 0)
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
+    // MARK: - updateNamedStyle
+
+    func testUpdateNamedStyleEncodesSelectorTextAndParagraphMasks() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"documentId":"doc-1","replies":[{}]}"#
+        )
+
+        let response = try await client.updateNamedStyle(
+            documentId: "doc-1",
+            namedStyleType: "heading_2",
+            bold: true,
+            foregroundColor: try DocsOptionalColor.parse("#FF0000"),
+            fontSize: 18,
+            fontFamily: "Arial",
+            smallCaps: true,
+            alignment: .center,
+            lineSpacing: 150,
+            spaceAbove: 6)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(request.method, "POST")
+        // The mask leads with namedStyleType, then the set text paths, then the set
+        // paragraph paths; the namedStyle keys are sorted by the shared encoder.
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateNamedStyle":{"fields":"namedStyleType,textStyle.bold,textStyle.foregroundColor,textStyle.fontSize,textStyle.weightedFontFamily,textStyle.smallCaps,paragraphStyle.alignment,paragraphStyle.lineSpacing,paragraphStyle.spaceAbove","namedStyle":{"namedStyleType":"HEADING_2","paragraphStyle":{"alignment":"CENTER","lineSpacing":150,"spaceAbove":{"magnitude":6,"unit":"PT"}},"textStyle":{"bold":true,"fontSize":{"magnitude":18,"unit":"PT"},"foregroundColor":{"color":{"rgbColor":{"blue":0,"green":0,"red":1}}},"smallCaps":true,"weightedFontFamily":{"fontFamily":"Arial"}}}}}]}"#
+        )
+        XCTAssertEqual(response.documentId, "doc-1")
+    }
+
+    func testUpdateNamedStyleMinimalSelectorPlusOneTextAttr() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.updateNamedStyle(
+            documentId: "doc-1", namedStyleType: "HEADING_1", bold: true)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateNamedStyle":{"fields":"namedStyleType,textStyle.bold","namedStyle":{"namedStyleType":"HEADING_1","textStyle":{"bold":true}}}}]}"#
+        )
+    }
+
+    func testUpdateNamedStyleTabIdAndRequiredRevisionEncodeExactly() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.updateNamedStyle(
+            documentId: "doc-1", namedStyleType: "heading_3", italic: true,
+            tabId: "t.0", requiredRevisionId: "rev-1")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateNamedStyle":{"fields":"namedStyleType,textStyle.italic","namedStyle":{"namedStyleType":"HEADING_3","textStyle":{"italic":true}},"tabId":"t.0"}}],"writeControl":{"requiredRevisionId":"rev-1"}}"#
+        )
+    }
+
+    func testUpdateNamedStyleParagraphOnlyOmitsTextStyle() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.updateNamedStyle(
+            documentId: "doc-1", namedStyleType: "normal_text", alignment: .justified)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        // No textStyle key at all when only a paragraph attribute is set.
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateNamedStyle":{"fields":"namedStyleType,paragraphStyle.alignment","namedStyle":{"namedStyleType":"NORMAL_TEXT","paragraphStyle":{"alignment":"JUSTIFIED"}}}}]}"#
+        )
+    }
+
+    func testUpdateNamedStyleRejectsBadInputWithoutSendingARequest() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        // An unknown named style.
+        await assertInvalidArgument {
+            _ = try await client.updateNamedStyle(
+                documentId: "doc-1", namedStyleType: "HEADING_9", bold: true)
+        }
+        // No style attribute beyond the selector.
+        await assertInvalidArgument {
+            _ = try await client.updateNamedStyle(documentId: "doc-1", namedStyleType: "TITLE")
+        }
+        // A non-positive font size.
+        await assertInvalidArgument {
+            _ = try await client.updateNamedStyle(
+                documentId: "doc-1", namedStyleType: "TITLE", fontSize: 0)
+        }
+        // A font weight without a font family.
+        await assertInvalidArgument {
+            _ = try await client.updateNamedStyle(
+                documentId: "doc-1", namedStyleType: "TITLE", fontWeight: 700)
+        }
+        // A font weight that is not a multiple of 100.
+        await assertInvalidArgument {
+            _ = try await client.updateNamedStyle(
+                documentId: "doc-1", namedStyleType: "TITLE", fontFamily: "Arial", fontWeight: 750)
+        }
+        // A non-positive line spacing.
+        await assertInvalidArgument {
+            _ = try await client.updateNamedStyle(
+                documentId: "doc-1", namedStyleType: "TITLE", lineSpacing: 0)
         }
         XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
     }

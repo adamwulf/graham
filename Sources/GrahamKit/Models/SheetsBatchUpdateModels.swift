@@ -1223,16 +1223,74 @@ public struct GradientRule: Codable, Sendable, Equatable {
 }
 
 /// One stop in a ``GradientRule``: a color, a `type` (such as `MIN`, `MAX`,
-/// `NUMBER`, `PERCENT`), and the `value` the type reads.
+/// `NUMBER`, `PERCENT`), and the `value` the type reads. `color` is the
+/// deprecated field Google still returns; graham writes the non-deprecated
+/// `colorStyle`, and decodes both for faithful round-trips.
 public struct InterpolationPoint: Codable, Sendable, Equatable {
     public let color: SheetsColor?
+    public let colorStyle: SheetsColorStyle?
     public let type: String?
     public let value: String?
 
-    public init(color: SheetsColor? = nil, type: String? = nil, value: String? = nil) {
+    public init(
+        color: SheetsColor? = nil,
+        colorStyle: SheetsColorStyle? = nil,
+        type: String? = nil,
+        value: String? = nil
+    ) {
         self.color = color
+        self.colorStyle = colorStyle
         self.type = type
         self.value = value
+    }
+}
+
+/// The `InterpolationPointType` a gradient stop reads. `MIN`/`MAX` take no value
+/// (they read the range's own extreme); `NUMBER`, `PERCENT`, and `PERCENTILE`
+/// each need one value.
+public enum InterpolationPointType: String, Sendable, CaseIterable, Equatable {
+    case min = "MIN"
+    case max = "MAX"
+    case number = "NUMBER"
+    case percent = "PERCENT"
+    case percentile = "PERCENTILE"
+
+    /// Whether the type reads a `--value`: false for `MIN`/`MAX`, true for the rest.
+    public var needsValue: Bool {
+        switch self {
+        case .min, .max:
+            return false
+        case .number, .percent, .percentile:
+            return true
+        }
+    }
+}
+
+extension InterpolationPoint {
+    /// Builds a gradient stop from a color, a `type`, and an optional `value`,
+    /// validating the value against the type: `MIN`/`MAX` reject a value, the
+    /// rest require one. Writes the color as the non-deprecated `colorStyle`.
+    /// Throws ``GrahamError/invalidArgument(_:)`` on a bad value so the caller
+    /// never sends a request that Google would reject.
+    public static func make(
+        color: SheetsColor,
+        type: InterpolationPointType,
+        value: String?
+    ) throws -> InterpolationPoint {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasValue = !(trimmed?.isEmpty ?? true)
+        if type.needsValue && !hasValue {
+            throw GrahamError.invalidArgument(
+                "the \(type.rawValue) interpolation point needs a --value")
+        }
+        if !type.needsValue && hasValue {
+            throw GrahamError.invalidArgument(
+                "the \(type.rawValue) interpolation point takes no --value")
+        }
+        return InterpolationPoint(
+            colorStyle: SheetsColorStyle(rgbColor: color),
+            type: type.rawValue,
+            value: type.needsValue ? trimmed : nil)
     }
 }
 

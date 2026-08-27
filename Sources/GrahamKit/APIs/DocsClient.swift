@@ -25,9 +25,17 @@ public struct DocsClient: Sendable {
     }
 
     /// Gets one document, with its body content.
-    public func document(id: String) async throws -> Document {
+    ///
+    /// When `includeTabsContent` is true, the response populates `Document.tabs`
+    /// (the per-tab bodies) instead of the legacy top-level `body`, so a tabbed
+    /// document can be read tab by tab. When false (the default), the API returns
+    /// the classic single-body shape.
+    public func document(id: String, includeTabsContent: Bool = false) async throws -> Document {
+        let query: [(String, String?)] =
+            includeTabsContent ? [("includeTabsContent", "true")] : []
         let url = try GoogleURL.build(
-            "\(Self.baseURL)/documents/\(GoogleURL.escapePathComponent(id))"
+            "\(Self.baseURL)/documents/\(GoogleURL.escapePathComponent(id))",
+            query: query
         )
         return try await api.getJSON(Document.self, from: url)
     }
@@ -85,6 +93,7 @@ public struct DocsClient: Sendable {
         index: Int,
         segmentId: String? = nil,
         endOfSegment: Bool = false,
+        tabId: String? = nil,
         requiredRevisionId: String? = nil
     ) async throws -> DocsBatchUpdateResponse {
         guard !text.isEmpty else {
@@ -101,7 +110,7 @@ public struct DocsClient: Sendable {
             // segment (or the body when segmentId is nil).
             insert = DocsInsertTextRequest(
                 text: text,
-                endOfSegmentLocation: DocsEndOfSegmentLocation(segmentId: segmentId)
+                endOfSegmentLocation: DocsEndOfSegmentLocation(segmentId: segmentId, tabId: tabId)
             )
         } else {
             // The body-only guard rejects index 0, which lands inside the
@@ -120,7 +129,7 @@ public struct DocsClient: Sendable {
             }
             insert = DocsInsertTextRequest(
                 text: text,
-                location: DocsLocation(index: index, segmentId: segmentId)
+                location: DocsLocation(index: index, segmentId: segmentId, tabId: tabId)
             )
         }
         let request = DocsBatchUpdateRequest.insertText(insert)
@@ -142,6 +151,7 @@ public struct DocsClient: Sendable {
         startIndex: Int,
         endIndex: Int,
         segmentId: String? = nil,
+        tabId: String? = nil,
         requiredRevisionId: String? = nil
     ) async throws -> DocsBatchUpdateResponse {
         // The Docs API reads an empty segment id as the document body, so
@@ -162,7 +172,8 @@ public struct DocsClient: Sendable {
                 "endIndex (\(endIndex)) must be greater than startIndex (\(startIndex))")
         }
         let request = DocsBatchUpdateRequest.deleteContentRange(DocsDeleteContentRangeRequest(
-            range: DocsRange(startIndex: startIndex, endIndex: endIndex, segmentId: segmentId)
+            range: DocsRange(
+                startIndex: startIndex, endIndex: endIndex, segmentId: segmentId, tabId: tabId)
         ))
         return try await batchUpdate(
             documentId: documentId, requests: [request],
@@ -178,6 +189,7 @@ public struct DocsClient: Sendable {
         find: String,
         replace: String,
         matchCase: Bool = false,
+        tabIds: [String] = [],
         requiredRevisionId: String? = nil
     ) async throws -> Int {
         guard !find.isEmpty else {
@@ -185,7 +197,8 @@ public struct DocsClient: Sendable {
         }
         let request = DocsBatchUpdateRequest.replaceAllText(DocsReplaceAllTextRequest(
             replaceText: replace,
-            containsText: DocsSubstringMatchCriteria(text: find, matchCase: matchCase)
+            containsText: DocsSubstringMatchCriteria(text: find, matchCase: matchCase),
+            tabsCriteria: tabIds.isEmpty ? nil : DocsTabsCriteria(tabIds: tabIds)
         ))
         let response = try await batchUpdate(
             documentId: documentId, requests: [request],
@@ -1979,6 +1992,494 @@ public struct DocsClient: Sendable {
         let request = DocsBatchUpdateRequest.updateDocumentStyle(
             DocsUpdateDocumentStyleRequest(
                 documentStyle: style, fields: mask.joined(separator: ",")))
+        return try await batchUpdate(
+            documentId: documentId, requests: [request],
+            requiredRevisionId: requiredRevisionId)
+    }
+
+    /// Restyles every section a body range overlaps.
+    ///
+    /// The `range` is body-only (its `segmentId` is empty) — section style is a
+    /// body concept. Indices are zero-based UTF-16 code units; `endIndex` must be
+    /// greater than `startIndex`. Margins are in points and each must be a finite
+    /// value greater than zero when given; `pageNumberStart` must be one or
+    /// greater. The `fields` mask is emitted in the fixed order `marginTop`,
+    /// `marginBottom`, `marginLeft`, `marginRight`, `marginHeader`,
+    /// `marginFooter`, `columnSeparatorStyle`, `contentDirection`,
+    /// `pageNumberStart`, `useFirstPageHeaderFooter`, `flipPageOrientation`. At
+    /// least one parameter is required.
+    ///
+    /// The section's header/footer ids and `sectionType` are read-only, and the
+    /// per-column layout (`columnProperties`) is out of this slice, so none are
+    /// settable here.
+    public func updateSectionStyle(
+        documentId: String,
+        startIndex: Int,
+        endIndex: Int,
+        marginTop: Double? = nil,
+        marginBottom: Double? = nil,
+        marginLeft: Double? = nil,
+        marginRight: Double? = nil,
+        marginHeader: Double? = nil,
+        marginFooter: Double? = nil,
+        columnSeparatorStyle: DocsColumnSeparatorStyle? = nil,
+        contentDirection: DocsContentDirection? = nil,
+        pageNumberStart: Int? = nil,
+        useFirstPageHeaderFooter: Bool? = nil,
+        flipPageOrientation: Bool? = nil,
+        requiredRevisionId: String? = nil
+    ) async throws -> DocsBatchUpdateResponse {
+        guard startIndex >= 0 else {
+            throw GrahamError.invalidArgument("the range start must be zero or greater")
+        }
+        guard endIndex > startIndex else {
+            throw GrahamError.invalidArgument("the range end must be greater than the start")
+        }
+        func requirePositive(_ value: Double?, _ label: String) throws {
+            if let value, !(value.isFinite && value > 0) {
+                throw GrahamError.invalidArgument(
+                    "\(label) must be a finite value greater than zero, got \(value)")
+            }
+        }
+        try requirePositive(marginTop, "top margin")
+        try requirePositive(marginBottom, "bottom margin")
+        try requirePositive(marginLeft, "left margin")
+        try requirePositive(marginRight, "right margin")
+        try requirePositive(marginHeader, "header margin")
+        try requirePositive(marginFooter, "footer margin")
+        if let pageNumberStart {
+            guard pageNumberStart >= 1 else {
+                throw GrahamError.invalidArgument(
+                    "page number start must be 1 or greater, got \(pageNumberStart)")
+            }
+        }
+
+        func points(_ value: Double?) -> DocsDimension? {
+            value.map { DocsDimension(magnitude: $0, unit: .pt) }
+        }
+
+        var mask: [String] = []
+        if marginTop != nil { mask.append("marginTop") }
+        if marginBottom != nil { mask.append("marginBottom") }
+        if marginLeft != nil { mask.append("marginLeft") }
+        if marginRight != nil { mask.append("marginRight") }
+        if marginHeader != nil { mask.append("marginHeader") }
+        if marginFooter != nil { mask.append("marginFooter") }
+        if columnSeparatorStyle != nil { mask.append("columnSeparatorStyle") }
+        if contentDirection != nil { mask.append("contentDirection") }
+        if pageNumberStart != nil { mask.append("pageNumberStart") }
+        if useFirstPageHeaderFooter != nil { mask.append("useFirstPageHeaderFooter") }
+        if flipPageOrientation != nil { mask.append("flipPageOrientation") }
+
+        guard !mask.isEmpty else {
+            throw GrahamError.invalidArgument("section style requires at least one style option")
+        }
+
+        let style = DocsSectionStyle(
+            marginTop: points(marginTop),
+            marginBottom: points(marginBottom),
+            marginLeft: points(marginLeft),
+            marginRight: points(marginRight),
+            marginHeader: points(marginHeader),
+            marginFooter: points(marginFooter),
+            columnSeparatorStyle: columnSeparatorStyle,
+            contentDirection: contentDirection,
+            pageNumberStart: pageNumberStart,
+            useFirstPageHeaderFooter: useFirstPageHeaderFooter,
+            flipPageOrientation: flipPageOrientation)
+        let request = DocsBatchUpdateRequest.updateSectionStyle(
+            DocsUpdateSectionStyleRequest(
+                range: DocsRange(startIndex: startIndex, endIndex: endIndex),
+                sectionStyle: style,
+                fields: mask.joined(separator: ",")))
+        return try await batchUpdate(
+            documentId: documentId, requests: [request],
+            requiredRevisionId: requiredRevisionId)
+    }
+
+    /// Redefines a named style (e.g. what `HEADING_2` looks like) document-wide.
+    ///
+    /// `namedStyleType` selects the style (`NORMAL_TEXT`, `TITLE`, `SUBTITLE`, or
+    /// `HEADING_1` through `HEADING_6`, matched case-insensitively). The text and
+    /// paragraph parameters mirror `styleText` / `styleParagraphs`, and at least
+    /// one of them is required (redefining a style with no change is rejected).
+    /// The `fields` mask always begins with `namedStyleType` (the API requires
+    /// it), then the set `textStyle.*` paths in the fixed order `bold`, `italic`,
+    /// `underline`, `strikethrough`, `foregroundColor`, `backgroundColor`,
+    /// `fontSize`, `weightedFontFamily`, `smallCaps`, then the set
+    /// `paragraphStyle.*` paths in the fixed order `alignment`, `direction`,
+    /// `lineSpacing`, `spaceAbove`, `spaceBelow`, `indentStart`, `indentEnd`,
+    /// `indentFirstLine`. `tabId` optionally scopes the change to one tab.
+    ///
+    /// Only the text attributes and the paragraph alignment, spacing, and
+    /// indents are settable here; some `NamedStyle` fields are intentionally not
+    /// exposed (see the CLAUDE.md gotcha).
+    public func updateNamedStyle(
+        documentId: String,
+        namedStyleType: String,
+        bold: Bool? = nil,
+        italic: Bool? = nil,
+        underline: Bool? = nil,
+        strikethrough: Bool? = nil,
+        foregroundColor: DocsOptionalColor? = nil,
+        backgroundColor: DocsOptionalColor? = nil,
+        fontSize: Double? = nil,
+        fontFamily: String? = nil,
+        fontWeight: Int? = nil,
+        smallCaps: Bool? = nil,
+        alignment: DocsParagraphAlignment? = nil,
+        direction: DocsContentDirection? = nil,
+        lineSpacing: Double? = nil,
+        spaceAbove: Double? = nil,
+        spaceBelow: Double? = nil,
+        indentStart: Double? = nil,
+        indentEnd: Double? = nil,
+        indentFirstLine: Double? = nil,
+        tabId: String? = nil,
+        requiredRevisionId: String? = nil
+    ) async throws -> DocsBatchUpdateResponse {
+        guard let selector = DocsNamedStyleType(rawValue: namedStyleType.uppercased()) else {
+            throw GrahamError.invalidArgument(
+                "unknown named style \"\(namedStyleType)\"; use one of NORMAL_TEXT, TITLE, "
+                + "SUBTITLE, or HEADING_1 through HEADING_6")
+        }
+
+        // Text validation mirrors styleText: a weighted family needs a non-empty
+        // family, a weight is a multiple of 100 in 100...900, a font size is
+        // positive.
+        var weightedFontFamily: DocsWeightedFontFamily?
+        if let fontFamily {
+            guard !fontFamily.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw GrahamError.invalidArgument("font family must not be empty")
+            }
+            if let fontWeight {
+                guard (100...900).contains(fontWeight), fontWeight % 100 == 0 else {
+                    throw GrahamError.invalidArgument(
+                        "font weight must be a multiple of 100 within 100 and 900, got \(fontWeight)")
+                }
+            }
+            weightedFontFamily = DocsWeightedFontFamily(fontFamily: fontFamily, weight: fontWeight)
+        } else if fontWeight != nil {
+            throw GrahamError.invalidArgument("a font weight requires a font family")
+        }
+        if let fontSize {
+            guard fontSize > 0 else {
+                throw GrahamError.invalidArgument(
+                    "font size must be greater than zero, got \(fontSize)")
+            }
+        }
+
+        // Paragraph validation mirrors styleParagraphs.
+        if let lineSpacing {
+            guard lineSpacing > 0 else {
+                throw GrahamError.invalidArgument(
+                    "line spacing must be greater than zero, got \(lineSpacing)")
+            }
+        }
+        func requireNonNegative(_ value: Double?, _ label: String) throws {
+            if let value, value < 0 {
+                throw GrahamError.invalidArgument("\(label) must be 0 or greater, got \(value)")
+            }
+        }
+        try requireNonNegative(spaceAbove, "space above")
+        try requireNonNegative(spaceBelow, "space below")
+        try requireNonNegative(indentStart, "indent start")
+        try requireNonNegative(indentEnd, "indent end")
+        try requireNonNegative(indentFirstLine, "first-line indent")
+
+        func points(_ value: Double?) -> DocsDimension? {
+            value.map { DocsDimension(magnitude: $0, unit: .pt) }
+        }
+
+        // The mask always leads with the selector, then the set text paths, then
+        // the set paragraph paths — each nested under its style root.
+        var mask: [String] = ["namedStyleType"]
+        var textMask: [String] = []
+        if bold != nil { textMask.append("textStyle.bold") }
+        if italic != nil { textMask.append("textStyle.italic") }
+        if underline != nil { textMask.append("textStyle.underline") }
+        if strikethrough != nil { textMask.append("textStyle.strikethrough") }
+        if foregroundColor != nil { textMask.append("textStyle.foregroundColor") }
+        if backgroundColor != nil { textMask.append("textStyle.backgroundColor") }
+        if fontSize != nil { textMask.append("textStyle.fontSize") }
+        if weightedFontFamily != nil { textMask.append("textStyle.weightedFontFamily") }
+        if smallCaps != nil { textMask.append("textStyle.smallCaps") }
+
+        var paragraphMask: [String] = []
+        if alignment != nil { paragraphMask.append("paragraphStyle.alignment") }
+        if direction != nil { paragraphMask.append("paragraphStyle.direction") }
+        if lineSpacing != nil { paragraphMask.append("paragraphStyle.lineSpacing") }
+        if spaceAbove != nil { paragraphMask.append("paragraphStyle.spaceAbove") }
+        if spaceBelow != nil { paragraphMask.append("paragraphStyle.spaceBelow") }
+        if indentStart != nil { paragraphMask.append("paragraphStyle.indentStart") }
+        if indentEnd != nil { paragraphMask.append("paragraphStyle.indentEnd") }
+        if indentFirstLine != nil { paragraphMask.append("paragraphStyle.indentFirstLine") }
+
+        guard !textMask.isEmpty || !paragraphMask.isEmpty else {
+            throw GrahamError.invalidArgument(
+                "named style requires at least one text or paragraph style option")
+        }
+        mask.append(contentsOf: textMask)
+        mask.append(contentsOf: paragraphMask)
+
+        let textStyle: DocsTextStyle? = textMask.isEmpty ? nil : DocsTextStyle(
+            bold: bold,
+            italic: italic,
+            underline: underline,
+            strikethrough: strikethrough,
+            foregroundColor: foregroundColor,
+            backgroundColor: backgroundColor,
+            fontSize: points(fontSize),
+            weightedFontFamily: weightedFontFamily,
+            smallCaps: smallCaps)
+        let paragraphStyle: DocsParagraphStyle? = paragraphMask.isEmpty ? nil : DocsParagraphStyle(
+            alignment: alignment,
+            direction: direction,
+            lineSpacing: lineSpacing,
+            spaceAbove: points(spaceAbove),
+            spaceBelow: points(spaceBelow),
+            indentStart: points(indentStart),
+            indentEnd: points(indentEnd),
+            indentFirstLine: points(indentFirstLine))
+        let request = DocsBatchUpdateRequest.updateNamedStyle(
+            DocsUpdateNamedStyleRequest(
+                namedStyle: DocsNamedStyle(
+                    namedStyleType: selector,
+                    textStyle: textStyle,
+                    paragraphStyle: paragraphStyle),
+                fields: mask.joined(separator: ","),
+                tabId: tabId))
+        return try await batchUpdate(
+            documentId: documentId, requests: [request],
+            requiredRevisionId: requiredRevisionId)
+    }
+
+    // MARK: - Smart chips
+
+    /// Where a smart-chip insert lands: a body/segment index location, or the
+    /// end of a segment (no index needed). Exactly one, so a chip request never
+    /// carries both.
+    private enum InsertTarget {
+        case location(DocsLocation)
+        case endOfSegment(DocsEndOfSegmentLocation)
+    }
+
+    /// Builds a smart-chip insert target, applying the same index guards as
+    /// `insertText`: the document body's first editable index is 1; a named
+    /// segment starts its content at 0. An empty `segmentId` is normalized to the
+    /// body. `endOfSegment` appends to the end of the segment (or body).
+    private static func makeInsertTarget(
+        index: Int, segmentId: String?, endOfSegment: Bool, tabId: String?
+    ) throws -> InsertTarget {
+        let segmentId = segmentId.flatMap { $0.isEmpty ? nil : $0 }
+        if endOfSegment {
+            return .endOfSegment(DocsEndOfSegmentLocation(segmentId: segmentId, tabId: tabId))
+        }
+        if segmentId == nil {
+            guard index >= 1 else {
+                throw GrahamError.invalidArgument(
+                    "index must be 1 or greater; the document body starts at index 1")
+            }
+        } else {
+            guard index >= 0 else {
+                throw GrahamError.invalidArgument("index must be 0 or greater in a segment")
+            }
+        }
+        return .location(DocsLocation(index: index, segmentId: segmentId, tabId: tabId))
+    }
+
+    /// Inserts a person smart chip (a linked `email`, with an optional display
+    /// `name`) at an index or the end of a segment. See ``makeInsertTarget`` for
+    /// the index rules.
+    public func insertPerson(
+        documentId: String,
+        email: String,
+        name: String? = nil,
+        index: Int = 1,
+        segmentId: String? = nil,
+        endOfSegment: Bool = false,
+        tabId: String? = nil,
+        requiredRevisionId: String? = nil
+    ) async throws -> DocsBatchUpdateResponse {
+        guard !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw GrahamError.invalidArgument("a person chip requires an email")
+        }
+        let properties = DocsPersonProperties(email: email, name: name)
+        let request: DocsInsertPersonRequest
+        switch try Self.makeInsertTarget(
+            index: index, segmentId: segmentId, endOfSegment: endOfSegment, tabId: tabId) {
+        case .location(let location):
+            request = DocsInsertPersonRequest(personProperties: properties, location: location)
+        case .endOfSegment(let end):
+            request = DocsInsertPersonRequest(
+                personProperties: properties, endOfSegmentLocation: end)
+        }
+        return try await batchUpdate(
+            documentId: documentId, requests: [.insertPerson(request)],
+            requiredRevisionId: requiredRevisionId)
+    }
+
+    /// Inserts a rich-link smart chip (a Drive/YouTube/Calendar `uri`, with an
+    /// optional `title` and `mimeType`) at an index or the end of a segment.
+    public func insertRichLink(
+        documentId: String,
+        uri: String,
+        title: String? = nil,
+        mimeType: String? = nil,
+        index: Int = 1,
+        segmentId: String? = nil,
+        endOfSegment: Bool = false,
+        tabId: String? = nil,
+        requiredRevisionId: String? = nil
+    ) async throws -> DocsBatchUpdateResponse {
+        guard !uri.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw GrahamError.invalidArgument("a rich-link chip requires a uri")
+        }
+        let properties = DocsRichLinkProperties(uri: uri, title: title, mimeType: mimeType)
+        let request: DocsInsertRichLinkRequest
+        switch try Self.makeInsertTarget(
+            index: index, segmentId: segmentId, endOfSegment: endOfSegment, tabId: tabId) {
+        case .location(let location):
+            request = DocsInsertRichLinkRequest(richLinkProperties: properties, location: location)
+        case .endOfSegment(let end):
+            request = DocsInsertRichLinkRequest(
+                richLinkProperties: properties, endOfSegmentLocation: end)
+        }
+        return try await batchUpdate(
+            documentId: documentId, requests: [.insertRichLink(request)],
+            requiredRevisionId: requiredRevisionId)
+    }
+
+    /// Inserts a date smart chip (a `timestamp`, an RFC 3339 date-time, with an
+    /// optional locale, time zone, and date/time formats) at an index or the end
+    /// of a segment.
+    public func insertDate(
+        documentId: String,
+        timestamp: String,
+        locale: String? = nil,
+        timeZoneId: String? = nil,
+        dateFormat: DocsDateFormat? = nil,
+        timeFormat: DocsTimeFormat? = nil,
+        index: Int = 1,
+        segmentId: String? = nil,
+        endOfSegment: Bool = false,
+        tabId: String? = nil,
+        requiredRevisionId: String? = nil
+    ) async throws -> DocsBatchUpdateResponse {
+        guard !timestamp.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw GrahamError.invalidArgument("a date chip requires a timestamp")
+        }
+        let properties = DocsDateElementProperties(
+            timestamp: timestamp,
+            locale: locale,
+            timeZoneId: timeZoneId,
+            dateFormat: dateFormat,
+            timeFormat: timeFormat)
+        let request: DocsInsertDateRequest
+        switch try Self.makeInsertTarget(
+            index: index, segmentId: segmentId, endOfSegment: endOfSegment, tabId: tabId) {
+        case .location(let location):
+            request = DocsInsertDateRequest(dateElementProperties: properties, location: location)
+        case .endOfSegment(let end):
+            request = DocsInsertDateRequest(
+                dateElementProperties: properties, endOfSegmentLocation: end)
+        }
+        return try await batchUpdate(
+            documentId: documentId, requests: [.insertDate(request)],
+            requiredRevisionId: requiredRevisionId)
+    }
+
+    // MARK: - Document tabs
+
+    /// Adds a document tab and returns the batch response plus the new tab's
+    /// server-assigned id (from the reply).
+    ///
+    /// `title`, `parentTabId` (nest under a tab), and `iconEmoji` are optional;
+    /// `position` is the one-based tab position the CLI uses, translated to the
+    /// API's zero-based `index` here (a nil position appends). The tab id and
+    /// nesting level are assigned by the server.
+    public func addDocumentTab(
+        documentId: String,
+        title: String? = nil,
+        position: Int? = nil,
+        parentTabId: String? = nil,
+        iconEmoji: String? = nil,
+        requiredRevisionId: String? = nil
+    ) async throws -> (response: DocsBatchUpdateResponse, tabId: String?) {
+        var apiIndex: Int?
+        if let position {
+            guard position >= 1 else {
+                throw GrahamError.invalidArgument(
+                    "the tab position must be 1 or greater, got \(position)")
+            }
+            apiIndex = position - 1
+        }
+        let properties = DocsTabProperties(
+            title: title, index: apiIndex, iconEmoji: iconEmoji, parentTabId: parentTabId)
+        let request = DocsBatchUpdateRequest.addDocumentTab(
+            DocsAddDocumentTabRequest(tabProperties: properties))
+        let response = try await batchUpdate(
+            documentId: documentId, requests: [request],
+            requiredRevisionId: requiredRevisionId)
+        return (response, response.replies?.first?.addDocumentTab?.tabProperties?.tabId)
+    }
+
+    /// Deletes the tab `tabId` and its child tabs.
+    public func deleteTab(
+        documentId: String,
+        tabId: String,
+        requiredRevisionId: String? = nil
+    ) async throws -> DocsBatchUpdateResponse {
+        guard !tabId.isEmpty else {
+            throw GrahamError.invalidArgument("a tab id is required to delete a tab")
+        }
+        let request = DocsBatchUpdateRequest.deleteTab(DocsDeleteTabRequest(tabId: tabId))
+        return try await batchUpdate(
+            documentId: documentId, requests: [request],
+            requiredRevisionId: requiredRevisionId)
+    }
+
+    /// Renames or moves the tab `tabId`.
+    ///
+    /// `title` renames it, `position` (one-based, translated to the API's
+    /// zero-based `index`) moves it, `parentTabId` re-nests it, and `iconEmoji`
+    /// changes its icon. The `fields` mask is emitted in the fixed order `title`,
+    /// `index`, `parentTabId`, `iconEmoji`; `tabId` is the selector and is never
+    /// masked. At least one change is required.
+    public func updateDocumentTabProperties(
+        documentId: String,
+        tabId: String,
+        title: String? = nil,
+        position: Int? = nil,
+        parentTabId: String? = nil,
+        iconEmoji: String? = nil,
+        requiredRevisionId: String? = nil
+    ) async throws -> DocsBatchUpdateResponse {
+        guard !tabId.isEmpty else {
+            throw GrahamError.invalidArgument("a tab id is required to update a tab")
+        }
+        var apiIndex: Int?
+        if let position {
+            guard position >= 1 else {
+                throw GrahamError.invalidArgument(
+                    "the tab position must be 1 or greater, got \(position)")
+            }
+            apiIndex = position - 1
+        }
+        var mask: [String] = []
+        if title != nil { mask.append("title") }
+        if apiIndex != nil { mask.append("index") }
+        if parentTabId != nil { mask.append("parentTabId") }
+        if iconEmoji != nil { mask.append("iconEmoji") }
+        guard !mask.isEmpty else {
+            throw GrahamError.invalidArgument("updating a tab requires at least one property")
+        }
+        let properties = DocsTabProperties(
+            tabId: tabId, title: title, index: apiIndex,
+            iconEmoji: iconEmoji, parentTabId: parentTabId)
+        let request = DocsBatchUpdateRequest.updateDocumentTabProperties(
+            DocsUpdateDocumentTabPropertiesRequest(
+                tabProperties: properties, fields: mask.joined(separator: ",")))
         return try await batchUpdate(
             documentId: documentId, requests: [request],
             requiredRevisionId: requiredRevisionId)

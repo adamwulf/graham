@@ -5,10 +5,10 @@ For architecture and implementation conventions, see `CLAUDE.md`.
 
 **Google Docs is at practical 100%** — every `core` and `useful` operation is
 built and merged. Only the explicitly-deferred advanced items below remain.
-**Google Sheets is at practical 100%** — the ranked build-out (values, tabs, grid
+**Google Sheets is complete** — the ranked build-out (values, tabs, grid
 shape, formatting, charts) and the advanced polish (the full formatting surface,
-structure, data tooling, and the extra chart types) are all built. Only the one
-narrow item at the end of this file remains.
+structure, data tooling, every chart type, and both boolean and gradient
+color-scale conditional formatting) are all built. No Sheets items remain.
 
 ---
 
@@ -40,31 +40,37 @@ encoded body, decoded reply, error propagation), then a thin subcommand in
 
 ### Section and named styles (advanced)
 
-- **`updateSectionStyle`** *(advanced)* — margins, columns, page numbering, and
-  header/footer ids for the sections overlapping a range; `fields` mask; the
-  range's `segmentId` must be empty. CLI `docs section-style`.
-- **`updateNamedStyle`** *(advanced)* — redefine a named style (e.g. what
-  `HEADING_2` looks like document-wide); the mask must include
-  `named_style_type`. CLI `docs named-style`.
+- **`updateSectionStyle`** — built as `docs section-style` (margins, page
+  numbering, direction, column separator, first-page header/footer flag, flip
+  orientation). One sub-item is deferred: the per-column `columnProperties`
+  layout (multi-column width / padding), which is awkward from a CLI; the
+  section's header/footer ids and `sectionType` are read-only and out by design.
+- **`updateNamedStyle`** — built as `docs named-style` (redefines a named style
+  document-wide with the `docs style` text flags and the `docs paragraph`
+  alignment / spacing / indent flags; `--tab-id` scopes it to a tab).
 
 ### Tabs, smart chips, suggestions (advanced, beyond the cut line)
 
-- **`addDocumentTab`** *(advanced)* — add a tab; the reply returns
-  `TabProperties`. `TabProperties.index` is zero-based; the CLI shows one-based.
-- **`deleteTab`** *(advanced)* — delete a tab and its child tabs.
-- **`updateDocumentTabProperties`** *(advanced)* — rename / move a tab; `fields`
-  mask.
-- **`documents.get` parameters** *(advanced)* — `includeTabsContent` (populate
-  `Document.tabs` instead of the legacy top-level fields) and
-  `suggestionsViewMode`. Optional parameters on `DocsClient.document(id:)`, a
-  `Tab`/`DocumentTab` model, and tab-aware `blockRows`. Also surface
-  `tabsCriteria` on `replaceAllText` and the named-range operations, and `tabId`
-  on locations, once tabs are modeled.
-- **`insertPerson`** *(advanced)* — insert a person smart chip (email required).
-- **`insertRichLink`** *(advanced)* — insert a Drive/YouTube/Calendar smart chip
-  from a URI.
-- **`insertDate`** *(advanced)* — insert a date smart chip (timestamp, locale,
-  date and time format enums).
+- **`addDocumentTab` / `deleteTab` / `updateDocumentTabProperties`** — built as
+  `docs tab add|delete|update` (add prints the new tab id from the reply;
+  positions are one-based and translated to the API's zero-based `index`;
+  `--parent` nests a tab). The read-only `nestingLevel` is out by design.
+- **Tab-aware reads** — built: `document(id:includeTabsContent:)` populates a
+  `DocTab`/`DocTabContent` tree, `docs tab list` flattens it, and `docs structure
+  --tab <id>` / `docs cat --tab <id>` read one tab's blocks or text. Deferred:
+  per-tab Markdown (`docs cat --markdown --tab`), per-tab headers/footers/images,
+  and the `suggestionsViewMode` get parameter (part of the suggestions work).
+- **Write-side `tabId` / `tabsCriteria` threading** — the core is done:
+  `--tab-id` on `docs insert` and `docs delete` (on the location/range) and
+  `--tab-id` (repeatable) on `docs replace` (a `tabsCriteria`), plus the
+  `--tab-id` already on `docs named-style`, the smart chips, and the tab writes.
+  Deferred (low value, mechanical when needed — the models already carry the
+  field): `--tab-id` on the styling and table ops, and `tabsCriteria` on the
+  named-range operations.
+- **`insertPerson` / `insertRichLink` / `insertDate`** — built as
+  `docs chip person|rich-link|date` (each inserts at a zero-based `--at` index or
+  the segment end `--end`, with `--segment` and `--tab-id`). The date chip's
+  `DATE_FORMAT_CUSTOM` (no pattern field) and the read-only `displayText` are out.
 - **Suggestions-aware reads** *(advanced)* — the `suggested*` fields and
   `suggestionsViewMode` render modes; skip until a real need appears.
 
@@ -91,21 +97,10 @@ ids are not writable and are intentionally omitted.
 
 ---
 
-## Sheets — remaining item
+## Sheets — done
 
-The full Sheets build-out is done: values, tabs, grid shape, the complete
-formatting surface (bold, text/background color, font family and size, number
-type and pattern, alignment — each set, toggled, or cleared — and cell borders),
-structure (`mergeCells` / `unmergeCells`, `sortRange`, `autoResize`, named
-ranges), data tooling (conditional formatting, data validation, basic filters
-and filter views, protected ranges), and every chart type (basic, pie, combo,
-histogram, scorecard, candlestick) plus `updateEmbeddedObjectPosition` chart
-move. See `README.md` for the command surface and `CLAUDE.md` for the
-write-endpoint recipe and index conventions. One narrow item is intentionally
-deferred:
-
-- **Gradient (color-scale) conditional formatting** — the boolean-rule path is
-  built (`sheets conditional-format add --type … --background …`), and the
-  `GradientRule` / `InterpolationPoint` models exist so a rule round-trips, but
-  no command builds a color-scale rule yet. Add a `--gradient` mode (min / mid /
-  max interpolation points) when a real need appears.
+The full Sheets build-out is complete; no items remain. See `README.md` for the
+command surface and `CLAUDE.md` for the write-endpoint recipe and index
+conventions. Both conditional-format paths ship: boolean rules (`sheets
+conditional-format add --type … --background …`) and gradient color-scale rules
+(`sheets conditional-format add --gradient --min-color … --max-color …`).

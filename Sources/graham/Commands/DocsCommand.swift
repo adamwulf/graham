@@ -10,7 +10,8 @@ struct Docs: AsyncParsableCommand {
             Replace.self, Style.self, Paragraph.self, Heading.self, Bullets.self,
             Unbullet.self, Table.self, Images.self, PageBreak.self, Image.self,
             SectionBreak.self, Header.self, Footer.self, Footnote.self,
-            NamedRange.self, PageSetup.self, Test.self,
+            NamedRange.self, PageSetup.self, SectionStyle.self, NamedStyle.self,
+            Chip.self, Tab.self, Test.self,
         ]
     )
 
@@ -95,16 +96,37 @@ struct Docs: AsyncParsableCommand {
         @Flag(help: "Render the document as Markdown instead of plain text.")
         var markdown = false
 
+        @Option(help: "Print one tab by its id (from `docs tab list`). Not combinable with --markdown.")
+        var tab: String?
+
         func validate() throws {
             if json && markdown {
                 throw ValidationError(
                     "Pass either --json or --markdown, not both: --json prints the "
                     + "decoded document and --markdown renders it as Markdown.")
             }
+            if markdown && tab != nil {
+                throw ValidationError(
+                    "--markdown cannot combine with --tab: Markdown renders the whole "
+                    + "document. Use --tab with plain text or --json.")
+            }
         }
 
         func run() async throws {
             let client = DocsClient(api: try CLI.makeAPI())
+            if let tab {
+                let document = try await client.document(
+                    id: documentID, includeTabsContent: true)
+                guard let found = document.tab(withId: tab) else {
+                    throw ValidationError("No tab with id \(tab) in this document.")
+                }
+                if json {
+                    try CLI.printJSON(found)
+                    return
+                }
+                print(found.plainText, terminator: "")
+                return
+            }
             let document = try await client.document(id: documentID)
             if json {
                 try CLI.printJSON(document)
@@ -139,8 +161,20 @@ struct Docs: AsyncParsableCommand {
         @Option(help: "The output format: table, json, jsonl, or id.")
         var format: OutputFormat = .table
 
+        @Option(help: "Show the structure of one tab by its id (from `docs tab list`).")
+        var tab: String?
+
         func run() async throws {
             let client = DocsClient(api: try CLI.makeAPI())
+            if let tab {
+                let document = try await client.document(
+                    id: documentID, includeTabsContent: true)
+                guard let found = document.tab(withId: tab) else {
+                    throw ValidationError("No tab with id \(tab) in this document.")
+                }
+                print(try OutputFormatter.render(found.blockRows, format: format))
+                return
+            }
             let document = try await client.document(id: documentID)
             print(try OutputFormatter.render(document.blockRows, format: format))
         }
@@ -173,6 +207,9 @@ struct Docs: AsyncParsableCommand {
         @Flag(help: "Append to the end of the body or segment; --at is ignored.")
         var end = false
 
+        @Option(help: "Insert into one tab by its id (from `docs tab list`). Omit for a document with no explicit tabs.")
+        var tabId: String?
+
         @Option(help: "Require the document be at this revision id; the write fails otherwise.")
         var requireRevision: String?
 
@@ -192,7 +229,7 @@ struct Docs: AsyncParsableCommand {
             let client = DocsClient(api: try CLI.makeAPI())
             _ = try await client.insertText(
                 documentId: documentID, text: text, index: at ?? 0,
-                segmentId: segment, endOfSegment: end,
+                segmentId: segment, endOfSegment: end, tabId: tabId,
                 requiredRevisionId: requireRevision)
             let count = text.utf16.count
             if end {
@@ -227,6 +264,9 @@ struct Docs: AsyncParsableCommand {
         @Option(help: "A header, footer, or footnote segment id to delete from. Omit for the body.")
         var segment: String?
 
+        @Option(help: "Delete from one tab by its id (from `docs tab list`). Omit for a document with no explicit tabs.")
+        var tabId: String?
+
         @Option(help: "Require the document be at this revision id; the write fails otherwise.")
         var requireRevision: String?
 
@@ -237,6 +277,7 @@ struct Docs: AsyncParsableCommand {
                 startIndex: from,
                 endIndex: to,
                 segmentId: segment,
+                tabId: tabId,
                 requiredRevisionId: requireRevision
             )
             print("Deleted content in [\(from), \(to)).")
@@ -260,6 +301,9 @@ struct Docs: AsyncParsableCommand {
         @Flag(help: "Match case exactly (default is case-insensitive).")
         var matchCase = false
 
+        @Option(help: "Scope the replacement to one or more tab ids (repeat the flag). Omit to span every tab.")
+        var tabId: [String] = []
+
         @Option(help: "Require the document be at this revision id; the write fails otherwise.")
         var requireRevision: String?
 
@@ -270,6 +314,7 @@ struct Docs: AsyncParsableCommand {
                 find: find,
                 replace: replace,
                 matchCase: matchCase,
+                tabIds: tabId,
                 requiredRevisionId: requireRevision
             )
             print(count)
@@ -2311,6 +2356,580 @@ struct Docs: AsyncParsableCommand {
             print("Updated the document style.")
         }
     }
+
+    struct SectionStyle: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "section-style",
+            abstract: "Set margins, page numbering, direction, and separators for the sections a range overlaps.",
+            discussion: """
+                Restyles every section the zero-based UTF-16 range --from..<--to \
+                overlaps (section style is a body concept, so the range is \
+                body-only). Margins are in points. --page-number-start sets the \
+                section's first page number (1 or greater). --direction is ltr or \
+                rtl. --column-separator is none or between. \
+                --first-page-header-footer toggles the section's first-page \
+                header/footer (--no- clears it). --flip-orientation swaps the \
+                section's page width and height. Every dimension must be a finite \
+                value greater than zero, and at least one option is required. The \
+                section's header/footer ids and type are read-only, and multi-column \
+                layout is not set here.
+                """
+        )
+
+        @Argument(help: "The document ID.")
+        var documentID: String
+
+        @Option(help: "The zero-based UTF-16 range start (inclusive).")
+        var from: Int
+
+        @Option(help: "The zero-based UTF-16 range end (exclusive).")
+        var to: Int
+
+        @Option(parsing: .unconditional, help: "The top margin in points.")
+        var marginTop: Double?
+
+        @Option(parsing: .unconditional, help: "The bottom margin in points.")
+        var marginBottom: Double?
+
+        @Option(parsing: .unconditional, help: "The left margin in points.")
+        var marginLeft: Double?
+
+        @Option(parsing: .unconditional, help: "The right margin in points.")
+        var marginRight: Double?
+
+        @Option(parsing: .unconditional, help: "The header margin in points.")
+        var marginHeader: Double?
+
+        @Option(parsing: .unconditional, help: "The footer margin in points.")
+        var marginFooter: Double?
+
+        @Option(help: "The text direction: ltr or rtl.")
+        var direction: DocsDirectionArgument?
+
+        @Option(help: "The column separator style: none or between.")
+        var columnSeparator: DocsColumnSeparatorArgument?
+
+        @Option(parsing: .unconditional, help: "The section's first page number (1 or greater).")
+        var pageNumberStart: Int?
+
+        @Flag(
+            inversion: .prefixedNo,
+            help: "Use the first-page header/footer for the section (--no- turns it off)."
+        )
+        var firstPageHeaderFooter: Bool?
+
+        @Flag(
+            inversion: .prefixedNo,
+            help: "Flip the section orientation, swapping width and height (--no- turns it off)."
+        )
+        var flipOrientation: Bool?
+
+        @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+        var requireRevision: String?
+
+        func validate() throws {
+            let hasOption =
+                marginTop != nil || marginBottom != nil || marginLeft != nil
+                || marginRight != nil || marginHeader != nil || marginFooter != nil
+                || direction != nil || columnSeparator != nil || pageNumberStart != nil
+                || firstPageHeaderFooter != nil || flipOrientation != nil
+            guard hasOption else {
+                throw ValidationError("Provide at least one section-style option.")
+            }
+            guard from >= 0 else {
+                throw ValidationError("--from must be zero or greater.")
+            }
+            guard to > from else {
+                throw ValidationError("--to must be greater than --from.")
+            }
+            func requirePositive(_ value: Double?, _ label: String) throws {
+                if let value, !(value.isFinite && value > 0) {
+                    throw ValidationError("\(label) must be a finite value greater than zero.")
+                }
+            }
+            try requirePositive(marginTop, "--margin-top")
+            try requirePositive(marginBottom, "--margin-bottom")
+            try requirePositive(marginLeft, "--margin-left")
+            try requirePositive(marginRight, "--margin-right")
+            try requirePositive(marginHeader, "--margin-header")
+            try requirePositive(marginFooter, "--margin-footer")
+            if let pageNumberStart, pageNumberStart < 1 {
+                throw ValidationError("--page-number-start must be 1 or greater.")
+            }
+        }
+
+        func run() async throws {
+            let client = DocsClient(api: try CLI.makeAPI())
+            _ = try await client.updateSectionStyle(
+                documentId: documentID,
+                startIndex: from,
+                endIndex: to,
+                marginTop: marginTop,
+                marginBottom: marginBottom,
+                marginLeft: marginLeft,
+                marginRight: marginRight,
+                marginHeader: marginHeader,
+                marginFooter: marginFooter,
+                columnSeparatorStyle: columnSeparator?.separatorStyle,
+                contentDirection: direction?.direction,
+                pageNumberStart: pageNumberStart,
+                useFirstPageHeaderFooter: firstPageHeaderFooter,
+                flipPageOrientation: flipOrientation,
+                requiredRevisionId: requireRevision)
+            print("Updated the section style.")
+        }
+    }
+
+    struct NamedStyle: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "named-style",
+            abstract: "Redefine a named style (e.g. what HEADING_2 looks like) document-wide.",
+            discussion: """
+                Redefines the look of --style (normal-text, title, subtitle, or \
+                heading-1 through heading-6) everywhere it is used. The text flags \
+                mirror `docs style` (--bold/--italic/--underline/--strike/\
+                --small-caps toggles, --color, --background, --size, --font, \
+                --font-weight) and the paragraph flags mirror `docs paragraph` \
+                (--align, --direction, --line-spacing, --space-above, \
+                --space-below, --indent-start, --indent-end, --indent-first-line). \
+                At least one text or paragraph flag is required. --tab-id scopes \
+                the change to one tab. The baseline offset, link, pagination \
+                toggles, shading, and borders are not set here.
+                """
+        )
+
+        @Argument(help: "The document ID.")
+        var documentID: String
+
+        @Option(help: "The named style to redefine: normal-text, title, subtitle, or heading-1..heading-6.")
+        var style: DocsNamedStyleArgument
+
+        @Flag(inversion: .prefixedNo, help: "Bold the text (--no-bold turns it off).")
+        var bold: Bool?
+
+        @Flag(inversion: .prefixedNo, help: "Italicize the text (--no-italic turns it off).")
+        var italic: Bool?
+
+        @Flag(inversion: .prefixedNo, help: "Underline the text (--no-underline turns it off).")
+        var underline: Bool?
+
+        @Flag(inversion: .prefixedNo, help: "Strike through the text (--no-strike turns it off).")
+        var strike: Bool?
+
+        @Flag(
+            inversion: .prefixedNo,
+            help: "Render the text in small caps (--no-small-caps turns it off)."
+        )
+        var smallCaps: Bool?
+
+        @Option(help: "The text color as a hex value like #FF0000.")
+        var color: String?
+
+        @Option(help: "The background color as a hex value like #FF0000.")
+        var background: String?
+
+        @Option(
+            parsing: .unconditional,
+            help: "The font size in points; must be greater than zero."
+        )
+        var size: Double?
+
+        @Option(help: "The font family name, such as Arial.")
+        var font: String?
+
+        @Option(
+            parsing: .unconditional,
+            help: "The font weight, a multiple of 100 from 100 to 900; requires --font."
+        )
+        var fontWeight: Int?
+
+        @Option(help: "The alignment: start, center, end, or justified.")
+        var align: DocsAlignmentArgument?
+
+        @Option(help: "The text direction: ltr or rtl.")
+        var direction: DocsDirectionArgument?
+
+        @Option(
+            parsing: .unconditional,
+            help: "The line spacing as a percent of normal; 100 is single."
+        )
+        var lineSpacing: Double?
+
+        @Option(parsing: .unconditional, help: "The space above each paragraph in points.")
+        var spaceAbove: Double?
+
+        @Option(parsing: .unconditional, help: "The space below each paragraph in points.")
+        var spaceBelow: Double?
+
+        @Option(parsing: .unconditional, help: "The start-edge indent in points.")
+        var indentStart: Double?
+
+        @Option(parsing: .unconditional, help: "The end-edge indent in points.")
+        var indentEnd: Double?
+
+        @Option(parsing: .unconditional, help: "The first-line indent in points.")
+        var indentFirstLine: Double?
+
+        @Option(help: "Scope the change to one tab by its id. Omit for a document with no explicit tabs.")
+        var tabId: String?
+
+        @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+        var requireRevision: String?
+
+        func validate() throws {
+            let hasStyle =
+                bold != nil || italic != nil || underline != nil || strike != nil
+                || smallCaps != nil || color != nil || background != nil || size != nil
+                || font != nil || fontWeight != nil || align != nil || direction != nil
+                || lineSpacing != nil || spaceAbove != nil || spaceBelow != nil
+                || indentStart != nil || indentEnd != nil || indentFirstLine != nil
+            guard hasStyle else {
+                throw ValidationError("Provide at least one text or paragraph style flag.")
+            }
+            if let fontWeight {
+                guard font != nil else {
+                    throw ValidationError("--font-weight requires --font.")
+                }
+                guard (100...900).contains(fontWeight), fontWeight % 100 == 0 else {
+                    throw ValidationError(
+                        "--font-weight must be a multiple of 100 from 100 to 900.")
+                }
+            }
+            if let size, size <= 0 {
+                throw ValidationError("--size must be greater than zero.")
+            }
+            if let lineSpacing, lineSpacing <= 0 {
+                throw ValidationError("--line-spacing must be greater than zero.")
+            }
+        }
+
+        func run() async throws {
+            let foreground = try color.map { try DocsOptionalColor.parse($0) }
+            let backgroundColor = try background.map { try DocsOptionalColor.parse($0) }
+            let client = DocsClient(api: try CLI.makeAPI())
+            _ = try await client.updateNamedStyle(
+                documentId: documentID,
+                namedStyleType: style.namedStyleType,
+                bold: bold,
+                italic: italic,
+                underline: underline,
+                strikethrough: strike,
+                foregroundColor: foreground,
+                backgroundColor: backgroundColor,
+                fontSize: size,
+                fontFamily: font,
+                fontWeight: fontWeight,
+                smallCaps: smallCaps,
+                alignment: align?.alignment,
+                direction: direction?.direction,
+                lineSpacing: lineSpacing,
+                spaceAbove: spaceAbove,
+                spaceBelow: spaceBelow,
+                indentStart: indentStart,
+                indentEnd: indentEnd,
+                indentFirstLine: indentFirstLine,
+                tabId: tabId,
+                requiredRevisionId: requireRevision)
+            print("Redefined the \(style.namedStyleType) named style.")
+        }
+    }
+
+    struct Chip: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "chip",
+            abstract: "Insert a smart chip: a person, a rich link, or a date.",
+            subcommands: [Person.self, RichLink.self, DateChip.self]
+        )
+
+        /// Shared insert-target check: exactly one of --at or --end.
+        static func validateInsertTarget(at: Int?, end: Bool) throws {
+            if end && at != nil {
+                throw ValidationError(
+                    "Pass either --at <index> or --end, not both: --end appends to the "
+                    + "end of the segment and takes no index.")
+            }
+            guard end || at != nil else {
+                throw ValidationError(
+                    "Provide --at <index>, or pass --end to append to the end of the segment.")
+            }
+        }
+
+        struct Person: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Insert a person smart chip (an email, with an optional name)."
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "The person's email (required).")
+            var email: String
+
+            @Option(help: "An optional display name.")
+            var name: String?
+
+            @Option(help: "Zero-based UTF-16 index to insert at (min 1 in the body, 0 in a segment). Not needed with --end.")
+            var at: Int?
+
+            @Flag(help: "Append to the end of the segment (or body). Mutually exclusive with --at.")
+            var end = false
+
+            @Option(help: "A header, footer, or footnote segment id. Omit for the body.")
+            var segment: String?
+
+            @Option(help: "Scope to one tab by its id. Omit for a document with no explicit tabs.")
+            var tabId: String?
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func validate() throws { try Chip.validateInsertTarget(at: at, end: end) }
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                _ = try await client.insertPerson(
+                    documentId: documentID, email: email, name: name,
+                    index: at ?? 1, segmentId: segment, endOfSegment: end, tabId: tabId,
+                    requiredRevisionId: requireRevision)
+                print("Inserted a person chip for \(email).")
+            }
+        }
+
+        struct RichLink: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "rich-link",
+                abstract: "Insert a rich-link smart chip from a Drive/YouTube/Calendar URI."
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "The link URI (required).")
+            var uri: String
+
+            @Option(help: "An optional title (the API otherwise fetches it).")
+            var title: String?
+
+            @Option(help: "An optional MIME type hint.")
+            var mimeType: String?
+
+            @Option(help: "Zero-based UTF-16 index to insert at (min 1 in the body, 0 in a segment). Not needed with --end.")
+            var at: Int?
+
+            @Flag(help: "Append to the end of the segment (or body). Mutually exclusive with --at.")
+            var end = false
+
+            @Option(help: "A header, footer, or footnote segment id. Omit for the body.")
+            var segment: String?
+
+            @Option(help: "Scope to one tab by its id. Omit for a document with no explicit tabs.")
+            var tabId: String?
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func validate() throws { try Chip.validateInsertTarget(at: at, end: end) }
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                _ = try await client.insertRichLink(
+                    documentId: documentID, uri: uri, title: title, mimeType: mimeType,
+                    index: at ?? 1, segmentId: segment, endOfSegment: end, tabId: tabId,
+                    requiredRevisionId: requireRevision)
+                print("Inserted a rich-link chip for \(uri).")
+            }
+        }
+
+        struct DateChip: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "date",
+                abstract: "Insert a date smart chip from an RFC 3339 timestamp."
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "The timestamp, an RFC 3339 date-time like 2026-08-27T00:00:00Z (required).")
+            var timestamp: String
+
+            @Option(help: "An optional BCP-47 locale, such as en-US.")
+            var locale: String?
+
+            @Option(help: "An optional IANA time zone id, such as America/Chicago.")
+            var timeZone: String?
+
+            @Option(help: "The date format: month-day-abbrev, month-day-full, month-day-year-abbrev, or iso8601.")
+            var dateFormat: DocsDateFormatArgument?
+
+            @Option(help: "The time format: disabled, hour-minute, or hour-minute-tz.")
+            var timeFormat: DocsTimeFormatArgument?
+
+            @Option(help: "Zero-based UTF-16 index to insert at (min 1 in the body, 0 in a segment). Not needed with --end.")
+            var at: Int?
+
+            @Flag(help: "Append to the end of the segment (or body). Mutually exclusive with --at.")
+            var end = false
+
+            @Option(help: "A header, footer, or footnote segment id. Omit for the body.")
+            var segment: String?
+
+            @Option(help: "Scope to one tab by its id. Omit for a document with no explicit tabs.")
+            var tabId: String?
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func validate() throws { try Chip.validateInsertTarget(at: at, end: end) }
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                _ = try await client.insertDate(
+                    documentId: documentID, timestamp: timestamp,
+                    locale: locale, timeZoneId: timeZone,
+                    dateFormat: dateFormat?.dateFormat, timeFormat: timeFormat?.timeFormat,
+                    index: at ?? 1, segmentId: segment, endOfSegment: end, tabId: tabId,
+                    requiredRevisionId: requireRevision)
+                print("Inserted a date chip.")
+            }
+        }
+    }
+
+    struct Tab: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "tab",
+            abstract: "List, add, delete, rename, or move document tabs.",
+            subcommands: [List.self, Add.self, Delete.self, Update.self]
+        )
+
+        struct List: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "List the document's tabs (id, title, position, and parent)."
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "The output format: table, json, jsonl, or id.")
+            var format: OutputFormat = .table
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                let document = try await client.document(
+                    id: documentID, includeTabsContent: true)
+                print(try OutputFormatter.render(document.tabRows, format: format))
+            }
+        }
+
+        struct Add: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Add a document tab and print its new id."
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "The tab title.")
+            var title: String?
+
+            @Option(help: "The one-based tab position; appends when omitted.")
+            var position: Int?
+
+            @Option(help: "Nest the new tab under this parent tab id.")
+            var parent: String?
+
+            @Option(help: "An icon emoji for the tab.")
+            var icon: String?
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func validate() throws {
+                if let position, position < 1 {
+                    throw ValidationError("--position must be 1 or greater.")
+                }
+            }
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                let (_, tabId) = try await client.addDocumentTab(
+                    documentId: documentID, title: title, position: position,
+                    parentTabId: parent, iconEmoji: icon,
+                    requiredRevisionId: requireRevision)
+                if let tabId {
+                    print(tabId)
+                } else {
+                    print("Added a tab.")
+                }
+            }
+        }
+
+        struct Delete: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Delete a tab and its child tabs by id."
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "The id of the tab to delete.")
+            var tabId: String
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                _ = try await client.deleteTab(
+                    documentId: documentID, tabId: tabId, requiredRevisionId: requireRevision)
+                print("Deleted tab \(tabId).")
+            }
+        }
+
+        struct Update: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Rename or move a tab; at least one property is required."
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "The id of the tab to update.")
+            var tabId: String
+
+            @Option(help: "A new title.")
+            var title: String?
+
+            @Option(help: "A new one-based tab position.")
+            var position: Int?
+
+            @Option(help: "A new parent tab id (re-nests the tab).")
+            var parent: String?
+
+            @Option(help: "A new icon emoji.")
+            var icon: String?
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func validate() throws {
+                guard title != nil || position != nil || parent != nil || icon != nil else {
+                    throw ValidationError(
+                        "Provide at least one of --title, --position, --parent, or --icon.")
+                }
+                if let position, position < 1 {
+                    throw ValidationError("--position must be 1 or greater.")
+                }
+            }
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                _ = try await client.updateDocumentTabProperties(
+                    documentId: documentID, tabId: tabId, title: title, position: position,
+                    parentTabId: parent, iconEmoji: icon, requiredRevisionId: requireRevision)
+                print("Updated tab \(tabId).")
+            }
+        }
+    }
 }
 
 // MARK: - Docs styling argument enums
@@ -2427,6 +3046,58 @@ enum DocsDirectionArgument: String, ExpressibleByArgument {
         switch self {
         case .ltr: return .leftToRight
         case .rtl: return .rightToLeft
+        }
+    }
+}
+
+/// CLI-facing section column-separator names mapping to the API
+/// ``DocsColumnSeparatorStyle``. The user types the natural none/between words.
+enum DocsColumnSeparatorArgument: String, ExpressibleByArgument {
+    case none
+    case between
+
+    /// The Docs API column separator style this argument maps to.
+    var separatorStyle: DocsColumnSeparatorStyle {
+        switch self {
+        case .none: return .none
+        case .between: return .betweenEachColumn
+        }
+    }
+}
+
+/// CLI-facing date-chip date-format names, lower-kebab, mapping to the API
+/// ``DocsDateFormat``. The custom format needs a pattern the API exposes no
+/// field for, so it is not offered.
+enum DocsDateFormatArgument: String, ExpressibleByArgument {
+    case monthDayAbbrev = "month-day-abbrev"
+    case monthDayFull = "month-day-full"
+    case monthDayYearAbbrev = "month-day-year-abbrev"
+    case iso8601
+
+    /// The Docs API date format this argument maps to.
+    var dateFormat: DocsDateFormat {
+        switch self {
+        case .monthDayAbbrev: return .monthDayAbbreviated
+        case .monthDayFull: return .monthDayFull
+        case .monthDayYearAbbrev: return .monthDayYearAbbreviated
+        case .iso8601: return .iso8601
+        }
+    }
+}
+
+/// CLI-facing date-chip time-format names, lower-kebab, mapping to the API
+/// ``DocsTimeFormat``. `disabled` hides the time-of-day.
+enum DocsTimeFormatArgument: String, ExpressibleByArgument {
+    case disabled
+    case hourMinute = "hour-minute"
+    case hourMinuteTz = "hour-minute-tz"
+
+    /// The Docs API time format this argument maps to.
+    var timeFormat: DocsTimeFormat {
+        switch self {
+        case .disabled: return .disabled
+        case .hourMinute: return .hourMinute
+        case .hourMinuteTz: return .hourMinuteTimezone
         }
     }
 }

@@ -37,12 +37,33 @@ public struct Document: Codable, Sendable {
     public let namedStyles: DocNamedStyles?
     /// The document-wide style: page size, margins, header/footer flags.
     public let documentStyle: DocDocumentStyle?
+    /// The document's tabs, populated only when the read requests tabs content
+    /// (`document(id:includeTabsContent:)`). When present, the per-tab bodies
+    /// live here instead of the legacy top-level `body`; when absent, the
+    /// document has the classic single-body shape.
+    public let tabs: [DocTab]?
 
     /// The document text, in reading order. Tables render one row per line
     /// with tab-separated cells.
     public var plainText: String {
         (body?.content ?? []).map(\.plainText).joined()
     }
+}
+
+/// One tab in a document, populated when the read requests tabs content.
+/// `tabProperties` names the tab (its id, title, and nesting); `documentTab`
+/// holds the tab's own content; `childTabs` nest recursively.
+public struct DocTab: Codable, Sendable {
+    public let tabProperties: DocsTabProperties?
+    public let documentTab: DocTabContent?
+    public let childTabs: [DocTab]?
+}
+
+/// The content of one tab. Only the `body` is modeled — the part graham reads
+/// for a tab's structure and text. Per-tab headers, footers, and images are out
+/// of this slice.
+public struct DocTabContent: Codable, Sendable {
+    public let body: DocumentBody?
 }
 
 public struct DocumentBody: Codable, Sendable {
@@ -683,9 +704,15 @@ extension Document {
     /// stable. Headers, footers, and footnotes are separate segments and are
     /// not included; ``plainText`` and the write commands are body-scoped too.
     public var blockRows: [DocBlockRow] {
+        Self.blockRows(of: body)
+    }
+
+    /// Flattens any body (the document body or a tab's body) into block rows,
+    /// depth-first, using the same order as ``blockRows``.
+    static func blockRows(of body: DocumentBody?) -> [DocBlockRow] {
         var rows: [DocBlockRow] = []
         for element in body?.content ?? [] {
-            Self.flatten(element, depth: 0, into: &rows)
+            flatten(element, depth: 0, into: &rows)
         }
         return rows
     }
@@ -706,6 +733,86 @@ extension Document {
             }
         }
     }
+}
+
+// MARK: - Tabs
+
+extension Document {
+    /// Every tab, flattened depth-first (a parent before its children), for
+    /// `docs tab list`. Empty when the document has no tabs (or the read did not
+    /// request tabs content).
+    public var tabRows: [DocTabRow] {
+        var rows: [DocTabRow] = []
+        func walk(_ tab: DocTab, depth: Int) {
+            rows.append(DocTabRow(tab: tab, depth: depth))
+            for child in tab.childTabs ?? [] {
+                walk(child, depth: depth + 1)
+            }
+        }
+        for tab in tabs ?? [] {
+            walk(tab, depth: 0)
+        }
+        return rows
+    }
+
+    /// Finds one tab anywhere in the tab tree by its id, recursing into child
+    /// tabs. Nil when no tab has that id (or the document has no tabs).
+    public func tab(withId tabId: String) -> DocTab? {
+        func search(_ tab: DocTab) -> DocTab? {
+            if tab.tabProperties?.tabId == tabId { return tab }
+            for child in tab.childTabs ?? [] {
+                if let found = search(child) { return found }
+            }
+            return nil
+        }
+        for tab in tabs ?? [] {
+            if let found = search(tab) { return found }
+        }
+        return nil
+    }
+}
+
+extension DocTab {
+    /// The blocks in this tab's body, flattened the same way as
+    /// ``Document/blockRows``.
+    public var blockRows: [DocBlockRow] {
+        Document.blockRows(of: documentTab?.body)
+    }
+
+    /// This tab's body text, in reading order.
+    public var plainText: String {
+        (documentTab?.body?.content ?? []).map(\.plainText).joined()
+    }
+}
+
+/// One row of `docs tab list`: a tab's id, title, one-based position, nesting
+/// depth, and parent. `depth` indents nested tabs in the rendered table.
+public struct DocTabRow: Sendable {
+    public let tab: DocTab
+    public let depth: Int
+
+    var tabId: String { tab.tabProperties?.tabId ?? "" }
+    var title: String { tab.tabProperties?.title ?? "" }
+    /// The API `index` is zero-based; the CLI shows the one-based position.
+    var position: Int? { tab.tabProperties?.index.map { $0 + 1 } }
+    var parentTabId: String { tab.tabProperties?.parentTabId ?? "" }
+}
+
+extension DocTabRow: GrahamRow {
+    public static var tableColumns: [String] {
+        ["TAB_ID", "TITLE", "POS", "PARENT"]
+    }
+
+    public var tableValues: [String] {
+        [
+            tabId,
+            String(repeating: "  ", count: depth) + title,
+            position.map(String.init) ?? "",
+            parentTabId,
+        ]
+    }
+
+    public var idValue: String { tabId }
 }
 
 // MARK: - Block row rendering

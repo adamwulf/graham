@@ -19,8 +19,9 @@ Named after Graham's number — a contrast to the googol that named Google.
   or columns and resize them; format a range (bold, text and background color,
   font family and size, number type and pattern, alignment — each set, toggled,
   or cleared) and draw cell borders; merge and unmerge cells, sort ranges,
-  auto-size dimensions, and name ranges (add, list, delete); add and delete
-  conditional-format rules, set and clear data validation, turn on basic filters
+  auto-size dimensions, and name ranges (add, list, delete); add boolean and
+  gradient (color-scale) conditional-format rules and delete them, set and clear
+  data validation, turn on basic filters
   and add filter views, and add and delete protected ranges; add, update, move,
   and delete charts (basic, pie, combo, histogram, scorecard, or candlestick; on
   a new sheet or as an overlay) and list them; and run a live end-to-end smoke
@@ -39,7 +40,11 @@ Named after Graham's number — a contrast to the googol that named Google.
   text), fill templates with named ranges (create, list, delete, and replace
   the content of a named range by id or name), set document-wide page style
   (page size, margins, first-page and even-page header/footer flags, background,
-  and page mode), and run a live end-to-end smoke test of the complete Docs
+  and page mode), set the style of the sections a range overlaps (margins, page
+  numbering, direction, and column separator), redefine a named style
+  (HEADING_2, TITLE, ...) document-wide, insert smart chips (a person, a rich
+  link, or a date), manage document tabs (list, add, delete, rename, and move) and read one tab's
+  structure or text, and run a live end-to-end smoke test of the complete Docs
   command surface.
 - **Slides** — read presentation text; list every page element with its type,
   geometry, text, links, and alt text; list or download every image, including
@@ -190,6 +195,10 @@ graham sheets named-range list <spreadsheet-id>
 graham sheets named-range delete <spreadsheet-id> --named-range-id abc123
 # Highlight cells that match a condition, or delete a rule by its zero-based index.
 graham sheets conditional-format add <spreadsheet-id> "Sheet1!A2:A100" --type NUMBER_GREATER --value 10 --background "#FFCC00"
+# Or a gradient (color-scale) rule: min and max stops are required, the mid stop
+# optional. A stop type is MIN/MAX (no value) or NUMBER/PERCENT/PERCENTILE (needs
+# a value); min defaults to MIN, max to MAX, so a two-color scale needs only colors.
+graham sheets conditional-format add <spreadsheet-id> "Sheet1!A1:A100" --gradient --min-color "#FFFFFF" --mid-color "#FFFF00" --mid-type PERCENT --mid-value 50 --max-color "#FF0000"
 graham sheets conditional-format delete <spreadsheet-id> --index 0 --sheet "Sheet1"
 # Restrict cell input, optionally with an in-cell dropdown; clear it again.
 graham sheets validation set <spreadsheet-id> "Sheet1!B2:B100" --type ONE_OF_LIST --value yes --value no --dropdown
@@ -237,6 +246,11 @@ graham docs insert <document-id> --text "Hello" --at 1
 graham docs delete <document-id> --from 1 --to 6
 # Replace all matches and print how many were changed (case-insensitive unless --match-case).
 graham docs replace <document-id> --find "old" --replace "new" --match-case
+# In a tabbed document, target one tab by its id (from `docs tab list`): --tab-id
+# on insert/delete goes on the location; on replace it scopes the match (repeat it
+# for several tabs). Omit --tab-id for a document with no explicit tabs.
+graham docs insert <document-id> --text "Hello" --at 1 --tab-id <tab-id>
+graham docs replace <document-id> --find "old" --replace "new" --tab-id <tab-id> --tab-id <tab-id>
 # Write into a header, footer, or footnote segment (its content starts at index 0),
 # or append to the end of the body or a segment with --end (no index needed).
 graham docs insert <document-id> --text "Hello" --segment <segment-id> --at 0
@@ -351,6 +365,37 @@ graham docs page-setup <document-id> --margin-top 72 --margin-bottom 72 --margin
 graham docs page-setup <document-id> --first-page-header-footer --background "#FFFFFF"
 graham docs page-setup <document-id> --margin-header 24 --margin-footer 24 --page-number-start 1
 graham docs page-setup <document-id> --mode pageless --flip-orientation
+# Set the style of the sections a body range overlaps: margins (points), the
+# first page number (--page-number-start), --direction ltr/rtl, --column-separator
+# none/between, --first-page-header-footer, and --flip-orientation. Indices are
+# zero-based UTF-16; the section's header/footer ids and type are read-only, and
+# multi-column layout is not set here. At least one option is required.
+graham docs section-style <document-id> --from 1 --to 20 --margin-left 108 --margin-right 108
+graham docs section-style <document-id> --from 1 --to 20 --column-separator between --page-number-start 1
+# Redefine a named style (e.g. what HEADING_2 looks like) document-wide. --style
+# selects it (normal-text, title, subtitle, heading-1..heading-6). The text flags
+# mirror `docs style` and the paragraph flags mirror `docs paragraph`; at least one
+# is required. --tab-id scopes the change to one tab.
+graham docs named-style <document-id> --style heading-2 --bold --color "#1155CC" --size 18 --font Arial
+graham docs named-style <document-id> --style normal-text --line-spacing 150 --align justified
+# Insert a smart chip: a person (email + optional name), a rich link (a
+# Drive/YouTube/Calendar URI), or a date (an RFC 3339 timestamp). Each inserts at
+# a zero-based --at index or the end of the segment (--end); --segment and --tab-id
+# scope the target.
+graham docs chip person <document-id> --email person@example.com --name "A. Person" --at 1
+graham docs chip rich-link <document-id> --uri https://drive.google.com/file/d/ID --end
+graham docs chip date <document-id> --timestamp 2026-08-27T00:00:00Z --date-format month-day-year-abbrev --at 1
+# Manage document tabs: list them (id, title, one-based position, parent), add
+# one (printing its new id), delete one and its child tabs, or rename/move one.
+# Positions are one-based; --parent nests a tab.
+graham docs tab list <document-id>
+graham docs tab add <document-id> --title "Notes" --position 2
+graham docs tab update <document-id> --tab-id <tab-id> --title "Renamed" --position 1
+graham docs tab delete <document-id> --tab-id <tab-id>
+# Read one tab of a tabbed document by its id (from `docs tab list`): its block
+# structure, or its text. --markdown renders the whole document, not one tab.
+graham docs structure <document-id> --tab <tab-id>
+graham docs cat <document-id> --tab <tab-id>
 # Exercise the complete live Docs API surface inside the root-level "graham test" folder.
 # The run creates a disposable document and exercises text, styling, lists, tables,
 # images, headers/footers/footnotes, named ranges, and page setup.

@@ -943,13 +943,21 @@ struct Sheets: AsyncParsableCommand {
 
         struct Add: AsyncParsableCommand {
             static let configuration = CommandConfiguration(
-                abstract: "Add a rule that colors cells matching a condition.",
+                abstract: "Add a boolean or gradient (color-scale) rule to a sheet.",
                 discussion: """
-                    The rule covers the range and colors any cell that satisfies
-                    the condition. Give the condition operands with --value: none
-                    for BLANK/NOT_BLANK, two for the *_BETWEEN types, otherwise
-                    one or more. The sheet comes from the range's tab name, or the
-                    first sheet when the range names none.
+                    In the default boolean mode the rule colors any cell that
+                    satisfies --type. Give the condition operands with --value:
+                    none for BLANK/NOT_BLANK, two for the *_BETWEEN types,
+                    otherwise one or more.
+
+                    With --gradient the rule is a color scale: a cell's background
+                    interpolates between --min-color and --max-color, with an
+                    optional --mid-color stop. Each stop's --*-type is MIN/MAX
+                    (no value, reads the range's own extreme) or NUMBER/PERCENT/
+                    PERCENTILE (needs a --*-value); the midpoint may not be MIN/MAX.
+
+                    The sheet comes from the range's tab name, or the first sheet
+                    when the range names none.
                     """
             )
 
@@ -959,27 +967,112 @@ struct Sheets: AsyncParsableCommand {
             @Argument(help: "The range the rule covers, e.g. 'Sheet1!A2:A100'.")
             var range: String
 
-            @Option(help: "The condition type, e.g. NUMBER_GREATER or TEXT_CONTAINS.")
-            var type: SheetsConditionType
+            @Option(help: "Boolean mode: the condition type, e.g. NUMBER_GREATER or TEXT_CONTAINS.")
+            var type: SheetsConditionType?
 
-            @Option(help: "A condition value. Repeat for the *_BETWEEN types (two values).")
+            @Option(help: "Boolean mode: a condition value. Repeat for the *_BETWEEN types (two values).")
             var value: [String] = []
 
-            @Option(help: "The background color for a matched cell, as hex, e.g. #FFCC00.")
-            var background: String
+            @Option(help: "Boolean mode: the background color for a matched cell, as hex, e.g. #FFCC00.")
+            var background: String?
+
+            @Flag(help: "Build a gradient (color-scale) rule instead of a boolean rule.")
+            var gradient: Bool = false
+
+            @Option(name: .customLong("min-color"), help: "Gradient min stop color, as hex, e.g. #FFFFFF.")
+            var minColor: String?
+
+            @Option(name: .customLong("min-type"), help: "Gradient min stop type (MIN/NUMBER/PERCENT/PERCENTILE).")
+            var minType: InterpolationPointType = .min
+
+            @Option(name: .customLong("min-value"), help: "Gradient min stop value (for NUMBER/PERCENT/PERCENTILE).")
+            var minValue: String?
+
+            @Option(name: .customLong("mid-color"), help: "Gradient mid stop color, as hex. Omit for a two-color scale.")
+            var midColor: String?
+
+            @Option(name: .customLong("mid-type"), help: "Gradient mid stop type (NUMBER/PERCENT/PERCENTILE; default PERCENT).")
+            var midType: InterpolationPointType?
+
+            @Option(name: .customLong("mid-value"), help: "Gradient mid stop value.")
+            var midValue: String?
+
+            @Option(name: .customLong("max-color"), help: "Gradient max stop color, as hex, e.g. #FF0000.")
+            var maxColor: String?
+
+            @Option(name: .customLong("max-type"), help: "Gradient max stop type (MAX/NUMBER/PERCENT/PERCENTILE).")
+            var maxType: InterpolationPointType = .max
+
+            @Option(name: .customLong("max-value"), help: "Gradient max stop value (for NUMBER/PERCENT/PERCENTILE).")
+            var maxValue: String?
 
             @Option(help: "Zero-based insertion index within the sheet's rule list.")
             var index: Int = 0
 
+            func validate() throws {
+                if gradient {
+                    guard minColor != nil, maxColor != nil else {
+                        throw ValidationError(
+                            "--gradient needs --min-color and --max-color.")
+                    }
+                    guard type == nil, background == nil, value.isEmpty else {
+                        throw ValidationError(
+                            "--type/--value/--background are boolean-mode options; drop them with --gradient.")
+                    }
+                } else {
+                    guard type != nil, background != nil else {
+                        throw ValidationError(
+                            "a boolean rule needs --type and --background (or pass --gradient).")
+                    }
+                    let gradientSet = minColor != nil || midColor != nil || maxColor != nil
+                        || minValue != nil || midValue != nil || maxValue != nil
+                    guard !gradientSet else {
+                        throw ValidationError(
+                            "the --min/--mid/--max options need --gradient.")
+                    }
+                }
+            }
+
             func run() async throws {
                 let client = SheetsClient(api: try CLI.makeAPI())
-                let color = try SheetsColor.parse(background)
+                if gradient {
+                    try await runGradient(client)
+                } else {
+                    try await runBoolean(client)
+                }
+            }
+
+            private func runBoolean(_ client: SheetsClient) async throws {
+                guard let type, let background else {
+                    throw ValidationError(
+                        "a boolean rule needs --type and --background (or pass --gradient).")
+                }
                 try await client.addConditionalFormatRule(
                     spreadsheetId: spreadsheetID,
                     range: range,
                     type: type,
                     values: value,
-                    backgroundColor: color,
+                    backgroundColor: try SheetsColor.parse(background),
+                    index: index
+                )
+            }
+
+            private func runGradient(_ client: SheetsClient) async throws {
+                guard let minColor, let maxColor else {
+                    throw ValidationError("--gradient needs --min-color and --max-color.")
+                }
+                try await client.addGradientConditionalFormatRule(
+                    spreadsheetId: spreadsheetID,
+                    range: range,
+                    minColor: try SheetsColor.parse(minColor),
+                    minType: minType,
+                    minValue: minValue,
+                    midColor: try midColor.map { try SheetsColor.parse($0) },
+                    midType: midType,
+                    midValue: midValue,
+                    maxColor: try SheetsColor.parse(maxColor),
+                    maxType: maxType,
+                    maxValue: maxValue,
                     index: index
                 )
             }
@@ -1459,6 +1552,12 @@ extension SheetsHorizontalAlignment: ExpressibleByArgument {
 }
 
 extension SheetsConditionType: ExpressibleByArgument {
+    public init?(argument: String) {
+        self.init(rawValue: argument.uppercased())
+    }
+}
+
+extension InterpolationPointType: ExpressibleByArgument {
     public init?(argument: String) {
         self.init(rawValue: argument.uppercased())
     }

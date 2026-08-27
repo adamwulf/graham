@@ -505,16 +505,56 @@ final class SheetsWriteParsingTests: XCTestCase {
             "--background", "#FFCC00", "--index", "2",
         ])
         XCTAssertEqual(command.range, "Sheet1!A2:A100")
-        XCTAssertEqual(command.type.rawValue, "NUMBER_GREATER")
+        XCTAssertFalse(command.gradient)
+        XCTAssertEqual(command.type?.rawValue, "NUMBER_GREATER")
         XCTAssertEqual(command.value, ["10"])
         XCTAssertEqual(command.background, "#FFCC00")
         XCTAssertEqual(command.index, 2)
     }
 
     func testSheetsConditionalFormatAddRequiresTypeAndBackground() {
-        // --type and --background are required options.
+        // Without --gradient, a boolean rule needs --type and --background.
         XCTAssertThrowsError(try Sheets.ConditionalFormat.Add.parse([
             "sheet-1", "A2:A100", "--value", "10",
+        ]))
+    }
+
+    func testSheetsConditionalFormatAddParsesGradientPoints() throws {
+        let command = try Sheets.ConditionalFormat.Add.parse([
+            "sheet-1", "Sheet1!A1:A100", "--gradient",
+            "--min-color", "#FFFFFF",
+            "--mid-color", "#FFFF00", "--mid-type", "PERCENT", "--mid-value", "50",
+            "--max-color", "#FF0000",
+        ])
+        XCTAssertTrue(command.gradient)
+        XCTAssertEqual(command.minColor, "#FFFFFF")
+        XCTAssertEqual(command.minType, .min)
+        XCTAssertEqual(command.midColor, "#FFFF00")
+        XCTAssertEqual(command.midType, .percent)
+        XCTAssertEqual(command.midValue, "50")
+        XCTAssertEqual(command.maxColor, "#FF0000")
+        XCTAssertEqual(command.maxType, .max)
+    }
+
+    func testSheetsConditionalFormatAddGradientRequiresMinAndMaxColors() {
+        XCTAssertThrowsError(try Sheets.ConditionalFormat.Add.parse([
+            "sheet-1", "A1:A100", "--gradient", "--min-color", "#FFFFFF",
+        ]))
+    }
+
+    func testSheetsConditionalFormatAddRejectsBooleanOptionsWithGradient() {
+        XCTAssertThrowsError(try Sheets.ConditionalFormat.Add.parse([
+            "sheet-1", "A1:A100", "--gradient",
+            "--min-color", "#FFFFFF", "--max-color", "#FF0000",
+            "--type", "NUMBER_GREATER", "--value", "10", "--background", "#00FF00",
+        ]))
+    }
+
+    func testSheetsConditionalFormatAddRejectsGradientOptionsWithoutFlag() {
+        XCTAssertThrowsError(try Sheets.ConditionalFormat.Add.parse([
+            "sheet-1", "A1:A100",
+            "--type", "NUMBER_GREATER", "--value", "10", "--background", "#00FF00",
+            "--min-color", "#FFFFFF",
         ]))
     }
 
