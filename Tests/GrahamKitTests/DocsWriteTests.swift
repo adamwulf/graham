@@ -85,6 +85,36 @@ final class DocsWriteTests: XCTestCase {
         }
     }
 
+    func testInsertTextWithTabIdEncodesTabIdOnLocation() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.insertText(
+            documentId: "doc-1", text: "Hi", index: 5, tabId: "t.0")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"insertText":{"location":{"index":5,"tabId":"t.0"},"text":"Hi"}}]}"#
+        )
+    }
+
+    func testInsertTextAtEndWithTabIdEncodesTabIdOnEndOfSegment() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.insertText(
+            documentId: "doc-1", text: "Hi", index: 0, endOfSegment: true, tabId: "t.0")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"insertText":{"endOfSegmentLocation":{"tabId":"t.0"},"text":"Hi"}}]}"#
+        )
+    }
+
     // MARK: - deleteContentRange
 
     func testDeleteContentRangePostsExactBodyAndDecodesReply() async throws {
@@ -164,6 +194,21 @@ final class DocsWriteTests: XCTestCase {
         }
     }
 
+    func testDeleteContentRangeWithTabIdEncodesTabIdOnRange() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.deleteContentRange(
+            documentId: "doc-1", startIndex: 1, endIndex: 5, tabId: "t.0")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"deleteContentRange":{"range":{"endIndex":5,"startIndex":1,"tabId":"t.0"}}}]}"#
+        )
+    }
+
     // MARK: - replaceAllText
 
     func testReplaceAllTextPostsExactBodyAndReturnsCount() async throws {
@@ -188,6 +233,25 @@ final class DocsWriteTests: XCTestCase {
             #"{"requests":[{"replaceAllText":{"containsText":{"matchCase":true,"text":"old"},"replaceText":"new"}}]}"#
         )
         XCTAssertEqual(count, 3)
+    }
+
+    func testReplaceAllTextWithTabsCriteriaEncodesTabIds() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"replies":[{"replaceAllText":{"occurrencesChanged":2}}]}"#
+        )
+
+        let count = try await client.replaceAllText(
+            documentId: "doc-1", find: "old", replace: "new", tabIds: ["t.0", "t.1"])
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"replaceAllText":{"containsText":{"matchCase":false,"text":"old"},"replaceText":"new","tabsCriteria":{"tabIds":["t.0","t.1"]}}}]}"#
+        )
+        XCTAssertEqual(count, 2)
     }
 
     func testReplaceAllTextDefaultsToCaseInsensitive() async throws {

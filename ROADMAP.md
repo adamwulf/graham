@@ -62,12 +62,13 @@ encoded body, decoded reply, error propagation), then a thin subcommand in
   --tab <id>` / `docs cat --tab <id>` read one tab's blocks or text. Deferred:
   per-tab Markdown (`docs cat --markdown --tab`), per-tab headers/footers/images,
   and the `suggestionsViewMode` get parameter (part of the suggestions work).
-- **Write-side `tabId` / `tabsCriteria` threading** *(next)* — surface `--tab-id`
-  on the remaining write commands whose locations/ranges already carry a `tabId`
-  (`docs insert`, `docs delete`, the styling and table ops), and add
-  `tabsCriteria` to `replaceAllText` and the named-range operations. (`docs
-  named-style --tab-id` and the smart-chip / tab-write `--tab-id` options are
-  already done.)
+- **Write-side `tabId` / `tabsCriteria` threading** — the core is done:
+  `--tab-id` on `docs insert` and `docs delete` (on the location/range) and
+  `--tab-id` (repeatable) on `docs replace` (a `tabsCriteria`), plus the
+  `--tab-id` already on `docs named-style`, the smart chips, and the tab writes.
+  Deferred (low value, mechanical when needed — the models already carry the
+  field): `--tab-id` on the styling and table ops, and `tabsCriteria` on the
+  named-range operations.
 - **`insertPerson` / `insertRichLink` / `insertDate`** — built as
   `docs chip person|rich-link|date` (each inserts at a zero-based `--at` index or
   the segment end `--end`, with `--segment` and `--tab-id`). The date chip's

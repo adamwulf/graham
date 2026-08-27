@@ -207,6 +207,9 @@ struct Docs: AsyncParsableCommand {
         @Flag(help: "Append to the end of the body or segment; --at is ignored.")
         var end = false
 
+        @Option(help: "Insert into one tab by its id (from `docs tab list`). Omit for a document with no explicit tabs.")
+        var tabId: String?
+
         @Option(help: "Require the document be at this revision id; the write fails otherwise.")
         var requireRevision: String?
 
@@ -226,7 +229,7 @@ struct Docs: AsyncParsableCommand {
             let client = DocsClient(api: try CLI.makeAPI())
             _ = try await client.insertText(
                 documentId: documentID, text: text, index: at ?? 0,
-                segmentId: segment, endOfSegment: end,
+                segmentId: segment, endOfSegment: end, tabId: tabId,
                 requiredRevisionId: requireRevision)
             let count = text.utf16.count
             if end {
@@ -261,6 +264,9 @@ struct Docs: AsyncParsableCommand {
         @Option(help: "A header, footer, or footnote segment id to delete from. Omit for the body.")
         var segment: String?
 
+        @Option(help: "Delete from one tab by its id (from `docs tab list`). Omit for a document with no explicit tabs.")
+        var tabId: String?
+
         @Option(help: "Require the document be at this revision id; the write fails otherwise.")
         var requireRevision: String?
 
@@ -271,6 +277,7 @@ struct Docs: AsyncParsableCommand {
                 startIndex: from,
                 endIndex: to,
                 segmentId: segment,
+                tabId: tabId,
                 requiredRevisionId: requireRevision
             )
             print("Deleted content in [\(from), \(to)).")
@@ -294,6 +301,9 @@ struct Docs: AsyncParsableCommand {
         @Flag(help: "Match case exactly (default is case-insensitive).")
         var matchCase = false
 
+        @Option(help: "Scope the replacement to one or more tab ids (repeat the flag). Omit to span every tab.")
+        var tabId: [String] = []
+
         @Option(help: "Require the document be at this revision id; the write fails otherwise.")
         var requireRevision: String?
 
@@ -304,6 +314,7 @@ struct Docs: AsyncParsableCommand {
                 find: find,
                 replace: replace,
                 matchCase: matchCase,
+                tabIds: tabId,
                 requiredRevisionId: requireRevision
             )
             print(count)

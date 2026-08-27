@@ -93,6 +93,7 @@ public struct DocsClient: Sendable {
         index: Int,
         segmentId: String? = nil,
         endOfSegment: Bool = false,
+        tabId: String? = nil,
         requiredRevisionId: String? = nil
     ) async throws -> DocsBatchUpdateResponse {
         guard !text.isEmpty else {
@@ -109,7 +110,7 @@ public struct DocsClient: Sendable {
             // segment (or the body when segmentId is nil).
             insert = DocsInsertTextRequest(
                 text: text,
-                endOfSegmentLocation: DocsEndOfSegmentLocation(segmentId: segmentId)
+                endOfSegmentLocation: DocsEndOfSegmentLocation(segmentId: segmentId, tabId: tabId)
             )
         } else {
             // The body-only guard rejects index 0, which lands inside the
@@ -128,7 +129,7 @@ public struct DocsClient: Sendable {
             }
             insert = DocsInsertTextRequest(
                 text: text,
-                location: DocsLocation(index: index, segmentId: segmentId)
+                location: DocsLocation(index: index, segmentId: segmentId, tabId: tabId)
             )
         }
         let request = DocsBatchUpdateRequest.insertText(insert)
@@ -150,6 +151,7 @@ public struct DocsClient: Sendable {
         startIndex: Int,
         endIndex: Int,
         segmentId: String? = nil,
+        tabId: String? = nil,
         requiredRevisionId: String? = nil
     ) async throws -> DocsBatchUpdateResponse {
         // The Docs API reads an empty segment id as the document body, so
@@ -170,7 +172,8 @@ public struct DocsClient: Sendable {
                 "endIndex (\(endIndex)) must be greater than startIndex (\(startIndex))")
         }
         let request = DocsBatchUpdateRequest.deleteContentRange(DocsDeleteContentRangeRequest(
-            range: DocsRange(startIndex: startIndex, endIndex: endIndex, segmentId: segmentId)
+            range: DocsRange(
+                startIndex: startIndex, endIndex: endIndex, segmentId: segmentId, tabId: tabId)
         ))
         return try await batchUpdate(
             documentId: documentId, requests: [request],
@@ -186,6 +189,7 @@ public struct DocsClient: Sendable {
         find: String,
         replace: String,
         matchCase: Bool = false,
+        tabIds: [String] = [],
         requiredRevisionId: String? = nil
     ) async throws -> Int {
         guard !find.isEmpty else {
@@ -193,7 +197,8 @@ public struct DocsClient: Sendable {
         }
         let request = DocsBatchUpdateRequest.replaceAllText(DocsReplaceAllTextRequest(
             replaceText: replace,
-            containsText: DocsSubstringMatchCriteria(text: find, matchCase: matchCase)
+            containsText: DocsSubstringMatchCriteria(text: find, matchCase: matchCase),
+            tabsCriteria: tabIds.isEmpty ? nil : DocsTabsCriteria(tabIds: tabIds)
         ))
         let response = try await batchUpdate(
             documentId: documentId, requests: [request],

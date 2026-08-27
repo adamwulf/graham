@@ -438,15 +438,33 @@ public struct DocsSubstringMatchCriteria: Codable, Sendable, Equatable {
     }
 }
 
+/// A Docs v1 `TabsCriteria`: the tabs an operation is scoped to, by id. Used by
+/// `replaceAllText` (and the named-range operations) to limit the change to
+/// specific tabs; when absent, the operation spans every tab.
+public struct DocsTabsCriteria: Codable, Sendable, Equatable {
+    public let tabIds: [String]
+
+    public init(tabIds: [String]) {
+        self.tabIds = tabIds
+    }
+}
+
 /// The `replaceAllText` operation. The replacement text and the match criteria
-/// are required by the API.
+/// are required by the API. `tabsCriteria` optionally scopes the replacement to
+/// specific tabs; it encodes only when set.
 public struct DocsReplaceAllTextRequest: Codable, Sendable, Equatable {
     public let replaceText: String
     public let containsText: DocsSubstringMatchCriteria
+    public let tabsCriteria: DocsTabsCriteria?
 
-    public init(replaceText: String, containsText: DocsSubstringMatchCriteria) {
+    public init(
+        replaceText: String,
+        containsText: DocsSubstringMatchCriteria,
+        tabsCriteria: DocsTabsCriteria? = nil
+    ) {
         self.replaceText = replaceText
         self.containsText = containsText
+        self.tabsCriteria = tabsCriteria
     }
 }
 

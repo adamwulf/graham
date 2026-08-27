@@ -246,6 +246,11 @@ graham docs insert <document-id> --text "Hello" --at 1
 graham docs delete <document-id> --from 1 --to 6
 # Replace all matches and print how many were changed (case-insensitive unless --match-case).
 graham docs replace <document-id> --find "old" --replace "new" --match-case
+# In a tabbed document, target one tab by its id (from `docs tab list`): --tab-id
+# on insert/delete goes on the location; on replace it scopes the match (repeat it
+# for several tabs). Omit --tab-id for a document with no explicit tabs.
+graham docs insert <document-id> --text "Hello" --at 1 --tab-id <tab-id>
+graham docs replace <document-id> --find "old" --replace "new" --tab-id <tab-id> --tab-id <tab-id>
 # Write into a header, footer, or footnote segment (its content starts at index 0),
 # or append to the end of the body or a segment with --end (no index needed).
 graham docs insert <document-id> --text "Hello" --segment <segment-id> --at 0

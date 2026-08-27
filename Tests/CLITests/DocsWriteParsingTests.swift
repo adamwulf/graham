@@ -267,4 +267,27 @@ final class DocsWriteParsingTests: XCTestCase {
         XCTAssertEqual(command.title, "Renamed")
         XCTAssertEqual(command.position, 3)
     }
+
+    // MARK: - write-side tab targeting
+
+    func testInsertParsesTabId() throws {
+        let command = try Docs.Insert.parse([
+            "doc-1", "--text", "Hi", "--at", "5", "--tab-id", "t.0",
+        ])
+        XCTAssertEqual(command.tabId, "t.0")
+    }
+
+    func testDeleteParsesTabId() throws {
+        let command = try Docs.Delete.parse([
+            "doc-1", "--from", "1", "--to", "5", "--tab-id", "t.0",
+        ])
+        XCTAssertEqual(command.tabId, "t.0")
+    }
+
+    func testReplaceParsesRepeatedTabIds() throws {
+        let command = try Docs.Replace.parse([
+            "doc-1", "--find", "a", "--replace", "b", "--tab-id", "t.0", "--tab-id", "t.1",
+        ])
+        XCTAssertEqual(command.tabId, ["t.0", "t.1"])
+    }
 }
