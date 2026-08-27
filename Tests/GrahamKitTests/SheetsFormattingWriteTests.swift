@@ -4,17 +4,13 @@ import XCTest
 /// Offline coverage for the Sheets "more formatting" write paths: the extended
 /// `formatCells` (clear/toggle, number type, text color/font, non-deprecated
 /// color styles) and the new `setBorders` (`updateBorders`) operation.
-final class SheetsFormattingWriteTests: XCTestCase {
-    private func makeClient(transport: StubTransport) -> SheetsClient {
-        transport.stubTokenEndpoint()
-        return SheetsClient(api: TestSupport.makeAPI(transport: transport))
-    }
+final class SheetsFormattingWriteTests: GrahamTestCase {
 
     // MARK: - Toggle and clear
 
     func testFormatNoBoldSetsBoldFalseWithSameMask() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(3, "Sheet1")])
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
@@ -22,14 +18,14 @@ final class SheetsFormattingWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"repeatCell":{"cell":{"userEnteredFormat":{"textFormat":{"bold":false}}},"fields":"userEnteredFormat.textFormat.bold","range":{"endColumnIndex":2,"endRowIndex":1,"sheetId":3,"startColumnIndex":0,"startRowIndex":0}}}]}"#
         )
     }
 
     func testFormatClearsResetAspectsWithMaskedEmptyPayload() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(3, "Sheet1")])
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
@@ -44,14 +40,14 @@ final class SheetsFormattingWriteTests: XCTestCase {
         // Every cleared aspect keeps its mask path but sends no value, so the
         // cell's userEnteredFormat is an empty object.
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"repeatCell":{"cell":{"userEnteredFormat":{}},"fields":"userEnteredFormat.backgroundColorStyle,userEnteredFormat.numberFormat,userEnteredFormat.horizontalAlignment","range":{"endColumnIndex":2,"endRowIndex":1,"sheetId":3,"startColumnIndex":0,"startRowIndex":0}}}]}"#
         )
     }
 
     func testFormatRejectsSettingAndClearingTheSameAspectWithoutWriting() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
 
         await assertInvalidArgument {
             try await client.formatCells(
@@ -73,7 +69,7 @@ final class SheetsFormattingWriteTests: XCTestCase {
 
     func testFormatRejectsNonPositiveFontSizeWithoutWriting() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
 
         await assertInvalidArgument {
             try await client.formatCells(spreadsheetId: "sheet-1", range: "A1:B1", fontSize: 0)
@@ -85,7 +81,7 @@ final class SheetsFormattingWriteTests: XCTestCase {
 
     func testFormatBackgroundWritesNonDeprecatedColorStyle() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(3, "Sheet1")])
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
@@ -95,7 +91,7 @@ final class SheetsFormattingWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"repeatCell":{"cell":{"userEnteredFormat":{"backgroundColorStyle":{"rgbColor":{"blue":0,"green":1,"red":0}}}},"fields":"userEnteredFormat.backgroundColorStyle","range":{"endColumnIndex":2,"endRowIndex":1,"sheetId":3,"startColumnIndex":0,"startRowIndex":0}}}]}"#
         )
     }
@@ -104,7 +100,7 @@ final class SheetsFormattingWriteTests: XCTestCase {
 
     func testFormatNumberTypeSetsExplicitTypeWithPattern() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(3, "Sheet1")])
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
@@ -114,14 +110,14 @@ final class SheetsFormattingWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             ##"{"requests":[{"repeatCell":{"cell":{"userEnteredFormat":{"numberFormat":{"pattern":"#,##0","type":"CURRENCY"}}},"fields":"userEnteredFormat.numberFormat","range":{"endColumnIndex":2,"endRowIndex":1,"sheetId":3,"startColumnIndex":0,"startRowIndex":0}}}]}"##
         )
     }
 
     func testFormatNumberTypeWithoutPatternOmitsPattern() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(3, "Sheet1")])
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
@@ -130,7 +126,7 @@ final class SheetsFormattingWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"repeatCell":{"cell":{"userEnteredFormat":{"numberFormat":{"type":"PERCENT"}}},"fields":"userEnteredFormat.numberFormat","range":{"endColumnIndex":2,"endRowIndex":1,"sheetId":3,"startColumnIndex":0,"startRowIndex":0}}}]}"#
         )
     }
@@ -139,7 +135,7 @@ final class SheetsFormattingWriteTests: XCTestCase {
 
     func testFormatTextColorFontAndSizeEncodeMaskedTextFormatFields() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(3, "Sheet1")])
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
@@ -152,7 +148,7 @@ final class SheetsFormattingWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"repeatCell":{"cell":{"userEnteredFormat":{"textFormat":{"bold":true,"fontFamily":"Roboto","fontSize":12,"foregroundColorStyle":{"rgbColor":{"blue":1,"green":0,"red":0}}}}},"fields":"userEnteredFormat.textFormat.bold,userEnteredFormat.textFormat.foregroundColorStyle,userEnteredFormat.textFormat.fontFamily,userEnteredFormat.textFormat.fontSize","range":{"endColumnIndex":2,"endRowIndex":1,"sheetId":3,"startColumnIndex":0,"startRowIndex":0}}}]}"#
         )
     }
@@ -161,7 +157,7 @@ final class SheetsFormattingWriteTests: XCTestCase {
 
     func testSetBordersEncodesEverySideWithColorAndResolvesSheetName() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(77, "Data")])
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
@@ -176,14 +172,14 @@ final class SheetsFormattingWriteTests: XCTestCase {
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(request.method, "POST")
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateBorders":{"bottom":{"colorStyle":{"rgbColor":{"blue":0,"green":0,"red":0}},"style":"SOLID"},"innerHorizontal":{"colorStyle":{"rgbColor":{"blue":0,"green":0,"red":0}},"style":"SOLID"},"innerVertical":{"colorStyle":{"rgbColor":{"blue":0,"green":0,"red":0}},"style":"SOLID"},"left":{"colorStyle":{"rgbColor":{"blue":0,"green":0,"red":0}},"style":"SOLID"},"range":{"endColumnIndex":2,"endRowIndex":4,"sheetId":77,"startColumnIndex":0,"startRowIndex":0},"right":{"colorStyle":{"rgbColor":{"blue":0,"green":0,"red":0}},"style":"SOLID"},"top":{"colorStyle":{"rgbColor":{"blue":0,"green":0,"red":0}},"style":"SOLID"}}}]}"#
         )
     }
 
     func testSetBordersSingleSideOmitsOtherSidesAndColor() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(3, "Sheet1")])
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
@@ -192,14 +188,14 @@ final class SheetsFormattingWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateBorders":{"range":{"endColumnIndex":2,"endRowIndex":4,"sheetId":3,"startColumnIndex":0,"startRowIndex":0},"top":{"style":"SOLID_THICK"}}}]}"#
         )
     }
 
     func testSetBordersNoneStyleClearsAChosenSide() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(3, "Sheet1")])
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
@@ -208,14 +204,14 @@ final class SheetsFormattingWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateBorders":{"bottom":{"style":"NONE"},"range":{"endColumnIndex":2,"endRowIndex":4,"sheetId":3,"startColumnIndex":0,"startRowIndex":0}}}]}"#
         )
     }
 
     func testSetBordersRejectsNoSidesWithoutWriting() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
 
         await assertInvalidArgument {
             try await client.setBorders(spreadsheetId: "sheet-1", range: "A1:B4", style: .solid)
@@ -225,7 +221,7 @@ final class SheetsFormattingWriteTests: XCTestCase {
 
     func testSetBordersPropagatesGoogleErrorEnvelope() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(3, "Sheet1")])
         transport.stub(
             urlContains: ":batchUpdate",
@@ -261,22 +257,5 @@ final class SheetsFormattingWriteTests: XCTestCase {
         )
     }
 
-    private func assertInvalidArgument(
-        file: StaticString = #filePath,
-        line: UInt = #line,
-        _ body: () async throws -> Void
-    ) async {
-        do {
-            try await body()
-            XCTFail("Expected an error", file: file, line: line)
-        } catch {
-            guard case GrahamError.invalidArgument = error else {
-                return XCTFail("Wrong error: \(error)", file: file, line: line)
-            }
-        }
-    }
 
-    private static func bodyString(_ request: HTTPRequest) -> String {
-        request.body.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-    }
 }

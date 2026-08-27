@@ -3,17 +3,13 @@ import XCTest
 
 /// Offline coverage for the Sheets structural write paths: merge / unmerge,
 /// sort, auto-resize, and sheets-side named ranges.
-final class SheetsStructureWriteTests: XCTestCase {
-    private func makeClient(transport: StubTransport) -> SheetsClient {
-        transport.stubTokenEndpoint()
-        return SheetsClient(api: TestSupport.makeAPI(transport: transport))
-    }
+final class SheetsStructureWriteTests: GrahamTestCase {
 
     // MARK: - Merge / unmerge
 
     func testMergeCellsEncodesRangeAndMergeTypeResolvingSheetName() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(77, "Data")])
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
@@ -24,14 +20,14 @@ final class SheetsStructureWriteTests: XCTestCase {
         XCTAssertEqual(request.method, "POST")
         XCTAssertEqual(Self.path(request.url), "/v4/spreadsheets/sheet-1:batchUpdate")
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"mergeCells":{"mergeType":"MERGE_COLUMNS","range":{"endColumnIndex":2,"endRowIndex":2,"sheetId":77,"startColumnIndex":0,"startRowIndex":0}}}]}"#
         )
     }
 
     func testMergeCellsUsesFirstSheetWhenRangeHasNoName() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(3, "Sheet1"), (4, "Other")])
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
@@ -40,14 +36,14 @@ final class SheetsStructureWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"mergeCells":{"mergeType":"MERGE_ALL","range":{"endColumnIndex":3,"endRowIndex":1,"sheetId":3,"startColumnIndex":0,"startRowIndex":0}}}]}"#
         )
     }
 
     func testUnmergeCellsEncodesRangeResolvingSheetName() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(77, "Data")])
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
@@ -55,14 +51,14 @@ final class SheetsStructureWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"unmergeCells":{"range":{"endColumnIndex":2,"endRowIndex":2,"sheetId":77,"startColumnIndex":0,"startRowIndex":0}}}]}"#
         )
     }
 
     func testMergeCellsPropagatesGoogleErrorEnvelope() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(77, "Data")])
         transport.stub(
             urlContains: ":batchUpdate",
@@ -88,7 +84,7 @@ final class SheetsStructureWriteTests: XCTestCase {
 
     func testSortRangeTranslatesOneBasedColumnsToAbsoluteDimensionIndices() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(77, "Data")])
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
@@ -104,14 +100,14 @@ final class SheetsStructureWriteTests: XCTestCase {
         // Column 1 within the range (B..D) maps to absolute column B (index 1);
         // column 3 maps to absolute column D (index 3).
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"sortRange":{"range":{"endColumnIndex":4,"endRowIndex":10,"sheetId":77,"startColumnIndex":1,"startRowIndex":1},"sortSpecs":[{"dimensionIndex":1,"sortOrder":"ASCENDING"},{"dimensionIndex":3,"sortOrder":"DESCENDING"}]}}]}"#
         )
     }
 
     func testSortRangeRejectsEmptySpecsWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
 
         await assertInvalidArgument {
             try await client.sortRange(spreadsheetId: "sheet-1", range: "A1:B2", specs: [])
@@ -121,7 +117,7 @@ final class SheetsStructureWriteTests: XCTestCase {
 
     func testSortRangeRejectsColumnOutsideRangeBeforeAnyRequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
 
         // The range A1:B2 is two columns wide; column 3 is out of range. The
         // width is known from the A1 parse, so no metadata read happens.
@@ -163,7 +159,7 @@ final class SheetsStructureWriteTests: XCTestCase {
 
     func testAutoResizeTranslatesOneBasedInclusiveToZeroBasedHalfOpen() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         try await client.autoResizeDimension(
@@ -172,14 +168,14 @@ final class SheetsStructureWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"autoResizeDimensions":{"dimensions":{"dimension":"COLUMNS","endIndex":3,"sheetId":0,"startIndex":1}}}]}"#
         )
     }
 
     func testAutoResizeSingleDimensionWhenEndEqualsStart() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         try await client.autoResizeDimension(
@@ -188,14 +184,14 @@ final class SheetsStructureWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"autoResizeDimensions":{"dimensions":{"dimension":"ROWS","endIndex":2,"sheetId":0,"startIndex":1}}}]}"#
         )
     }
 
     func testAutoResizeRejectsBadRangeWithoutWriting() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
 
         for (start, end) in [(0, 1), (3, 2)] {
             await assertInvalidArgument {
@@ -211,7 +207,7 @@ final class SheetsStructureWriteTests: XCTestCase {
 
     func testAddNamedRangeEncodesBodyAndReturnsId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(77, "Data")])
         transport.stub(
             urlContains: ":batchUpdate",
@@ -225,14 +221,14 @@ final class SheetsStructureWriteTests: XCTestCase {
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(request.method, "POST")
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"addNamedRange":{"namedRange":{"name":"Totals","range":{"endColumnIndex":2,"endRowIndex":2,"sheetId":77,"startColumnIndex":0,"startRowIndex":0}}}}]}"#
         )
     }
 
     func testAddNamedRangeRejectsEmptyNameWithoutWriting() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
 
         await assertInvalidArgument {
             _ = try await client.addNamedRange(
@@ -243,7 +239,7 @@ final class SheetsStructureWriteTests: XCTestCase {
 
     func testAddNamedRangeRejectsAReplyWithNoId() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         stubSpreadsheet(transport, sheets: [(77, "Data")])
         transport.stub(
             urlContains: ":batchUpdate",
@@ -263,14 +259,14 @@ final class SheetsStructureWriteTests: XCTestCase {
 
     func testDeleteNamedRangeEncodesTheIdWithoutReadingMetadata() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         try await client.deleteNamedRange(spreadsheetId: "sheet-1", namedRangeId: "nr-9")
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"deleteNamedRange":{"namedRangeId":"nr-9"}}]}"#
         )
         // Deleting by id needs no metadata fetch.
@@ -279,7 +275,7 @@ final class SheetsStructureWriteTests: XCTestCase {
 
     func testDeleteNamedRangeRejectsEmptyIdWithoutWriting() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
 
         await assertInvalidArgument {
             try await client.deleteNamedRange(spreadsheetId: "sheet-1", namedRangeId: "  ")
@@ -289,7 +285,7 @@ final class SheetsStructureWriteTests: XCTestCase {
 
     func testNamedRangesReadsThemFromMetadataAndRendersRows() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         transport.stub(
             urlContains: "/spreadsheets/sheet-1?",
             json: #"{"spreadsheetId":"sheet-1","namedRanges":[{"namedRangeId":"nr-1","name":"Totals","range":{"sheetId":7,"startRowIndex":0,"endRowIndex":2,"startColumnIndex":0,"endColumnIndex":2}},{"namedRangeId":"nr-2","name":"Data range","range":{"sheetId":9,"startRowIndex":0,"endRowIndex":10,"startColumnIndex":0,"endColumnIndex":5}}]}"#
@@ -310,7 +306,7 @@ final class SheetsStructureWriteTests: XCTestCase {
 
     func testNamedRangesToleratesAPartialGridRange() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         // A whole-column named range omits the row bounds. The strict GridRange
         // decode would reject it, so the read must tolerate a nil range instead
         // of failing the whole metadata decode.
@@ -330,7 +326,7 @@ final class SheetsStructureWriteTests: XCTestCase {
 
     func testNamedRangesReturnsEmptyWhenNoneAreDefined() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.sheetsClient(transport)
         transport.stub(
             urlContains: "/spreadsheets/sheet-1?",
             json: #"{"spreadsheetId":"sheet-1","sheets":[{"properties":{"sheetId":0,"title":"Sheet1"}}]}"#
@@ -355,24 +351,7 @@ final class SheetsStructureWriteTests: XCTestCase {
         )
     }
 
-    private func assertInvalidArgument(
-        file: StaticString = #filePath,
-        line: UInt = #line,
-        _ body: () async throws -> Void
-    ) async {
-        do {
-            try await body()
-            XCTFail("Expected an error", file: file, line: line)
-        } catch {
-            guard case GrahamError.invalidArgument = error else {
-                return XCTFail("Wrong error: \(error)", file: file, line: line)
-            }
-        }
-    }
 
-    private static func bodyString(_ request: HTTPRequest) -> String {
-        request.body.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-    }
 
     private static func path(_ url: URL) -> String? {
         URLComponents(url: url, resolvingAgainstBaseURL: false)?.path
