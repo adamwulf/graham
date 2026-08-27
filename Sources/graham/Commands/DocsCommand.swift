@@ -1492,29 +1492,12 @@ struct Docs: AsyncParsableCommand {
         /// Prints one line per image and a summary, and returns how many
         /// downloads failed.
         private func report(_ results: [DocImageDownloadResult], directory: URL) -> Int {
-            var downloaded = 0
-            var failed = 0
-            var totalBytes = 0
-            for result in results {
+            let items = results.map { result in
                 let object = result.objectId ?? "(no id)"
                 let origin = result.origin.rawValue
-                switch result.outcome {
-                case let .downloaded(filename, byteCount):
-                    downloaded += 1
-                    totalBytes += byteCount
-                    print("\(origin)  \(object)  downloaded  \(filename)  \(byteCount) bytes")
-                case let .failed(reason):
-                    failed += 1
-                    print("\(origin)  \(object)  failed  \(reason)")
-                case let .skipped(reason):
-                    print("\(origin)  \(object)  skipped  \(reason)")
-                }
+                return (prefix: "\(origin)  \(object)", outcome: result.outcome)
             }
-            print(
-                "Downloaded \(downloaded) of \(results.count) image(s), "
-                + "\(totalBytes) bytes, into \(directory.path)"
-            )
-            return failed
+            return CLI.printImageDownloadReport(items, directory: directory)
         }
     }
 

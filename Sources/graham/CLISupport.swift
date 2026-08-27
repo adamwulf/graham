@@ -75,6 +75,72 @@ enum CLI {
             throw ExitCode.failure
         }
     }
+
+    /// Prints image-download results, their shared tally, and returns failures.
+    static func printImageDownloadReport<Outcome: ImageDownloadOutcomeReporting>(
+        _ items: [(prefix: String, outcome: Outcome)],
+        directory: URL
+    ) -> Int {
+        var downloaded = 0
+        var failed = 0
+        var totalBytes = 0
+        for item in items {
+            switch item.outcome.reportOutcome {
+            case let .downloaded(filename, byteCount):
+                downloaded += 1
+                totalBytes += byteCount
+                print("\(item.prefix)  downloaded  \(filename)  \(byteCount) bytes")
+            case let .failed(reason):
+                failed += 1
+                print("\(item.prefix)  failed  \(reason)")
+            case let .skipped(reason):
+                print("\(item.prefix)  skipped  \(reason)")
+            }
+        }
+        print(
+            "Downloaded \(downloaded) of \(items.count) image(s), "
+                + "\(totalBytes) bytes, into \(directory.path)"
+        )
+        return failed
+    }
+}
+
+/// The service-independent form of one image-download outcome.
+enum ImageDownloadReportOutcome {
+    case downloaded(filename: String, byteCount: Int)
+    case failed(reason: String)
+    case skipped(reason: String)
+}
+
+/// An image-download outcome that the shared CLI reporter can render.
+protocol ImageDownloadOutcomeReporting {
+    var reportOutcome: ImageDownloadReportOutcome { get }
+}
+
+extension SlideImageDownloadOutcome: ImageDownloadOutcomeReporting {
+    var reportOutcome: ImageDownloadReportOutcome {
+        switch self {
+        case let .downloaded(filename, byteCount):
+            return .downloaded(filename: filename, byteCount: byteCount)
+        case let .failed(reason):
+            return .failed(reason: reason)
+        case let .skipped(reason):
+            return .skipped(reason: reason)
+        }
+    }
+}
+
+extension DocImageDownloadOutcome: ImageDownloadOutcomeReporting {
+    var reportOutcome: ImageDownloadReportOutcome {
+        switch self {
+        case let .downloaded(filename, byteCount):
+            return .downloaded(filename: filename, byteCount: byteCount)
+        case let .failed(reason):
+            return .failed(reason: reason)
+        case let .skipped(reason):
+            return .skipped(reason: reason)
+        }
+    }
 }
 
 /// ANSI colouring for a live-test status word: PASS green, SKIP yellow, FAIL

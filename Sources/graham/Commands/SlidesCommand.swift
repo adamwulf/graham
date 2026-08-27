@@ -1139,29 +1139,12 @@ struct Slides: AsyncParsableCommand {
         /// Prints one line per image and a summary, and returns how many
         /// downloads failed.
         private func report(_ results: [SlideImageDownloadResult], directory: URL) -> Int {
-            var downloaded = 0
-            var failed = 0
-            var totalBytes = 0
-            for result in results {
+            let items = results.map { result in
                 let element = result.objectId ?? "(no id)"
                 let slide = "slide\(result.slideIndex + 1)"
-                switch result.outcome {
-                case let .downloaded(filename, byteCount):
-                    downloaded += 1
-                    totalBytes += byteCount
-                    print("\(slide)  \(element)  downloaded  \(filename)  \(byteCount) bytes")
-                case let .failed(reason):
-                    failed += 1
-                    print("\(slide)  \(element)  failed  \(reason)")
-                case let .skipped(reason):
-                    print("\(slide)  \(element)  skipped  \(reason)")
-                }
+                return (prefix: "\(slide)  \(element)", outcome: result.outcome)
             }
-            print(
-                "Downloaded \(downloaded) of \(results.count) image(s), "
-                + "\(totalBytes) bytes, into \(directory.path)"
-            )
-            return failed
+            return CLI.printImageDownloadReport(items, directory: directory)
         }
     }
 
