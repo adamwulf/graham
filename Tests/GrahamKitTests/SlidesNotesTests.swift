@@ -5,10 +5,6 @@ import XCTest
 /// methods. Every fixture is static JSON; no test touches the network, and the
 /// batch-update bodies are asserted exactly (the shared encoder sorts keys).
 final class SlidesNotesTests: XCTestCase {
-    private func makeClient(transport: StubTransport) -> SlidesClient {
-        transport.stubTokenEndpoint()
-        return SlidesClient(api: TestSupport.makeAPI(transport: transport))
-    }
 
     /// Three slides: one with notes text, one whose notes shape is missing from
     /// the notes page, and one whose notes shape exists but is empty.
@@ -123,7 +119,7 @@ final class SlidesNotesTests: XCTestCase {
 
     func testSpeakerNotesMasksTheReadToTheNotesPages() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: "presentations/p-notes?fields=", json: Self.notesJSON)
 
         let rows = try await client.speakerNotes(presentationId: "p-notes")
@@ -144,7 +140,7 @@ final class SlidesNotesTests: XCTestCase {
 
     func testSetSpeakerNotesOnAShapeWithTextSendsDeleteThenInsertInOneBatch() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         stubNotesEndpoints(transport)
 
         try await client.setSpeakerNotes(
@@ -158,14 +154,14 @@ final class SlidesNotesTests: XCTestCase {
         // Delete then insert, both targeting the speaker-notes shape id, in one
         // atomic batch.
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"deleteText":{"objectId":"notes-1","textRange":{"type":"ALL"}}},{"insertText":{"insertionIndex":0,"objectId":"notes-1","text":"New notes"}}]}"#
         )
     }
 
     func testSetSpeakerNotesOnAMissingShapeSendsOnlyInsert() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         stubNotesEndpoints(transport)
 
         // slide-2's notes shape is absent from the notes page, so there is no
@@ -175,14 +171,14 @@ final class SlidesNotesTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertText":{"insertionIndex":0,"objectId":"notes-2","text":"Hello"}}]}"#
         )
     }
 
     func testSetSpeakerNotesOnAnEmptyShapeSendsOnlyInsert() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         stubNotesEndpoints(transport)
 
         // slide-3's notes shape exists but is empty, so no delete is needed.
@@ -191,14 +187,14 @@ final class SlidesNotesTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertText":{"insertionIndex":0,"objectId":"notes-3","text":"Hi"}}]}"#
         )
     }
 
     func testSetSpeakerNotesRejectsAnUnknownSlideWithNoWrite() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         stubNotesEndpoints(transport)
 
         do {
@@ -215,7 +211,7 @@ final class SlidesNotesTests: XCTestCase {
 
     func testSetSpeakerNotesThrowsWhenTheSlideHasNoNotesShapeId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         // A slide whose notes page names no speaker-notes shape id.
         let json = #"""
         {"slides":[{"objectId":"slide-1","slideProperties":{"notesPage":{"notesProperties":{}}}}]}
@@ -239,21 +235,21 @@ final class SlidesNotesTests: XCTestCase {
 
     func testClearSpeakerNotesOnAShapeWithTextSendsOnlyDelete() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         stubNotesEndpoints(transport)
 
         try await client.clearSpeakerNotes(presentationId: "p-notes", slideId: "slide-1")
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"deleteText":{"objectId":"notes-1","textRange":{"type":"ALL"}}}]}"#
         )
     }
 
     func testClearSpeakerNotesOnAnEmptyShapeSendsNothing() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         stubNotesEndpoints(transport)
 
         // Clearing already-empty notes is a no-op (the moveSlide precedent).
@@ -273,9 +269,6 @@ final class SlidesNotesTests: XCTestCase {
         transport.stub(urlContains: ":batchUpdate", json: #"{"presentationId":"p-notes","replies":[{}]}"#)
     }
 
-    private static func bodyString(_ request: HTTPRequest) -> String {
-        request.body.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-    }
 
     private static func path(_ url: URL) -> String? {
         URLComponents(url: url, resolvingAgainstBaseURL: false)?.path

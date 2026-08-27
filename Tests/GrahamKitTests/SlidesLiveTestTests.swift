@@ -65,17 +65,17 @@ final class SlidesLiveTestTests: XCTestCase {
             ["chart-1"])
         XCTAssertEqual(fixture.sheetsValueRequests.count, 1)
         XCTAssertTrue(fixture.sheetsValueRequests.allSatisfy {
-            fixture.bodyString($0).contains(#"["Label","Value"]"#)
+            TestSupport.bodyString($0).contains(#"["Label","Value"]"#)
         })
         XCTAssertTrue(fixture.slidesBatchRequests.contains {
-            let body = fixture.bodyString($0)
+            let body = TestSupport.bodyString($0)
             return body.contains(#""createSheetsChart""#)
                 && body.contains(#""linkingMode":"LINKED""#)
         })
         XCTAssertEqual(fixture.trashRequests.count, 2)
         XCTAssertEqual(fixture.deleteRequests.count, 1)
         XCTAssertTrue(fixture.copyRequests.allSatisfy {
-            fixture.bodyString($0).contains(#""parents":["folder-1"]"#)
+            TestSupport.bodyString($0).contains(#""parents":["folder-1"]"#)
         })
     }
 
@@ -265,9 +265,6 @@ private final class LiveTestFixture: @unchecked Sendable {
         )
     }
 
-    func bodyString(_ request: HTTPRequest) -> String {
-        request.body.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-    }
 
     func createBody(_ request: HTTPRequest) -> DriveFileCreateRequest? {
         request.body.flatMap {
@@ -347,7 +344,7 @@ private final class LiveTestFixture: @unchecked Sendable {
     }
 
     private func batchResponse(_ request: HTTPRequest) -> HTTPResponse {
-        let body = bodyString(request)
+        let body = TestSupport.bodyString(request)
         if failImageCreate, body.contains("\"createImage\"") {
             return googleError(message: "image rejected")
         }

@@ -8,10 +8,6 @@ import XCTest
 /// network, and the JSON bodies are asserted exactly (the shared encoder sorts
 /// keys, so the strings are deterministic).
 final class SlidesTextWriteTests: XCTestCase {
-    private func makeClient(transport: StubTransport) -> SlidesClient {
-        transport.stubTokenEndpoint()
-        return SlidesClient(api: TestSupport.makeAPI(transport: transport))
-    }
 
     // MARK: - Exact request-union JSON
 
@@ -222,7 +218,7 @@ final class SlidesTextWriteTests: XCTestCase {
 
     func testEveryTextClientMethodPostsItsExactBody() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         for _ in 0..<9 { transport.stub(urlContains: ":batchUpdate", json: #"{}"#) }
 
         // 0: delete the whole text of a shape.
@@ -291,7 +287,7 @@ final class SlidesTextWriteTests: XCTestCase {
     /// both style fields are present and consistent.
     func testStyleTextFontWeightSetsBothFamilyPathsConsistently() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
         try await client.styleText(
@@ -306,7 +302,7 @@ final class SlidesTextWriteTests: XCTestCase {
     /// A plain `fontFamily` with no weight masks only `fontFamily`.
     func testStyleTextFontFamilyWithoutWeightMasksOnlyFamily() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
         try await client.styleText(
@@ -320,7 +316,7 @@ final class SlidesTextWriteTests: XCTestCase {
     /// A solid background (no transparency) wraps the color in an OptionalColor.
     func testStyleTextSolidBackgroundWrapsTheColor() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
         try await client.styleText(
@@ -336,7 +332,7 @@ final class SlidesTextWriteTests: XCTestCase {
     /// positions to the zero-based `slideIndex`.
     func testStyleTextLinkTargetsTranslateToTheWire() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         for _ in 0..<4 { transport.stub(urlContains: ":batchUpdate", json: #"{}"#) }
 
         try await client.styleText(
@@ -363,7 +359,7 @@ final class SlidesTextWriteTests: XCTestCase {
 
     func testRangeBuilderRejectionsSendNothing() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         // `to` without `from`.
         await assertInvalid { try await client.deleteText(
@@ -386,7 +382,7 @@ final class SlidesTextWriteTests: XCTestCase {
 
     func testCellTargetRejectionsSendNothing() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         // row without column.
         await assertInvalid { try await client.deleteText(
@@ -411,7 +407,7 @@ final class SlidesTextWriteTests: XCTestCase {
 
     func testStyleTextValidationAndExclusionsSendNothing() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         // no style options at all.
         await assertInvalid { try await client.styleText(
@@ -445,7 +441,7 @@ final class SlidesTextWriteTests: XCTestCase {
 
     func testStyleParagraphsValidationSendsNothing() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         // no options.
         await assertInvalid { try await client.styleParagraphs(
@@ -467,7 +463,7 @@ final class SlidesTextWriteTests: XCTestCase {
 
     func testTextMethodPropagatesGoogleErrorEnvelope() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"error":{"code":400,"message":"bad range","status":"INVALID_ARGUMENT"}}"#,

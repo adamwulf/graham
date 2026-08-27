@@ -3,10 +3,6 @@ import XCTest
 
 /// Offline coverage for Slides table structure and appearance writes.
 final class SlidesTableWriteTests: XCTestCase {
-    private func makeClient(transport: StubTransport) -> SlidesClient {
-        transport.stubTokenEndpoint()
-        return SlidesClient(api: TestSupport.makeAPI(transport: transport))
-    }
 
     // MARK: - Exact request-union JSON
 
@@ -94,7 +90,7 @@ final class SlidesTableWriteTests: XCTestCase {
 
     func testEveryTableClientMethodPostsItsExactBody() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         for _ in 0..<10 { transport.stub(urlContains: ":batchUpdate", json: #"{}"#) }
 
         try await client.insertTableRows(
@@ -144,7 +140,7 @@ final class SlidesTableWriteTests: XCTestCase {
 
     func testStyleTableCellsNoFillAndDefaultedRangeSpansEncodeExactly() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
         transport.stub(urlContains: ":batchUpdate", json: #"{}"#)
 
@@ -163,7 +159,7 @@ final class SlidesTableWriteTests: XCTestCase {
 
     func testOneBasedCountSpanAndWidthValidationSendNothing() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         await assertInvalid { try await client.deleteTableRow(
             presentationId: "deck", tableId: "table", row: 0) }
@@ -184,7 +180,7 @@ final class SlidesTableWriteTests: XCTestCase {
 
     func testRangeGroupsEmptyMasksAndNoFillExclusivitySendNothing() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
 
         await assertInvalid { try await client.styleTableCells(
             presentationId: "deck", tableId: "table") }
@@ -209,7 +205,7 @@ final class SlidesTableWriteTests: XCTestCase {
 
     func testTableMethodPropagatesGoogleErrorEnvelope() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.slidesClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"error":{"code":400,"message":"bad table","status":"INVALID_ARGUMENT"}}"#,
