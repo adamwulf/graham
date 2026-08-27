@@ -150,7 +150,7 @@ public struct SlidesClient: Sendable {
         width: Double = 300,
         height: Double = 50
     ) async throws -> String {
-        let sentObjectId = objectId ?? "graham-\(UUID().uuidString)"
+        let sentObjectId = Self.makeObjectId(objectId)
         let size = ElementSize(
             width: ElementDimension(magnitude: width, unit: .pt),
             height: ElementDimension(magnitude: height, unit: .pt)
@@ -201,7 +201,7 @@ public struct SlidesClient: Sendable {
         guard !url.isEmpty else {
             throw GrahamError.invalidArgument("the image URL is empty")
         }
-        let sentObjectId = objectId ?? "graham-\(UUID().uuidString)"
+        let sentObjectId = Self.makeObjectId(objectId)
         let request = CreateImageRequest(
             objectId: sentObjectId,
             elementProperties: try makeElementProperties(
@@ -231,7 +231,7 @@ public struct SlidesClient: Sendable {
         guard !videoId.isEmpty else {
             throw GrahamError.invalidArgument("the video id is empty")
         }
-        let sentObjectId = objectId ?? "graham-\(UUID().uuidString)"
+        let sentObjectId = Self.makeObjectId(objectId)
         let request = CreateVideoRequest(
             objectId: sentObjectId,
             elementProperties: try makeElementProperties(
@@ -258,7 +258,7 @@ public struct SlidesClient: Sendable {
         width: Double? = nil,
         height: Double? = nil
     ) async throws -> String {
-        let sentObjectId = objectId ?? "graham-\(UUID().uuidString)"
+        let sentObjectId = Self.makeObjectId(objectId)
         let request = CreateLineRequest(
             objectId: sentObjectId,
             elementProperties: try makeElementProperties(
@@ -292,7 +292,7 @@ public struct SlidesClient: Sendable {
             throw GrahamError.invalidArgument(
                 "table columns must be 1 or greater, got \(columns)")
         }
-        let sentObjectId = objectId ?? "graham-\(UUID().uuidString)"
+        let sentObjectId = Self.makeObjectId(objectId)
         let request = CreateTableRequest(
             objectId: sentObjectId,
             elementProperties: try makeElementProperties(
@@ -324,7 +324,7 @@ public struct SlidesClient: Sendable {
         guard !spreadsheetId.isEmpty else {
             throw GrahamError.invalidArgument("the spreadsheet id is empty")
         }
-        let sentObjectId = objectId ?? "graham-\(UUID().uuidString)"
+        let sentObjectId = Self.makeObjectId(objectId)
         let request = CreateSheetsChartRequest(
             objectId: sentObjectId,
             elementProperties: try makeChartElementProperties(
@@ -349,7 +349,7 @@ public struct SlidesClient: Sendable {
         guard childIds.count >= 2 else {
             throw GrahamError.invalidArgument("a group requires at least 2 child object ids")
         }
-        let sentObjectId = groupObjectId ?? "graham-\(UUID().uuidString)"
+        let sentObjectId = Self.makeObjectId(groupObjectId)
         let response = try await batchUpdate(
             presentationId: presentationId,
             requests: [.groupObjects(GroupObjectsRequest(
@@ -1776,6 +1776,12 @@ public struct SlidesClient: Sendable {
                 textRange: range
             ))]
         )
+    }
+
+    /// Returns a provided object id, or generates one that satisfies Slides'
+    /// client-assigned object-id requirements.
+    private static func makeObjectId(_ provided: String?) -> String {
+        provided ?? "graham-\(UUID().uuidString)"
     }
 
     /// The outline (border) shared by ``styleShape``, ``styleImage``, and
