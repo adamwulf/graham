@@ -47,11 +47,7 @@ encoded body, decoded reply, error propagation), then a thin subcommand in
   section's header/footer ids and `sectionType` are read-only and out by design.
 - **`updateNamedStyle`** — built as `docs named-style` (redefines a named style
   document-wide with the `docs style` text flags and the `docs paragraph`
-  alignment / spacing / indent flags; `--tab-id` scopes it to a tab). The
-  baseline offset and link (nonsensical for a style definition) and the
-  paragraph **pagination toggles, shading, and borders** are **never
-  implemented** on `docs named-style` — a closed decision, not a to-do (see the
-  CLAUDE.md gotcha). Set those per-paragraph with `docs paragraph` instead.
+  alignment / spacing / indent flags; `--tab-id` scopes it to a tab).
 
 ### Tabs, smart chips, suggestions (advanced, beyond the cut line)
 

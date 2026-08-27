@@ -2111,11 +2111,9 @@ public struct DocsClient: Sendable {
     /// `lineSpacing`, `spaceAbove`, `spaceBelow`, `indentStart`, `indentEnd`,
     /// `indentFirstLine`. `tabId` optionally scopes the change to one tab.
     ///
-    /// The baseline offset and link (nonsensical for a style definition) and the
-    /// paragraph pagination toggles, shading, and borders are a deliberate
-    /// never-implement decision on this method — the API would accept them in a
-    /// `NamedStyle`, but a named-style redefinition is not their place; set them
-    /// per-paragraph with ``styleParagraphs(documentId:startIndex:endIndex:segmentId:namedStyleType:alignment:direction:lineSpacing:spaceAbove:spaceBelow:indentStart:indentEnd:indentFirstLine:keepLinesTogether:keepWithNext:avoidWidowAndOrphan:pageBreakBefore:shadingBackgroundColor:spacingMode:outerBorderColor:betweenBorderColor:borderWidth:borderDash:borderPadding:requiredRevisionId:)``.
+    /// Only the text attributes and the paragraph alignment, spacing, and
+    /// indents are settable here; some `NamedStyle` fields are intentionally not
+    /// exposed (see the CLAUDE.md gotcha).
     public func updateNamedStyle(
         documentId: String,
         namedStyleType: String,
