@@ -12,7 +12,7 @@ final class DriveTrashDeleteTests: XCTestCase {
         let client = TestSupport.driveClient(transport)
         transport.stub(
             urlContains: "/drive/v3/files/f1",
-            json: #"{"id":"f1","name":"Report","mimeType":"application/vnd.google-apps.document"}"#
+            json: #"{"id":"f1","name":"Report","mimeType":"application/vnd.google-apps.document","trashed":true}"#
         )
 
         let file = try await client.trash(fileId: "f1")
@@ -22,14 +22,17 @@ final class DriveTrashDeleteTests: XCTestCase {
         XCTAssertEqual(request.method, "PATCH")
         XCTAssertEqual(Self.path(request.url), "/drive/v3/files/f1")
         XCTAssertEqual(request.headers["Content-Type"], "application/json")
-        // The one and only query item is supportsAllDrives=true; nothing else.
-        XCTAssertEqual(Self.queryItems(request.url), [URLQueryItem(name: "supportsAllDrives", value: "true")])
+        XCTAssertEqual(Self.queryItems(request.url), [
+            URLQueryItem(name: "fields", value: DriveClient.fileFields),
+            URLQueryItem(name: "supportsAllDrives", value: "true"),
+        ])
         // The body is exactly the trashed flag.
         let data = try XCTUnwrap(request.body, "the trash request should have a JSON body")
         XCTAssertEqual(String(data: data, encoding: .utf8), #"{"trashed":true}"#)
         // The updated file is decoded and returned.
         XCTAssertEqual(file.id, "f1")
         XCTAssertEqual(file.name, "Report")
+        XCTAssertEqual(file.trashed, true)
     }
 
     func testTrashEscapesTheFileIDInThePath() async throws {

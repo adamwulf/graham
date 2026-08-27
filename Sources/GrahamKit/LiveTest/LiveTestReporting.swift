@@ -49,6 +49,17 @@ extension SheetsLiveTestStep: LiveTestStepReporting {
     }
 }
 
+extension DriveLiveTestStep: LiveTestStepReporting {
+    public var reportOutcome: LiveTestReportOutcome {
+        switch outcome {
+        case .pass: return .pass
+        case .fail(let reason): return .fail(reason: reason)
+        case .skip(let reason): return .skip(reason: reason)
+        }
+    }
+}
+
 extension SlidesLiveTestSummary: LiveTestSummaryReporting {}
 extension DocsLiveTestSummary: LiveTestSummaryReporting {}
 extension SheetsLiveTestSummary: LiveTestSummaryReporting {}
+extension DriveLiveTestSummary: LiveTestSummaryReporting {}

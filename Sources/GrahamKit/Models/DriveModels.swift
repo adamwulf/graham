@@ -12,6 +12,8 @@ public struct DriveFile: Codable, Sendable, Equatable {
     public let size: String?
     public let webViewLink: String?
     public let parents: [String]?
+    public let starred: Bool?
+    public let trashed: Bool?
 
     public init(
         id: String,
@@ -20,7 +22,9 @@ public struct DriveFile: Codable, Sendable, Equatable {
         modifiedTime: String? = nil,
         size: String? = nil,
         webViewLink: String? = nil,
-        parents: [String]? = nil
+        parents: [String]? = nil,
+        starred: Bool? = nil,
+        trashed: Bool? = nil
     ) {
         self.id = id
         self.name = name
@@ -29,6 +33,8 @@ public struct DriveFile: Codable, Sendable, Equatable {
         self.size = size
         self.webViewLink = webViewLink
         self.parents = parents
+        self.starred = starred
+        self.trashed = trashed
     }
 
     /// A short type label for tables, for example "doc" or "sheet".

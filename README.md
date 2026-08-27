@@ -147,6 +147,12 @@ graham drive star <file-id> --off
 graham drive trash <file-id>
 graham drive untrash <file-id>
 graham drive delete <file-id> --force
+# Exercise Drive metadata and file-management operations with disposable folders
+# and files inside the root-level "graham test" folder. Download is excluded
+# because it requires an existing binary file. Inner artifacts are cleaned up
+# afterward; the root test folder remains. --keep retains everything.
+graham drive test
+graham drive test --keep --folder "graham test"
 
 graham sheets get <spreadsheet-id>
 graham sheets values <spreadsheet-id> "Sheet1!A1:C10"
