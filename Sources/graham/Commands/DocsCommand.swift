@@ -39,38 +39,17 @@ struct Docs: AsyncParsableCommand {
 
         func run() async throws {
             let api = try CLI.makeAPI()
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withInternetDateTime]
-            let label = formatter.string(from: Date())
             let runner = DocsLiveTest(
                 drive: DriveClient(api: api),
                 docs: DocsClient(api: api),
                 folderName: folder,
                 imageURL: imageURL,
                 keep: keep,
-                label: label,
-                onStep: { step in
-                    let ids = step.createdIDs.isEmpty
-                        ? ""
-                        : " [\(step.createdIDs.joined(separator: ", "))]"
-                    switch step.outcome {
-                    case .pass:
-                        print("\(StatusColor.green.wrap("PASS")) \(step.name)\(ids)")
-                    case .fail(let reason):
-                        print("\(StatusColor.red.wrap("FAIL")) \(step.name): \(reason)\(ids)")
-                    case .skip(let reason):
-                        print("\(StatusColor.yellow.wrap("SKIP")) \(step.name): \(reason)\(ids)")
-                    }
-                }
+                label: CLI.iso8601Label(),
+                onStep: CLI.liveTestStepHandler(for: DocsLiveTestStep.self)
             )
             let summary = await runner.run()
-            print(
-                "Summary: \(summary.passed) passed, \(summary.failed) failed, "
-                    + "\(summary.skipped) skipped"
-            )
-            if summary.failed > 0 {
-                throw ExitCode.failure
-            }
+            try CLI.printLiveTestSummary(summary)
         }
     }
 
