@@ -5,17 +5,13 @@ import XCTest
 /// `insertRichLink`, and `insertDate`. Every fixture is static JSON; no test
 /// touches the network, and the request bodies are asserted exactly (the shared
 /// encoder sorts keys, so the strings are deterministic).
-final class DocsSmartChipsWriteTests: XCTestCase {
-    private func makeClient(transport: StubTransport) -> DocsClient {
-        transport.stubTokenEndpoint()
-        return DocsClient(api: TestSupport.makeAPI(transport: transport))
-    }
+final class DocsSmartChipsWriteTests: GrahamTestCase {
 
     // MARK: - insertPerson
 
     func testInsertPersonAtIndexEncodesEmailAndNameAndLocation() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"documentId":"doc-1","replies":[{}]}"#
@@ -27,7 +23,7 @@ final class DocsSmartChipsWriteTests: XCTestCase {
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(request.method, "POST")
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertPerson":{"location":{"index":5},"personProperties":{"email":"a@b.com","name":"Ada"}}}]}"#
         )
         XCTAssertEqual(response.documentId, "doc-1")
@@ -35,7 +31,7 @@ final class DocsSmartChipsWriteTests: XCTestCase {
 
     func testInsertPersonAtEndEncodesEndOfSegmentAndTabIdOmitsName() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.insertPerson(
@@ -43,14 +39,14 @@ final class DocsSmartChipsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertPerson":{"endOfSegmentLocation":{"tabId":"t.0"},"personProperties":{"email":"a@b.com"}}}]}"#
         )
     }
 
     func testInsertPersonInSegmentAllowsIndexZero() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.insertPerson(
@@ -58,14 +54,14 @@ final class DocsSmartChipsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertPerson":{"location":{"index":0,"segmentId":"h.0"},"personProperties":{"email":"a@b.com"}}}]}"#
         )
     }
 
     func testInsertPersonRejectsBadInputWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         // An empty email.
         await assertInvalidArgument {
@@ -82,7 +78,7 @@ final class DocsSmartChipsWriteTests: XCTestCase {
 
     func testInsertRichLinkAtIndexEncodesAllPropertiesAndLocation() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.insertRichLink(
@@ -94,14 +90,14 @@ final class DocsSmartChipsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertRichLink":{"location":{"index":3},"richLinkProperties":{"mimeType":"application\/pdf","title":"Doc","uri":"https:\/\/drive.google.com\/x"}}}]}"#
         )
     }
 
     func testInsertRichLinkAtEndUriOnly() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.insertRichLink(
@@ -109,14 +105,14 @@ final class DocsSmartChipsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertRichLink":{"endOfSegmentLocation":{},"richLinkProperties":{"uri":"https:\/\/youtu.be\/x"}}}]}"#
         )
     }
 
     func testInsertRichLinkRejectsEmptyUriWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         await assertInvalidArgument {
             _ = try await client.insertRichLink(documentId: "doc-1", uri: "  ", index: 1)
@@ -128,7 +124,7 @@ final class DocsSmartChipsWriteTests: XCTestCase {
 
     func testInsertDateAtIndexEncodesEveryPropertyAndLocation() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.insertDate(
@@ -142,14 +138,14 @@ final class DocsSmartChipsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertDate":{"dateElementProperties":{"dateFormat":"DATE_FORMAT_ISO8601","locale":"en-US","timeFormat":"TIME_FORMAT_DISABLED","timeZoneId":"America\/Chicago","timestamp":"2026-08-27T00:00:00Z"},"location":{"index":2}}}]}"#
         )
     }
 
     func testInsertDateAtEndTimestampOnly() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.insertDate(
@@ -157,14 +153,14 @@ final class DocsSmartChipsWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertDate":{"dateElementProperties":{"timestamp":"2026-08-27T00:00:00Z"},"endOfSegmentLocation":{}}}]}"#
         )
     }
 
     func testInsertDateRejectsEmptyTimestampWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         await assertInvalidArgument {
             _ = try await client.insertDate(documentId: "doc-1", timestamp: "   ", index: 1)
@@ -203,22 +199,5 @@ final class DocsSmartChipsWriteTests: XCTestCase {
         }
     }
 
-    private func assertInvalidArgument(
-        file: StaticString = #filePath,
-        line: UInt = #line,
-        _ body: () async throws -> Void
-    ) async {
-        do {
-            try await body()
-            XCTFail("Expected an error", file: file, line: line)
-        } catch {
-            guard case GrahamError.invalidArgument = error else {
-                return XCTFail("Wrong error: \(error)", file: file, line: line)
-            }
-        }
-    }
 
-    private static func bodyString(_ request: HTTPRequest) -> String {
-        request.body.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-    }
 }

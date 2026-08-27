@@ -5,17 +5,13 @@ import XCTest
 /// write path. Every fixture is static JSON; no test touches the network, and
 /// each request body is asserted exactly, including its deterministic `fields`
 /// mask string (the shared encoder sorts keys, so the strings are stable).
-final class DocsStyleWriteTests: XCTestCase {
-    private func makeClient(transport: StubTransport) -> DocsClient {
-        transport.stubTokenEndpoint()
-        return DocsClient(api: TestSupport.makeAPI(transport: transport))
-    }
+final class DocsStyleWriteTests: GrahamTestCase {
 
     // MARK: - updateTextStyle
 
     func testStyleTextPostsExactBodyAndDecodesReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"documentId":"doc-1","replies":[{}]}"#
@@ -32,7 +28,7 @@ final class DocsStyleWriteTests: XCTestCase {
         )
         XCTAssertEqual(request.headers["Content-Type"], "application/json")
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateTextStyle":{"fields":"bold","range":{"endIndex":5,"startIndex":1},"textStyle":{"bold":true}}}]}"#
         )
         XCTAssertEqual(response.documentId, "doc-1")
@@ -44,7 +40,7 @@ final class DocsStyleWriteTests: XCTestCase {
     /// `fontSize,weightedFontFamily,baselineOffset,link`.
     func testStyleTextEmitsEveryFieldInTheFixedMaskOrder() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.styleText(
@@ -66,14 +62,14 @@ final class DocsStyleWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateTextStyle":{"fields":"bold,italic,underline,strikethrough,foregroundColor,backgroundColor,fontSize,weightedFontFamily,baselineOffset,link","range":{"endIndex":8,"startIndex":2},"textStyle":{"backgroundColor":{"color":{"rgbColor":{"blue":1,"green":0,"red":0}}},"baselineOffset":"SUPERSCRIPT","bold":true,"fontSize":{"magnitude":12,"unit":"PT"},"foregroundColor":{"color":{"rgbColor":{"blue":0,"green":0,"red":1}}},"italic":true,"link":{"url":"https:\/\/example.com"},"strikethrough":true,"underline":true,"weightedFontFamily":{"fontFamily":"Arial","weight":700}}}}]}"#
         )
     }
 
     func testStyleTextFontFamilyWithoutWeightOmitsWeight() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.styleText(
@@ -81,14 +77,14 @@ final class DocsStyleWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateTextStyle":{"fields":"weightedFontFamily","range":{"endIndex":4,"startIndex":1},"textStyle":{"weightedFontFamily":{"fontFamily":"Georgia"}}}}]}"#
         )
     }
 
     func testStyleTextCarriesSegmentIdAndAllowsIndexZeroInSegment() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.styleText(
@@ -96,14 +92,14 @@ final class DocsStyleWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateTextStyle":{"fields":"italic","range":{"endIndex":4,"segmentId":"hdr-1","startIndex":0},"textStyle":{"italic":true}}}]}"#
         )
     }
 
     func testStyleTextEmptySegmentIdEncodesNoSegmentId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         // An empty segment id means the body: no segmentId leaks into the range.
@@ -112,14 +108,14 @@ final class DocsStyleWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateTextStyle":{"fields":"bold","range":{"endIndex":4,"startIndex":1},"textStyle":{"bold":false}}}]}"#
         )
     }
 
     func testStyleTextCarriesWriteControl() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.styleText(
@@ -128,14 +124,14 @@ final class DocsStyleWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateTextStyle":{"fields":"bold","range":{"endIndex":5,"startIndex":1},"textStyle":{"bold":true}}}],"writeControl":{"requiredRevisionId":"rev-7"}}"#
         )
     }
 
     func testStyleTextDecodesEmptyReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: "{}")
 
         let response = try await client.styleText(
@@ -147,7 +143,7 @@ final class DocsStyleWriteTests: XCTestCase {
 
     func testStyleTextRejectsBadArgumentsWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         // No style option at all.
         await assertInvalidArgument {
@@ -186,7 +182,7 @@ final class DocsStyleWriteTests: XCTestCase {
         // the body guard rejects it before any request goes out. A named
         // segment starts at 0 and is still allowed (covered above).
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         await assertInvalidArgument {
             _ = try await client.styleText(
@@ -197,7 +193,7 @@ final class DocsStyleWriteTests: XCTestCase {
 
     func testStyleTextRejectsBlankFontFamilyWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         for blank in ["", "   ", "\t\n"] {
             await assertInvalidArgument {
@@ -210,7 +206,7 @@ final class DocsStyleWriteTests: XCTestCase {
 
     func testStyleTextPropagatesGoogleErrorEnvelope() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"error":{"code":400,"message":"Bad range","status":"INVALID_ARGUMENT"}}"#,
@@ -227,7 +223,7 @@ final class DocsStyleWriteTests: XCTestCase {
 
     func testStyleTextSmallCapsAlonePostsExactBodyAndMask() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.styleText(
@@ -235,7 +231,7 @@ final class DocsStyleWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateTextStyle":{"fields":"smallCaps","range":{"endIndex":5,"startIndex":1},"textStyle":{"smallCaps":true}}}]}"#
         )
     }
@@ -244,7 +240,7 @@ final class DocsStyleWriteTests: XCTestCase {
     /// smallCaps call locks the mask order `bold,link,smallCaps`.
     func testStyleTextSmallCapsFollowsExistingFieldsInTheMask() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.styleText(
@@ -253,7 +249,7 @@ final class DocsStyleWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateTextStyle":{"fields":"bold,link,smallCaps","range":{"endIndex":8,"startIndex":2},"textStyle":{"bold":true,"link":{"url":"https:\/\/example.com"},"smallCaps":false}}}]}"#
         )
     }
@@ -262,7 +258,7 @@ final class DocsStyleWriteTests: XCTestCase {
 
     func testStyleParagraphsPostsExactBodyAndDecodesReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"documentId":"doc-1","replies":[{}]}"#
@@ -278,7 +274,7 @@ final class DocsStyleWriteTests: XCTestCase {
             "https://docs.googleapis.com/v1/documents/doc-1:batchUpdate"
         )
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateParagraphStyle":{"fields":"namedStyleType","paragraphStyle":{"namedStyleType":"HEADING_1"},"range":{"endIndex":10,"startIndex":1}}}]}"#
         )
         XCTAssertEqual(response.documentId, "doc-1")
@@ -288,7 +284,7 @@ final class DocsStyleWriteTests: XCTestCase {
     /// Locks the full paragraph mask order and every field encoding.
     func testStyleParagraphsEmitsEveryFieldInTheFixedMaskOrder() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.styleParagraphs(
@@ -308,14 +304,14 @@ final class DocsStyleWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateParagraphStyle":{"fields":"namedStyleType,alignment,direction,lineSpacing,spaceAbove,spaceBelow,indentStart,indentEnd,indentFirstLine","paragraphStyle":{"alignment":"CENTER","direction":"RIGHT_TO_LEFT","indentEnd":{"magnitude":9,"unit":"PT"},"indentFirstLine":{"magnitude":36,"unit":"PT"},"indentStart":{"magnitude":18,"unit":"PT"},"lineSpacing":150,"namedStyleType":"NORMAL_TEXT","spaceAbove":{"magnitude":6,"unit":"PT"},"spaceBelow":{"magnitude":6,"unit":"PT"}},"range":{"endIndex":20,"startIndex":3}}}]}"#
         )
     }
 
     func testStyleParagraphsCarriesSegmentId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.styleParagraphs(
@@ -323,14 +319,14 @@ final class DocsStyleWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateParagraphStyle":{"fields":"alignment","paragraphStyle":{"alignment":"END"},"range":{"endIndex":4,"segmentId":"ftr-2","startIndex":0}}}]}"#
         )
     }
 
     func testStyleParagraphsNamedStyleIsCaseInsensitive() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.styleParagraphs(
@@ -338,14 +334,14 @@ final class DocsStyleWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateParagraphStyle":{"fields":"namedStyleType","paragraphStyle":{"namedStyleType":"HEADING_2"},"range":{"endIndex":10,"startIndex":1}}}]}"#
         )
     }
 
     func testStyleParagraphsCarriesWriteControl() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.styleParagraphs(
@@ -354,14 +350,14 @@ final class DocsStyleWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateParagraphStyle":{"fields":"alignment","paragraphStyle":{"alignment":"START"},"range":{"endIndex":10,"startIndex":1}}}],"writeControl":{"requiredRevisionId":"rev-3"}}"#
         )
     }
 
     func testStyleParagraphsDecodesEmptyReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: "{}")
 
         let response = try await client.styleParagraphs(
@@ -373,7 +369,7 @@ final class DocsStyleWriteTests: XCTestCase {
 
     func testStyleParagraphsRejectsBadArgumentsWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         // No style option at all.
         await assertInvalidArgument {
@@ -406,7 +402,7 @@ final class DocsStyleWriteTests: XCTestCase {
         // The body guard rejects startIndex 0 before any request goes out; a
         // named segment starts at 0 and is still allowed (covered above).
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         await assertInvalidArgument {
             _ = try await client.styleParagraphs(
@@ -417,7 +413,7 @@ final class DocsStyleWriteTests: XCTestCase {
 
     func testStyleParagraphsPropagatesGoogleErrorEnvelope() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"error":{"code":403,"message":"No access","status":"PERMISSION_DENIED"}}"#,
@@ -434,7 +430,7 @@ final class DocsStyleWriteTests: XCTestCase {
 
     func testStyleParagraphsKeepLinesTogetherAlonePostsExactBodyAndMask() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.styleParagraphs(
@@ -442,7 +438,7 @@ final class DocsStyleWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateParagraphStyle":{"fields":"keepLinesTogether","paragraphStyle":{"keepLinesTogether":true},"range":{"endIndex":10,"startIndex":1}}}]}"#
         )
     }
@@ -453,7 +449,7 @@ final class DocsStyleWriteTests: XCTestCase {
     /// `pageBreakBefore,shading,spacingMode`.
     func testStyleParagraphsEmitsEveryNewFieldAfterExistingInTheMask() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.styleParagraphs(
@@ -471,14 +467,14 @@ final class DocsStyleWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateParagraphStyle":{"fields":"alignment,keepLinesTogether,keepWithNext,avoidWidowAndOrphan,pageBreakBefore,shading,spacingMode","paragraphStyle":{"alignment":"CENTER","avoidWidowAndOrphan":false,"keepLinesTogether":true,"keepWithNext":true,"pageBreakBefore":true,"shading":{"backgroundColor":{"color":{"rgbColor":{"blue":0,"green":0,"red":1}}}},"spacingMode":"COLLAPSE_LISTS"},"range":{"endIndex":10,"startIndex":1}}}]}"#
         )
     }
 
     func testStyleParagraphsShadingAloneWrapsTheColorInAShading() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.styleParagraphs(
@@ -487,14 +483,14 @@ final class DocsStyleWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateParagraphStyle":{"fields":"shading","paragraphStyle":{"shading":{"backgroundColor":{"color":{"rgbColor":{"blue":0,"green":1,"red":0}}}}},"range":{"endIndex":10,"startIndex":1}}}]}"#
         )
     }
 
     func testStyleParagraphsSpacingModeEmitsTheWireSpelling() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.styleParagraphs(
@@ -502,7 +498,7 @@ final class DocsStyleWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"updateParagraphStyle":{"fields":"spacingMode","paragraphStyle":{"spacingMode":"NEVER_COLLAPSE"},"range":{"endIndex":10,"startIndex":1}}}]}"#
         )
     }
@@ -521,7 +517,7 @@ final class DocsStyleWriteTests: XCTestCase {
     /// mask lists the four outer paths in the fixed order.
     func testStyleParagraphsOuterBorderFansToTheFourOuterSides() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.styleParagraphs(
@@ -533,7 +529,7 @@ final class DocsStyleWriteTests: XCTestCase {
         let border = #"{"color":{"color":{"rgbColor":{"blue":0,"green":0,"red":1}}},"dashStyle":"SOLID","padding":{"magnitude":0,"unit":"PT"},"width":{"magnitude":1,"unit":"PT"}}"#
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             "{\"requests\":[{\"updateParagraphStyle\":{"
             + "\"fields\":\"borderTop,borderBottom,borderLeft,borderRight\","
             + "\"paragraphStyle\":{\"borderBottom\":\(border),\"borderLeft\":\(border),"
@@ -546,7 +542,7 @@ final class DocsStyleWriteTests: XCTestCase {
     /// four outer sides.
     func testStyleParagraphsBetweenBorderAddsBorderBetweenAlone() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.styleParagraphs(
@@ -556,7 +552,7 @@ final class DocsStyleWriteTests: XCTestCase {
         let border = #"{"color":{"color":{"rgbColor":{"blue":0,"green":1,"red":0}}},"dashStyle":"SOLID","padding":{"magnitude":0,"unit":"PT"},"width":{"magnitude":1,"unit":"PT"}}"#
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             "{\"requests\":[{\"updateParagraphStyle\":{"
             + "\"fields\":\"borderBetween\","
             + "\"paragraphStyle\":{\"borderBetween\":\(border)},"
@@ -569,7 +565,7 @@ final class DocsStyleWriteTests: XCTestCase {
     /// `borderBetween` last, and the shared width/dash/padding reach both borders.
     func testStyleParagraphsBorderFollowsExistingFieldsInTheMask() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.styleParagraphs(
@@ -585,7 +581,7 @@ final class DocsStyleWriteTests: XCTestCase {
         let between = #"{"color":{"color":{"rgbColor":{"blue":1,"green":0,"red":0}}},"dashStyle":"DASH","padding":{"magnitude":3,"unit":"PT"},"width":{"magnitude":2,"unit":"PT"}}"#
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             "{\"requests\":[{\"updateParagraphStyle\":{"
             + "\"fields\":\"alignment,borderTop,borderBottom,borderLeft,borderRight,borderBetween\","
             + "\"paragraphStyle\":{\"alignment\":\"CENTER\",\"borderBetween\":\(between),"
@@ -599,7 +595,7 @@ final class DocsStyleWriteTests: XCTestCase {
     /// carries a magnitude-0 width.
     func testStyleParagraphsBorderWidthZeroHidesAndIsAccepted() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.styleParagraphs(
@@ -610,7 +606,7 @@ final class DocsStyleWriteTests: XCTestCase {
         let border = #"{"color":{"color":{"rgbColor":{"blue":0,"green":0,"red":0}}},"dashStyle":"SOLID","padding":{"magnitude":0,"unit":"PT"},"width":{"magnitude":0,"unit":"PT"}}"#
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             "{\"requests\":[{\"updateParagraphStyle\":{"
             + "\"fields\":\"borderTop,borderBottom,borderLeft,borderRight\","
             + "\"paragraphStyle\":{\"borderBottom\":\(border),\"borderLeft\":\(border),"
@@ -623,7 +619,7 @@ final class DocsStyleWriteTests: XCTestCase {
     /// dash, or padding with no color; a negative width; and a negative padding.
     func testStyleParagraphsRejectsBadBorderArgumentsWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         // A width with no border color.
         await assertInvalidArgument {
@@ -659,7 +655,7 @@ final class DocsStyleWriteTests: XCTestCase {
     /// need not pass any other paragraph field.
     func testStyleParagraphsBorderAloneSatisfiesTheAtLeastOneCheck() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
 
         _ = try await client.styleParagraphs(
@@ -759,43 +755,6 @@ final class DocsStyleWriteTests: XCTestCase {
 
     // MARK: - Helpers
 
-    private func assertInvalidArgument(
-        file: StaticString = #filePath,
-        line: UInt = #line,
-        _ body: () async throws -> Void
-    ) async {
-        do {
-            try await body()
-            XCTFail("Expected an error", file: file, line: line)
-        } catch {
-            guard case GrahamError.invalidArgument = error else {
-                return XCTFail("Wrong error: \(error)", file: file, line: line)
-            }
-        }
-    }
 
-    private func assertGoogleError(
-        code expectedCode: Int,
-        status expectedStatus: String,
-        message expectedMessage: String,
-        file: StaticString = #filePath,
-        line: UInt = #line,
-        _ body: () async throws -> Void
-    ) async {
-        do {
-            try await body()
-            XCTFail("Expected an error", file: file, line: line)
-        } catch {
-            guard case GrahamError.googleAPIError(let code, let status, let message) = error else {
-                return XCTFail("Wrong error: \(error)", file: file, line: line)
-            }
-            XCTAssertEqual(code, expectedCode, file: file, line: line)
-            XCTAssertEqual(status, expectedStatus, file: file, line: line)
-            XCTAssertEqual(message, expectedMessage, file: file, line: line)
-        }
-    }
 
-    private static func bodyString(_ request: HTTPRequest) -> String {
-        request.body.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-    }
 }

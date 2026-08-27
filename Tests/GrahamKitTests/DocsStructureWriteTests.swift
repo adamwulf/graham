@@ -7,11 +7,7 @@ import XCTest
 /// JSON; no test touches the network, and the request bodies are asserted
 /// exactly (the shared encoder sorts keys, so the strings are deterministic).
 /// Mirrors `DocsWriteTests` and `DocsTableWriteTests`.
-final class DocsStructureWriteTests: XCTestCase {
-    private func makeClient(transport: StubTransport) -> DocsClient {
-        transport.stubTokenEndpoint()
-        return DocsClient(api: TestSupport.makeAPI(transport: transport))
-    }
+final class DocsStructureWriteTests: GrahamTestCase {
 
     /// A realistic public image URI; its slashes exercise the JSON escaping.
     private static let uri = "https://cdn.example.com/pic.png"
@@ -22,7 +18,7 @@ final class DocsStructureWriteTests: XCTestCase {
 
     func testInsertPageBreakPostsExactBodyAndDecodesReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"documentId":"doc-1","replies":[{}]}"#
@@ -38,7 +34,7 @@ final class DocsStructureWriteTests: XCTestCase {
         )
         XCTAssertEqual(request.headers["Content-Type"], "application/json")
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertPageBreak":{"location":{"index":5}}}]}"#
         )
         XCTAssertEqual(response.documentId, "doc-1")
@@ -47,7 +43,7 @@ final class DocsStructureWriteTests: XCTestCase {
 
     func testInsertPageBreakEndOfBodyEncodesEmptyEndOfSegment() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
 
         // End-of-body alone (no index): the destination is the end of the body
@@ -56,7 +52,7 @@ final class DocsStructureWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertPageBreak":{"endOfSegmentLocation":{}}}]}"#
         )
     }
@@ -65,7 +61,7 @@ final class DocsStructureWriteTests: XCTestCase {
         // Passing both an index and end-of-body is ambiguous; the client rejects
         // it instead of silently picking one, and sends nothing.
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         await assertInvalidArgument {
             _ = try await client.insertPageBreak(
@@ -76,7 +72,7 @@ final class DocsStructureWriteTests: XCTestCase {
 
     func testInsertPageBreakDecodesEmptyReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: "{}")
 
         let response = try await client.insertPageBreak(documentId: "doc-1", index: 1)
@@ -87,7 +83,7 @@ final class DocsStructureWriteTests: XCTestCase {
 
     func testInsertPageBreakWithRequiredRevisionCarriesWriteControl() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
 
         _ = try await client.insertPageBreak(
@@ -95,14 +91,14 @@ final class DocsStructureWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertPageBreak":{"location":{"index":5}}}],"writeControl":{"requiredRevisionId":"rev-1"}}"#
         )
     }
 
     func testInsertPageBreakRejectsBadInputWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         // Index 0 lands inside the initial section break, which the body cannot
         // edit; the guard rejects it before any request goes out.
@@ -121,7 +117,7 @@ final class DocsStructureWriteTests: XCTestCase {
 
     func testInsertPageBreakPropagatesGoogleErrorEnvelope() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"error":{"code":400,"message":"Bad break","status":"INVALID_ARGUMENT"}}"#,
@@ -137,7 +133,7 @@ final class DocsStructureWriteTests: XCTestCase {
 
     func testInsertInlineImagePostsExactBodyAndReturnsObjectId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"documentId":"doc-1","replies":[{"insertInlineImage":{"objectId":"kix.img1"}}]}"#
@@ -154,7 +150,7 @@ final class DocsStructureWriteTests: XCTestCase {
         )
         XCTAssertEqual(request.headers["Content-Type"], "application/json")
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertInlineImage":{"location":{"index":5},"uri":"\#(Self.escapedURI)"}}]}"#
         )
         // The reply object id is returned so a follow-up edit can address it.
@@ -164,7 +160,7 @@ final class DocsStructureWriteTests: XCTestCase {
 
     func testInsertInlineImageWithSizeEncodesObjectSizeInPoints() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{"insertInlineImage":{"objectId":"kix.img2"}}]}"#)
 
         _ = try await client.insertInlineImage(
@@ -173,14 +169,14 @@ final class DocsStructureWriteTests: XCTestCase {
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         // objectSize carries both dimensions as PT; sorted keys put height first.
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertInlineImage":{"location":{"index":5},"objectSize":{"height":{"magnitude":80,"unit":"PT"},"width":{"magnitude":120,"unit":"PT"}},"uri":"\#(Self.escapedURI)"}}]}"#
         )
     }
 
     func testInsertInlineImageWithOnlyWidthEncodesOnlyWidth() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{"insertInlineImage":{"objectId":"kix.img3"}}]}"#)
 
         // Giving one dimension lets the API compute the other; only width is
@@ -190,14 +186,14 @@ final class DocsStructureWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertInlineImage":{"location":{"index":5},"objectSize":{"width":{"magnitude":200,"unit":"PT"}},"uri":"\#(Self.escapedURI)"}}]}"#
         )
     }
 
     func testInsertInlineImageIntoSegmentAllowsIndexZeroAndCarriesSegmentId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{"insertInlineImage":{"objectId":"kix.img4"}}]}"#)
 
         // A header segment starts its content at index 0, which the body guard
@@ -207,14 +203,14 @@ final class DocsStructureWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertInlineImage":{"location":{"index":0,"segmentId":"hdr-1"},"uri":"\#(Self.escapedURI)"}}]}"#
         )
     }
 
     func testInsertInlineImageEndOfSegmentEncodesEndOfSegmentLocation() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{"insertInlineImage":{"objectId":"kix.img5"}}]}"#)
 
         _ = try await client.insertInlineImage(
@@ -222,7 +218,7 @@ final class DocsStructureWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertInlineImage":{"endOfSegmentLocation":{"segmentId":"ftr-2"},"uri":"\#(Self.escapedURI)"}}]}"#
         )
     }
@@ -231,7 +227,7 @@ final class DocsStructureWriteTests: XCTestCase {
         // Passing both an index and end-of-segment is ambiguous; the client
         // rejects it instead of silently picking one, and sends nothing.
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         await assertInvalidArgument {
             _ = try await client.insertInlineImage(
@@ -242,7 +238,7 @@ final class DocsStructureWriteTests: XCTestCase {
 
     func testInsertInlineImageEmptySegmentIdEncodesNoSegmentId() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{"insertInlineImage":{"objectId":"kix.img6"}}]}"#)
 
         // An empty segment id at a body-legal index encodes a plain body
@@ -252,14 +248,14 @@ final class DocsStructureWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertInlineImage":{"location":{"index":1},"uri":"\#(Self.escapedURI)"}}]}"#
         )
     }
 
     func testInsertInlineImageReturnsNilObjectIdForEmptyReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
 
         let result = try await client.insertInlineImage(
@@ -270,7 +266,7 @@ final class DocsStructureWriteTests: XCTestCase {
 
     func testInsertInlineImageWithRequiredRevisionCarriesWriteControl() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{"insertInlineImage":{"objectId":"kix.img7"}}]}"#)
 
         _ = try await client.insertInlineImage(
@@ -278,14 +274,14 @@ final class DocsStructureWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertInlineImage":{"location":{"index":5},"uri":"\#(Self.escapedURI)"}}],"writeControl":{"requiredRevisionId":"rev-2"}}"#
         )
     }
 
     func testInsertInlineImageRejectsBadInputWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         // Empty URI.
         await assertInvalidArgument {
@@ -318,7 +314,7 @@ final class DocsStructureWriteTests: XCTestCase {
 
     func testInsertInlineImagePropagatesGoogleErrorEnvelope() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"error":{"code":400,"message":"Bad image","status":"INVALID_ARGUMENT"}}"#,
@@ -334,7 +330,7 @@ final class DocsStructureWriteTests: XCTestCase {
 
     func testReplaceImagePostsExactBodyAndDecodesReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"documentId":"doc-1","replies":[{}]}"#
@@ -353,7 +349,7 @@ final class DocsStructureWriteTests: XCTestCase {
         // The only replace method the API defines is CENTER_CROP; the client
         // always sends it.
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"replaceImage":{"imageObjectId":"img-1","imageReplaceMethod":"CENTER_CROP","uri":"https:\/\/cdn.example.com\/new.png"}}]}"#
         )
         XCTAssertEqual(response.documentId, "doc-1")
@@ -362,7 +358,7 @@ final class DocsStructureWriteTests: XCTestCase {
 
     func testReplaceImageDecodesEmptyReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: "{}")
 
         let response = try await client.replaceImage(
@@ -374,7 +370,7 @@ final class DocsStructureWriteTests: XCTestCase {
 
     func testReplaceImageWithRequiredRevisionCarriesWriteControl() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
 
         _ = try await client.replaceImage(
@@ -383,14 +379,14 @@ final class DocsStructureWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"replaceImage":{"imageObjectId":"img-1","imageReplaceMethod":"CENTER_CROP","uri":"\#(Self.escapedURI)"}}],"writeControl":{"requiredRevisionId":"rev-3"}}"#
         )
     }
 
     func testReplaceImageRejectsEmptyIdAndUriWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         await assertInvalidArgument {
             _ = try await client.replaceImage(documentId: "doc-1", imageObjectId: "", uri: Self.uri)
@@ -403,7 +399,7 @@ final class DocsStructureWriteTests: XCTestCase {
 
     func testReplaceImagePropagatesGoogleErrorEnvelope() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"error":{"code":404,"message":"No image","status":"NOT_FOUND"}}"#,
@@ -420,7 +416,7 @@ final class DocsStructureWriteTests: XCTestCase {
 
     func testInsertSectionBreakContinuousPostsExactBodyAndDecodesReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"documentId":"doc-1","replies":[{}]}"#
@@ -436,7 +432,7 @@ final class DocsStructureWriteTests: XCTestCase {
             "https://docs.googleapis.com/v1/documents/doc-1:batchUpdate"
         )
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertSectionBreak":{"location":{"index":3},"sectionType":"CONTINUOUS"}}]}"#
         )
         XCTAssertEqual(response.documentId, "doc-1")
@@ -445,7 +441,7 @@ final class DocsStructureWriteTests: XCTestCase {
 
     func testInsertSectionBreakNextPageEndOfBodyEncodesEmptyEndOfSegment() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
 
         _ = try await client.insertSectionBreak(
@@ -453,14 +449,14 @@ final class DocsStructureWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertSectionBreak":{"endOfSegmentLocation":{},"sectionType":"NEXT_PAGE"}}]}"#
         )
     }
 
     func testInsertSectionBreakAcceptsTheTypeCaseInsensitively() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
 
         // A lowercased wire spelling is uppercased before it is matched, so it
@@ -470,14 +466,14 @@ final class DocsStructureWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertSectionBreak":{"location":{"index":3},"sectionType":"NEXT_PAGE"}}]}"#
         )
     }
 
     func testInsertSectionBreakDecodesEmptyReply() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: "{}")
 
         let response = try await client.insertSectionBreak(
@@ -489,7 +485,7 @@ final class DocsStructureWriteTests: XCTestCase {
 
     func testInsertSectionBreakWithRequiredRevisionCarriesWriteControl() async throws {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(urlContains: ":batchUpdate", json: #"{"documentId":"doc-1","replies":[{}]}"#)
 
         _ = try await client.insertSectionBreak(
@@ -498,14 +494,14 @@ final class DocsStructureWriteTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
         XCTAssertEqual(
-            Self.bodyString(request),
+            TestSupport.bodyString(request),
             #"{"requests":[{"insertSectionBreak":{"location":{"index":3},"sectionType":"CONTINUOUS"}}],"writeControl":{"requiredRevisionId":"rev-5"}}"#
         )
     }
 
     func testInsertSectionBreakRejectsBadInputWithoutSendingARequest() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         // Unknown section type.
         await assertInvalidArgument {
@@ -532,7 +528,7 @@ final class DocsStructureWriteTests: XCTestCase {
         // Passing both an index and end-of-body is ambiguous; the client rejects
         // it instead of silently picking one, and sends nothing.
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
 
         await assertInvalidArgument {
             _ = try await client.insertSectionBreak(
@@ -543,7 +539,7 @@ final class DocsStructureWriteTests: XCTestCase {
 
     func testInsertSectionBreakPropagatesGoogleErrorEnvelope() async {
         let transport = StubTransport()
-        let client = makeClient(transport: transport)
+        let client = TestSupport.docsClient(transport)
         transport.stub(
             urlContains: ":batchUpdate",
             json: #"{"error":{"code":400,"message":"Bad section","status":"INVALID_ARGUMENT"}}"#,
@@ -622,43 +618,6 @@ final class DocsStructureWriteTests: XCTestCase {
 
     // MARK: - Helpers
 
-    private func assertInvalidArgument(
-        file: StaticString = #filePath,
-        line: UInt = #line,
-        _ body: () async throws -> Void
-    ) async {
-        do {
-            try await body()
-            XCTFail("Expected an error", file: file, line: line)
-        } catch {
-            guard case GrahamError.invalidArgument = error else {
-                return XCTFail("Wrong error: \(error)", file: file, line: line)
-            }
-        }
-    }
 
-    private func assertGoogleError(
-        code expectedCode: Int,
-        status expectedStatus: String,
-        message expectedMessage: String,
-        file: StaticString = #filePath,
-        line: UInt = #line,
-        _ body: () async throws -> Void
-    ) async {
-        do {
-            try await body()
-            XCTFail("Expected an error", file: file, line: line)
-        } catch {
-            guard case GrahamError.googleAPIError(let code, let status, let message) = error else {
-                return XCTFail("Wrong error: \(error)", file: file, line: line)
-            }
-            XCTAssertEqual(code, expectedCode, file: file, line: line)
-            XCTAssertEqual(status, expectedStatus, file: file, line: line)
-            XCTAssertEqual(message, expectedMessage, file: file, line: line)
-        }
-    }
 
-    private static func bodyString(_ request: HTTPRequest) -> String {
-        request.body.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-    }
 }
