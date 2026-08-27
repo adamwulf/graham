@@ -43,8 +43,9 @@ Named after Graham's number — a contrast to the googol that named Google.
   and page mode), set the style of the sections a range overlaps (margins, page
   numbering, direction, and column separator), redefine a named style
   (HEADING_2, TITLE, ...) document-wide, insert smart chips (a person, a rich
-  link, or a date), manage document tabs (add, delete, rename, and move), and
-  run a live end-to-end smoke test of the complete Docs command surface.
+  link, or a date), manage document tabs (list, add, delete, rename, and move) and read one tab's
+  structure or text, and run a live end-to-end smoke test of the complete Docs
+  command surface.
 - **Slides** — read presentation text; list every page element with its type,
   geometry, text, links, and alt text; list or download every image, including
   images nested in groups; add, move, and delete slides through the shared
@@ -379,11 +380,17 @@ graham docs named-style <document-id> --style normal-text --line-spacing 150 --a
 graham docs chip person <document-id> --email person@example.com --name "A. Person" --at 1
 graham docs chip rich-link <document-id> --uri https://drive.google.com/file/d/ID --end
 graham docs chip date <document-id> --timestamp 2026-08-27T00:00:00Z --date-format month-day-year-abbrev --at 1
-# Manage document tabs: add one (printing its new id), delete one and its child
-# tabs, or rename/move one. Positions are one-based; --parent nests a tab.
+# Manage document tabs: list them (id, title, one-based position, parent), add
+# one (printing its new id), delete one and its child tabs, or rename/move one.
+# Positions are one-based; --parent nests a tab.
+graham docs tab list <document-id>
 graham docs tab add <document-id> --title "Notes" --position 2
 graham docs tab update <document-id> --tab-id <tab-id> --title "Renamed" --position 1
 graham docs tab delete <document-id> --tab-id <tab-id>
+# Read one tab of a tabbed document by its id (from `docs tab list`): its block
+# structure, or its text. --markdown renders the whole document, not one tab.
+graham docs structure <document-id> --tab <tab-id>
+graham docs cat <document-id> --tab <tab-id>
 # Exercise the complete live Docs API surface inside the root-level "graham test" folder.
 # The run creates a disposable document and exercises text, styling, lists, tables,
 # images, headers/footers/footnotes, named ranges, and page setup.

@@ -78,4 +78,26 @@ final class DocsReadParsingTests: XCTestCase {
     func testDocsCatRejectsJsonAndMarkdownTogether() {
         XCTAssertThrowsError(try Docs.Cat.parse(["doc-1", "--json", "--markdown"]))
     }
+
+    // MARK: - tab-aware reads
+
+    func testDocsStructureParsesTabId() throws {
+        let command = try Docs.Structure.parse(["doc-1", "--tab", "t.0"])
+        XCTAssertEqual(command.tab, "t.0")
+    }
+
+    func testDocsCatParsesTabId() throws {
+        let command = try Docs.Cat.parse(["doc-1", "--tab", "t.0"])
+        XCTAssertEqual(command.tab, "t.0")
+    }
+
+    func testDocsCatRejectsMarkdownWithTab() {
+        XCTAssertThrowsError(try Docs.Cat.parse(["doc-1", "--markdown", "--tab", "t.0"]))
+    }
+
+    func testDocsTabListParsesDocumentAndFormat() throws {
+        let command = try Docs.Tab.List.parse(["doc-1", "--format", "json"])
+        XCTAssertEqual(command.documentID, "doc-1")
+        XCTAssertEqual(command.format, .json)
+    }
 }

@@ -96,16 +96,37 @@ struct Docs: AsyncParsableCommand {
         @Flag(help: "Render the document as Markdown instead of plain text.")
         var markdown = false
 
+        @Option(help: "Print one tab by its id (from `docs tab list`). Not combinable with --markdown.")
+        var tab: String?
+
         func validate() throws {
             if json && markdown {
                 throw ValidationError(
                     "Pass either --json or --markdown, not both: --json prints the "
                     + "decoded document and --markdown renders it as Markdown.")
             }
+            if markdown && tab != nil {
+                throw ValidationError(
+                    "--markdown cannot combine with --tab: Markdown renders the whole "
+                    + "document. Use --tab with plain text or --json.")
+            }
         }
 
         func run() async throws {
             let client = DocsClient(api: try CLI.makeAPI())
+            if let tab {
+                let document = try await client.document(
+                    id: documentID, includeTabsContent: true)
+                guard let found = document.tab(withId: tab) else {
+                    throw ValidationError("No tab with id \(tab) in this document.")
+                }
+                if json {
+                    try CLI.printJSON(found)
+                    return
+                }
+                print(found.plainText, terminator: "")
+                return
+            }
             let document = try await client.document(id: documentID)
             if json {
                 try CLI.printJSON(document)
@@ -140,8 +161,20 @@ struct Docs: AsyncParsableCommand {
         @Option(help: "The output format: table, json, jsonl, or id.")
         var format: OutputFormat = .table
 
+        @Option(help: "Show the structure of one tab by its id (from `docs tab list`).")
+        var tab: String?
+
         func run() async throws {
             let client = DocsClient(api: try CLI.makeAPI())
+            if let tab {
+                let document = try await client.document(
+                    id: documentID, includeTabsContent: true)
+                guard let found = document.tab(withId: tab) else {
+                    throw ValidationError("No tab with id \(tab) in this document.")
+                }
+                print(try OutputFormatter.render(found.blockRows, format: format))
+                return
+            }
             let document = try await client.document(id: documentID)
             print(try OutputFormatter.render(document.blockRows, format: format))
         }
@@ -2753,9 +2786,28 @@ struct Docs: AsyncParsableCommand {
     struct Tab: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "tab",
-            abstract: "Add, delete, rename, or move document tabs.",
-            subcommands: [Add.self, Delete.self, Update.self]
+            abstract: "List, add, delete, rename, or move document tabs.",
+            subcommands: [List.self, Add.self, Delete.self, Update.self]
         )
+
+        struct List: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "List the document's tabs (id, title, position, and parent)."
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "The output format: table, json, jsonl, or id.")
+            var format: OutputFormat = .table
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                let document = try await client.document(
+                    id: documentID, includeTabsContent: true)
+                print(try OutputFormatter.render(document.tabRows, format: format))
+            }
+        }
 
         struct Add: AsyncParsableCommand {
             static let configuration = CommandConfiguration(

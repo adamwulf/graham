@@ -57,14 +57,17 @@ encoded body, decoded reply, error propagation), then a thin subcommand in
   `docs tab add|delete|update` (add prints the new tab id from the reply;
   positions are one-based and translated to the API's zero-based `index`;
   `--parent` nests a tab). The read-only `nestingLevel` is out by design.
-- **`documents.get` parameters + tab-aware reads** *(advanced, next)* —
-  `includeTabsContent` (populate `Document.tabs` instead of the legacy top-level
-  fields) and `suggestionsViewMode`. Optional parameters on
-  `DocsClient.document(id:)`, a `Tab`/`DocumentTab` model, and tab-aware
-  `blockRows`. Also surface `tabsCriteria` on `replaceAllText` and the
-  named-range operations, and `--tab-id` on the write commands whose requests
-  already carry a `tabId`. (The tab **writes** above and `docs named-style
-  --tab-id` are done; this item is the remaining read/threading work.)
+- **Tab-aware reads** — built: `document(id:includeTabsContent:)` populates a
+  `DocTab`/`DocTabContent` tree, `docs tab list` flattens it, and `docs structure
+  --tab <id>` / `docs cat --tab <id>` read one tab's blocks or text. Deferred:
+  per-tab Markdown (`docs cat --markdown --tab`), per-tab headers/footers/images,
+  and the `suggestionsViewMode` get parameter (part of the suggestions work).
+- **Write-side `tabId` / `tabsCriteria` threading** *(next)* — surface `--tab-id`
+  on the remaining write commands whose locations/ranges already carry a `tabId`
+  (`docs insert`, `docs delete`, the styling and table ops), and add
+  `tabsCriteria` to `replaceAllText` and the named-range operations. (`docs
+  named-style --tab-id` and the smart-chip / tab-write `--tab-id` options are
+  already done.)
 - **`insertPerson` / `insertRichLink` / `insertDate`** — built as
   `docs chip person|rich-link|date` (each inserts at a zero-based `--at` index or
   the segment end `--end`, with `--segment` and `--tab-id`). The date chip's
