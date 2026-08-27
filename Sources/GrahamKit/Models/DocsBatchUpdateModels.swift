@@ -101,6 +101,9 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
     /// header/footer flags) of every section a range overlaps; the `fields`
     /// mask decides which properties apply.
     case updateSectionStyle(DocsUpdateSectionStyleRequest)
+    /// Redefines a named style (e.g. `HEADING_2`) document-wide; the `fields`
+    /// mask must include `namedStyleType` so the API knows which style applies.
+    case updateNamedStyle(DocsUpdateNamedStyleRequest)
 
     private enum CodingKeys: String, CodingKey {
         case insertText
@@ -135,6 +138,7 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
         case replaceNamedRangeContent
         case updateDocumentStyle
         case updateSectionStyle
+        case updateNamedStyle
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -204,6 +208,8 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
             try container.encode(request, forKey: .updateDocumentStyle)
         case .updateSectionStyle(let request):
             try container.encode(request, forKey: .updateSectionStyle)
+        case .updateNamedStyle(let request):
+            try container.encode(request, forKey: .updateNamedStyle)
         }
     }
 }
@@ -1741,6 +1747,46 @@ public struct DocsUpdateSectionStyleRequest: Codable, Sendable, Equatable {
         self.range = range
         self.sectionStyle = sectionStyle
         self.fields = fields
+    }
+}
+
+// MARK: - Named style
+
+/// A Docs v1 `NamedStyle`: the definition of how a `namedStyleType` (e.g.
+/// `HEADING_2`) renders document-wide. `namedStyleType` selects the style, and
+/// `textStyle` / `paragraphStyle` carry the new look. The nested paragraph
+/// style never carries its own `namedStyleType` (the selector lives here).
+public struct DocsNamedStyle: Codable, Sendable, Equatable {
+    public let namedStyleType: DocsNamedStyleType
+    public let textStyle: DocsTextStyle?
+    public let paragraphStyle: DocsParagraphStyle?
+
+    public init(
+        namedStyleType: DocsNamedStyleType,
+        textStyle: DocsTextStyle? = nil,
+        paragraphStyle: DocsParagraphStyle? = nil
+    ) {
+        self.namedStyleType = namedStyleType
+        self.textStyle = textStyle
+        self.paragraphStyle = paragraphStyle
+    }
+}
+
+/// The `updateNamedStyle` operation. `namedStyle` selects the style (via its
+/// `namedStyleType`) and carries the new values; `fields` is a comma-separated
+/// field mask, relative to the NamedStyle root, that MUST include
+/// `namedStyleType` so the API knows which style to redefine (text and paragraph
+/// paths are nested, e.g. `textStyle.bold`, `paragraphStyle.alignment`). `tabId`
+/// optionally scopes the change to one tab; it encodes only when set.
+public struct DocsUpdateNamedStyleRequest: Codable, Sendable, Equatable {
+    public let namedStyle: DocsNamedStyle
+    public let fields: String
+    public let tabId: String?
+
+    public init(namedStyle: DocsNamedStyle, fields: String, tabId: String? = nil) {
+        self.namedStyle = namedStyle
+        self.fields = fields
+        self.tabId = tabId
     }
 }
 

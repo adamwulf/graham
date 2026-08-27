@@ -10,7 +10,8 @@ struct Docs: AsyncParsableCommand {
             Replace.self, Style.self, Paragraph.self, Heading.self, Bullets.self,
             Unbullet.self, Table.self, Images.self, PageBreak.self, Image.self,
             SectionBreak.self, Header.self, Footer.self, Footnote.self,
-            NamedRange.self, PageSetup.self, SectionStyle.self, Test.self,
+            NamedRange.self, PageSetup.self, SectionStyle.self, NamedStyle.self,
+            Test.self,
         ]
     )
 
@@ -2432,6 +2433,160 @@ struct Docs: AsyncParsableCommand {
                 flipPageOrientation: flipOrientation,
                 requiredRevisionId: requireRevision)
             print("Updated the section style.")
+        }
+    }
+
+    struct NamedStyle: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "named-style",
+            abstract: "Redefine a named style (e.g. what HEADING_2 looks like) document-wide.",
+            discussion: """
+                Redefines the look of --style (normal-text, title, subtitle, or \
+                heading-1 through heading-6) everywhere it is used. The text flags \
+                mirror `docs style` (--bold/--italic/--underline/--strike/\
+                --small-caps toggles, --color, --background, --size, --font, \
+                --font-weight) and the paragraph flags mirror `docs paragraph` \
+                (--align, --direction, --line-spacing, --space-above, \
+                --space-below, --indent-start, --indent-end, --indent-first-line). \
+                At least one text or paragraph flag is required. --tab-id scopes \
+                the change to one tab. The baseline offset, link, pagination \
+                toggles, shading, and borders are not set here.
+                """
+        )
+
+        @Argument(help: "The document ID.")
+        var documentID: String
+
+        @Option(help: "The named style to redefine: normal-text, title, subtitle, or heading-1..heading-6.")
+        var style: DocsNamedStyleArgument
+
+        @Flag(inversion: .prefixedNo, help: "Bold the text (--no-bold turns it off).")
+        var bold: Bool?
+
+        @Flag(inversion: .prefixedNo, help: "Italicize the text (--no-italic turns it off).")
+        var italic: Bool?
+
+        @Flag(inversion: .prefixedNo, help: "Underline the text (--no-underline turns it off).")
+        var underline: Bool?
+
+        @Flag(inversion: .prefixedNo, help: "Strike through the text (--no-strike turns it off).")
+        var strike: Bool?
+
+        @Flag(
+            inversion: .prefixedNo,
+            help: "Render the text in small caps (--no-small-caps turns it off)."
+        )
+        var smallCaps: Bool?
+
+        @Option(help: "The text color as a hex value like #FF0000.")
+        var color: String?
+
+        @Option(help: "The background color as a hex value like #FF0000.")
+        var background: String?
+
+        @Option(
+            parsing: .unconditional,
+            help: "The font size in points; must be greater than zero."
+        )
+        var size: Double?
+
+        @Option(help: "The font family name, such as Arial.")
+        var font: String?
+
+        @Option(
+            parsing: .unconditional,
+            help: "The font weight, a multiple of 100 from 100 to 900; requires --font."
+        )
+        var fontWeight: Int?
+
+        @Option(help: "The alignment: start, center, end, or justified.")
+        var align: DocsAlignmentArgument?
+
+        @Option(help: "The text direction: ltr or rtl.")
+        var direction: DocsDirectionArgument?
+
+        @Option(
+            parsing: .unconditional,
+            help: "The line spacing as a percent of normal; 100 is single."
+        )
+        var lineSpacing: Double?
+
+        @Option(parsing: .unconditional, help: "The space above each paragraph in points.")
+        var spaceAbove: Double?
+
+        @Option(parsing: .unconditional, help: "The space below each paragraph in points.")
+        var spaceBelow: Double?
+
+        @Option(parsing: .unconditional, help: "The start-edge indent in points.")
+        var indentStart: Double?
+
+        @Option(parsing: .unconditional, help: "The end-edge indent in points.")
+        var indentEnd: Double?
+
+        @Option(parsing: .unconditional, help: "The first-line indent in points.")
+        var indentFirstLine: Double?
+
+        @Option(help: "Scope the change to one tab by its id. Omit for a document with no explicit tabs.")
+        var tabId: String?
+
+        @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+        var requireRevision: String?
+
+        func validate() throws {
+            let hasStyle =
+                bold != nil || italic != nil || underline != nil || strike != nil
+                || smallCaps != nil || color != nil || background != nil || size != nil
+                || font != nil || fontWeight != nil || align != nil || direction != nil
+                || lineSpacing != nil || spaceAbove != nil || spaceBelow != nil
+                || indentStart != nil || indentEnd != nil || indentFirstLine != nil
+            guard hasStyle else {
+                throw ValidationError("Provide at least one text or paragraph style flag.")
+            }
+            if let fontWeight {
+                guard font != nil else {
+                    throw ValidationError("--font-weight requires --font.")
+                }
+                guard (100...900).contains(fontWeight), fontWeight % 100 == 0 else {
+                    throw ValidationError(
+                        "--font-weight must be a multiple of 100 from 100 to 900.")
+                }
+            }
+            if let size, size <= 0 {
+                throw ValidationError("--size must be greater than zero.")
+            }
+            if let lineSpacing, lineSpacing <= 0 {
+                throw ValidationError("--line-spacing must be greater than zero.")
+            }
+        }
+
+        func run() async throws {
+            let foreground = try color.map { try DocsOptionalColor.parse($0) }
+            let backgroundColor = try background.map { try DocsOptionalColor.parse($0) }
+            let client = DocsClient(api: try CLI.makeAPI())
+            _ = try await client.updateNamedStyle(
+                documentId: documentID,
+                namedStyleType: style.namedStyleType,
+                bold: bold,
+                italic: italic,
+                underline: underline,
+                strikethrough: strike,
+                foregroundColor: foreground,
+                backgroundColor: backgroundColor,
+                fontSize: size,
+                fontFamily: font,
+                fontWeight: fontWeight,
+                smallCaps: smallCaps,
+                alignment: align?.alignment,
+                direction: direction?.direction,
+                lineSpacing: lineSpacing,
+                spaceAbove: spaceAbove,
+                spaceBelow: spaceBelow,
+                indentStart: indentStart,
+                indentEnd: indentEnd,
+                indentFirstLine: indentFirstLine,
+                tabId: tabId,
+                requiredRevisionId: requireRevision)
+            print("Redefined the \(style.namedStyleType) named style.")
         }
     }
 }

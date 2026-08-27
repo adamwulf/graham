@@ -45,9 +45,11 @@ encoded body, decoded reply, error propagation), then a thin subcommand in
   orientation). One sub-item is deferred: the per-column `columnProperties`
   layout (multi-column width / padding), which is awkward from a CLI; the
   section's header/footer ids and `sectionType` are read-only and out by design.
-- **`updateNamedStyle`** *(advanced)* — redefine a named style (e.g. what
-  `HEADING_2` looks like document-wide); the mask must include
-  `named_style_type`. CLI `docs named-style`.
+- **`updateNamedStyle`** — built as `docs named-style` (redefines a named style
+  document-wide with the `docs style` text flags and the `docs paragraph`
+  alignment / spacing / indent flags; `--tab-id` scopes it to a tab). The
+  baseline offset and link (nonsensical for a style definition) and the
+  pagination toggles, shading, and borders are out by design.
 
 ### Tabs, smart chips, suggestions (advanced, beyond the cut line)
 

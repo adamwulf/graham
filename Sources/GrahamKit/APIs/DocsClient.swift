@@ -2084,6 +2084,162 @@ public struct DocsClient: Sendable {
             requiredRevisionId: requiredRevisionId)
     }
 
+    /// Redefines a named style (e.g. what `HEADING_2` looks like) document-wide.
+    ///
+    /// `namedStyleType` selects the style (`NORMAL_TEXT`, `TITLE`, `SUBTITLE`, or
+    /// `HEADING_1` through `HEADING_6`, matched case-insensitively). The text and
+    /// paragraph parameters mirror `styleText` / `styleParagraphs`, and at least
+    /// one of them is required (redefining a style with no change is rejected).
+    /// The `fields` mask always begins with `namedStyleType` (the API requires
+    /// it), then the set `textStyle.*` paths in the fixed order `bold`, `italic`,
+    /// `underline`, `strikethrough`, `foregroundColor`, `backgroundColor`,
+    /// `fontSize`, `weightedFontFamily`, `smallCaps`, then the set
+    /// `paragraphStyle.*` paths in the fixed order `alignment`, `direction`,
+    /// `lineSpacing`, `spaceAbove`, `spaceBelow`, `indentStart`, `indentEnd`,
+    /// `indentFirstLine`. `tabId` optionally scopes the change to one tab.
+    ///
+    /// The baseline offset and link (nonsensical for a style definition) and the
+    /// pagination toggles, shading, and borders are out of this slice.
+    public func updateNamedStyle(
+        documentId: String,
+        namedStyleType: String,
+        bold: Bool? = nil,
+        italic: Bool? = nil,
+        underline: Bool? = nil,
+        strikethrough: Bool? = nil,
+        foregroundColor: DocsOptionalColor? = nil,
+        backgroundColor: DocsOptionalColor? = nil,
+        fontSize: Double? = nil,
+        fontFamily: String? = nil,
+        fontWeight: Int? = nil,
+        smallCaps: Bool? = nil,
+        alignment: DocsParagraphAlignment? = nil,
+        direction: DocsContentDirection? = nil,
+        lineSpacing: Double? = nil,
+        spaceAbove: Double? = nil,
+        spaceBelow: Double? = nil,
+        indentStart: Double? = nil,
+        indentEnd: Double? = nil,
+        indentFirstLine: Double? = nil,
+        tabId: String? = nil,
+        requiredRevisionId: String? = nil
+    ) async throws -> DocsBatchUpdateResponse {
+        guard let selector = DocsNamedStyleType(rawValue: namedStyleType.uppercased()) else {
+            throw GrahamError.invalidArgument(
+                "unknown named style \"\(namedStyleType)\"; use one of NORMAL_TEXT, TITLE, "
+                + "SUBTITLE, or HEADING_1 through HEADING_6")
+        }
+
+        // Text validation mirrors styleText: a weighted family needs a non-empty
+        // family, a weight is a multiple of 100 in 100...900, a font size is
+        // positive.
+        var weightedFontFamily: DocsWeightedFontFamily?
+        if let fontFamily {
+            guard !fontFamily.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw GrahamError.invalidArgument("font family must not be empty")
+            }
+            if let fontWeight {
+                guard (100...900).contains(fontWeight), fontWeight % 100 == 0 else {
+                    throw GrahamError.invalidArgument(
+                        "font weight must be a multiple of 100 within 100 and 900, got \(fontWeight)")
+                }
+            }
+            weightedFontFamily = DocsWeightedFontFamily(fontFamily: fontFamily, weight: fontWeight)
+        } else if fontWeight != nil {
+            throw GrahamError.invalidArgument("a font weight requires a font family")
+        }
+        if let fontSize {
+            guard fontSize > 0 else {
+                throw GrahamError.invalidArgument(
+                    "font size must be greater than zero, got \(fontSize)")
+            }
+        }
+
+        // Paragraph validation mirrors styleParagraphs.
+        if let lineSpacing {
+            guard lineSpacing > 0 else {
+                throw GrahamError.invalidArgument(
+                    "line spacing must be greater than zero, got \(lineSpacing)")
+            }
+        }
+        func requireNonNegative(_ value: Double?, _ label: String) throws {
+            if let value, value < 0 {
+                throw GrahamError.invalidArgument("\(label) must be 0 or greater, got \(value)")
+            }
+        }
+        try requireNonNegative(spaceAbove, "space above")
+        try requireNonNegative(spaceBelow, "space below")
+        try requireNonNegative(indentStart, "indent start")
+        try requireNonNegative(indentEnd, "indent end")
+        try requireNonNegative(indentFirstLine, "first-line indent")
+
+        func points(_ value: Double?) -> DocsDimension? {
+            value.map { DocsDimension(magnitude: $0, unit: .pt) }
+        }
+
+        // The mask always leads with the selector, then the set text paths, then
+        // the set paragraph paths — each nested under its style root.
+        var mask: [String] = ["namedStyleType"]
+        var textMask: [String] = []
+        if bold != nil { textMask.append("textStyle.bold") }
+        if italic != nil { textMask.append("textStyle.italic") }
+        if underline != nil { textMask.append("textStyle.underline") }
+        if strikethrough != nil { textMask.append("textStyle.strikethrough") }
+        if foregroundColor != nil { textMask.append("textStyle.foregroundColor") }
+        if backgroundColor != nil { textMask.append("textStyle.backgroundColor") }
+        if fontSize != nil { textMask.append("textStyle.fontSize") }
+        if weightedFontFamily != nil { textMask.append("textStyle.weightedFontFamily") }
+        if smallCaps != nil { textMask.append("textStyle.smallCaps") }
+
+        var paragraphMask: [String] = []
+        if alignment != nil { paragraphMask.append("paragraphStyle.alignment") }
+        if direction != nil { paragraphMask.append("paragraphStyle.direction") }
+        if lineSpacing != nil { paragraphMask.append("paragraphStyle.lineSpacing") }
+        if spaceAbove != nil { paragraphMask.append("paragraphStyle.spaceAbove") }
+        if spaceBelow != nil { paragraphMask.append("paragraphStyle.spaceBelow") }
+        if indentStart != nil { paragraphMask.append("paragraphStyle.indentStart") }
+        if indentEnd != nil { paragraphMask.append("paragraphStyle.indentEnd") }
+        if indentFirstLine != nil { paragraphMask.append("paragraphStyle.indentFirstLine") }
+
+        guard !textMask.isEmpty || !paragraphMask.isEmpty else {
+            throw GrahamError.invalidArgument(
+                "named style requires at least one text or paragraph style option")
+        }
+        mask.append(contentsOf: textMask)
+        mask.append(contentsOf: paragraphMask)
+
+        let textStyle: DocsTextStyle? = textMask.isEmpty ? nil : DocsTextStyle(
+            bold: bold,
+            italic: italic,
+            underline: underline,
+            strikethrough: strikethrough,
+            foregroundColor: foregroundColor,
+            backgroundColor: backgroundColor,
+            fontSize: points(fontSize),
+            weightedFontFamily: weightedFontFamily,
+            smallCaps: smallCaps)
+        let paragraphStyle: DocsParagraphStyle? = paragraphMask.isEmpty ? nil : DocsParagraphStyle(
+            alignment: alignment,
+            direction: direction,
+            lineSpacing: lineSpacing,
+            spaceAbove: points(spaceAbove),
+            spaceBelow: points(spaceBelow),
+            indentStart: points(indentStart),
+            indentEnd: points(indentEnd),
+            indentFirstLine: points(indentFirstLine))
+        let request = DocsBatchUpdateRequest.updateNamedStyle(
+            DocsUpdateNamedStyleRequest(
+                namedStyle: DocsNamedStyle(
+                    namedStyleType: selector,
+                    textStyle: textStyle,
+                    paragraphStyle: paragraphStyle),
+                fields: mask.joined(separator: ","),
+                tabId: tabId))
+        return try await batchUpdate(
+            documentId: documentId, requests: [request],
+            requiredRevisionId: requiredRevisionId)
+    }
+
     // MARK: - Image download
 
     /// Downloads the bytes at an image `contentUri`.

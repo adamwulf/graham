@@ -380,4 +380,62 @@ final class DocsNamedRangeParsingTests: XCTestCase {
             "doc-1", "--from", "1", "--to", "5", "--page-number-start", "0",
         ]))
     }
+
+    // MARK: - docs named-style
+
+    func testNamedStyleParsesSelectorTextAndParagraphOptions() throws {
+        let command = try Docs.NamedStyle.parse([
+            "doc-1", "--style", "heading-2",
+            "--bold", "--small-caps", "--color", "#1155CC",
+            "--size", "18", "--font", "Arial",
+            "--align", "center", "--line-spacing", "150", "--space-above", "6",
+            "--tab-id", "t.0", "--require-revision", "rev-1",
+        ])
+        XCTAssertEqual(command.documentID, "doc-1")
+        XCTAssertEqual(command.style, .heading2)
+        XCTAssertEqual(command.bold, true)
+        XCTAssertEqual(command.smallCaps, true)
+        XCTAssertEqual(command.color, "#1155CC")
+        XCTAssertEqual(command.size, 18)
+        XCTAssertEqual(command.font, "Arial")
+        XCTAssertEqual(command.align, .center)
+        XCTAssertEqual(command.lineSpacing, 150)
+        XCTAssertEqual(command.spaceAbove, 6)
+        XCTAssertEqual(command.tabId, "t.0")
+        XCTAssertEqual(command.requireRevision, "rev-1")
+    }
+
+    func testNamedStyleRequiresStyleSelector() {
+        XCTAssertThrowsError(try Docs.NamedStyle.parse(["doc-1", "--bold"]))
+    }
+
+    func testNamedStyleRejectsNoStyleFlags() {
+        // --style alone is not a change.
+        XCTAssertThrowsError(try Docs.NamedStyle.parse(["doc-1", "--style", "title"]))
+    }
+
+    func testNamedStyleRejectsBadFontWeightAndSize() {
+        // --font-weight without --font.
+        XCTAssertThrowsError(try Docs.NamedStyle.parse([
+            "doc-1", "--style", "title", "--font-weight", "700",
+        ]))
+        // --font-weight not a multiple of 100.
+        XCTAssertThrowsError(try Docs.NamedStyle.parse([
+            "doc-1", "--style", "title", "--font", "Arial", "--font-weight", "750",
+        ]))
+        // A non-positive --size.
+        XCTAssertThrowsError(try Docs.NamedStyle.parse([
+            "doc-1", "--style", "title", "--size", "0",
+        ]))
+        // A non-positive --line-spacing.
+        XCTAssertThrowsError(try Docs.NamedStyle.parse([
+            "doc-1", "--style", "title", "--line-spacing", "0",
+        ]))
+    }
+
+    func testNamedStyleRejectsInvalidSelector() {
+        XCTAssertThrowsError(try Docs.NamedStyle.parse([
+            "doc-1", "--style", "heading-9", "--bold",
+        ]))
+    }
 }

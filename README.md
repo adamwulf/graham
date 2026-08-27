@@ -41,7 +41,8 @@ Named after Graham's number — a contrast to the googol that named Google.
   the content of a named range by id or name), set document-wide page style
   (page size, margins, first-page and even-page header/footer flags, background,
   and page mode), set the style of the sections a range overlaps (margins, page
-  numbering, direction, and column separator), and run a live end-to-end smoke
+  numbering, direction, and column separator), redefine a named style
+  (HEADING_2, TITLE, ...) document-wide, and run a live end-to-end smoke
   test of the complete Docs command surface.
 - **Slides** — read presentation text; list every page element with its type,
   geometry, text, links, and alt text; list or download every image, including
@@ -364,6 +365,12 @@ graham docs page-setup <document-id> --mode pageless --flip-orientation
 # multi-column layout is not set here. At least one option is required.
 graham docs section-style <document-id> --from 1 --to 20 --margin-left 108 --margin-right 108
 graham docs section-style <document-id> --from 1 --to 20 --column-separator between --page-number-start 1
+# Redefine a named style (e.g. what HEADING_2 looks like) document-wide. --style
+# selects it (normal-text, title, subtitle, heading-1..heading-6). The text flags
+# mirror `docs style` and the paragraph flags mirror `docs paragraph`; at least one
+# is required. --tab-id scopes the change to one tab.
+graham docs named-style <document-id> --style heading-2 --bold --color "#1155CC" --size 18 --font Arial
+graham docs named-style <document-id> --style normal-text --line-spacing 150 --align justified
 # Exercise the complete live Docs API surface inside the root-level "graham test" folder.
 # The run creates a disposable document and exercises text, styling, lists, tables,
 # images, headers/footers/footnotes, named ranges, and page setup.

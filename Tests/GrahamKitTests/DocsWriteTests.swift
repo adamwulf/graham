@@ -2215,6 +2215,122 @@ final class DocsWriteTests: XCTestCase {
         XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
     }
 
+    // MARK: - updateNamedStyle
+
+    func testUpdateNamedStyleEncodesSelectorTextAndParagraphMasks() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"documentId":"doc-1","replies":[{}]}"#
+        )
+
+        let response = try await client.updateNamedStyle(
+            documentId: "doc-1",
+            namedStyleType: "heading_2",
+            bold: true,
+            foregroundColor: try DocsOptionalColor.parse("#FF0000"),
+            fontSize: 18,
+            fontFamily: "Arial",
+            smallCaps: true,
+            alignment: .center,
+            lineSpacing: 150,
+            spaceAbove: 6)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(request.method, "POST")
+        // The mask leads with namedStyleType, then the set text paths, then the set
+        // paragraph paths; the namedStyle keys are sorted by the shared encoder.
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateNamedStyle":{"fields":"namedStyleType,textStyle.bold,textStyle.foregroundColor,textStyle.fontSize,textStyle.weightedFontFamily,textStyle.smallCaps,paragraphStyle.alignment,paragraphStyle.lineSpacing,paragraphStyle.spaceAbove","namedStyle":{"namedStyleType":"HEADING_2","paragraphStyle":{"alignment":"CENTER","lineSpacing":150,"spaceAbove":{"magnitude":6,"unit":"PT"}},"textStyle":{"bold":true,"fontSize":{"magnitude":18,"unit":"PT"},"foregroundColor":{"color":{"rgbColor":{"blue":0,"green":0,"red":1}}},"smallCaps":true,"weightedFontFamily":{"fontFamily":"Arial"}}}}}]}"#
+        )
+        XCTAssertEqual(response.documentId, "doc-1")
+    }
+
+    func testUpdateNamedStyleMinimalSelectorPlusOneTextAttr() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.updateNamedStyle(
+            documentId: "doc-1", namedStyleType: "HEADING_1", bold: true)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateNamedStyle":{"fields":"namedStyleType,textStyle.bold","namedStyle":{"namedStyleType":"HEADING_1","textStyle":{"bold":true}}}}]}"#
+        )
+    }
+
+    func testUpdateNamedStyleTabIdAndRequiredRevisionEncodeExactly() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.updateNamedStyle(
+            documentId: "doc-1", namedStyleType: "heading_3", italic: true,
+            tabId: "t.0", requiredRevisionId: "rev-1")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateNamedStyle":{"fields":"namedStyleType,textStyle.italic","namedStyle":{"namedStyleType":"HEADING_3","textStyle":{"italic":true}},"tabId":"t.0"}}],"writeControl":{"requiredRevisionId":"rev-1"}}"#
+        )
+    }
+
+    func testUpdateNamedStyleParagraphOnlyOmitsTextStyle() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.updateNamedStyle(
+            documentId: "doc-1", namedStyleType: "normal_text", alignment: .justified)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        // No textStyle key at all when only a paragraph attribute is set.
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateNamedStyle":{"fields":"namedStyleType,paragraphStyle.alignment","namedStyle":{"namedStyleType":"NORMAL_TEXT","paragraphStyle":{"alignment":"JUSTIFIED"}}}}]}"#
+        )
+    }
+
+    func testUpdateNamedStyleRejectsBadInputWithoutSendingARequest() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        // An unknown named style.
+        await assertInvalidArgument {
+            _ = try await client.updateNamedStyle(
+                documentId: "doc-1", namedStyleType: "HEADING_9", bold: true)
+        }
+        // No style attribute beyond the selector.
+        await assertInvalidArgument {
+            _ = try await client.updateNamedStyle(documentId: "doc-1", namedStyleType: "TITLE")
+        }
+        // A non-positive font size.
+        await assertInvalidArgument {
+            _ = try await client.updateNamedStyle(
+                documentId: "doc-1", namedStyleType: "TITLE", fontSize: 0)
+        }
+        // A font weight without a font family.
+        await assertInvalidArgument {
+            _ = try await client.updateNamedStyle(
+                documentId: "doc-1", namedStyleType: "TITLE", fontWeight: 700)
+        }
+        // A font weight that is not a multiple of 100.
+        await assertInvalidArgument {
+            _ = try await client.updateNamedStyle(
+                documentId: "doc-1", namedStyleType: "TITLE", fontFamily: "Arial", fontWeight: 750)
+        }
+        // A non-positive line spacing.
+        await assertInvalidArgument {
+            _ = try await client.updateNamedStyle(
+                documentId: "doc-1", namedStyleType: "TITLE", lineSpacing: 0)
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
     // MARK: - Named-range and document-style union discriminators
 
     /// The document-mode raw values match the discovery document exactly, so the
