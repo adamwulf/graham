@@ -40,8 +40,9 @@ Named after Graham's number — a contrast to the googol that named Google.
   text), fill templates with named ranges (create, list, delete, and replace
   the content of a named range by id or name), set document-wide page style
   (page size, margins, first-page and even-page header/footer flags, background,
-  and page mode), and run a live end-to-end smoke test of the complete Docs
-  command surface.
+  and page mode), set the style of the sections a range overlaps (margins, page
+  numbering, direction, and column separator), and run a live end-to-end smoke
+  test of the complete Docs command surface.
 - **Slides** — read presentation text; list every page element with its type,
   geometry, text, links, and alt text; list or download every image, including
   images nested in groups; add, move, and delete slides through the shared
@@ -356,6 +357,13 @@ graham docs page-setup <document-id> --margin-top 72 --margin-bottom 72 --margin
 graham docs page-setup <document-id> --first-page-header-footer --background "#FFFFFF"
 graham docs page-setup <document-id> --margin-header 24 --margin-footer 24 --page-number-start 1
 graham docs page-setup <document-id> --mode pageless --flip-orientation
+# Set the style of the sections a body range overlaps: margins (points), the
+# first page number (--page-number-start), --direction ltr/rtl, --column-separator
+# none/between, --first-page-header-footer, and --flip-orientation. Indices are
+# zero-based UTF-16; the section's header/footer ids and type are read-only, and
+# multi-column layout is not set here. At least one option is required.
+graham docs section-style <document-id> --from 1 --to 20 --margin-left 108 --margin-right 108
+graham docs section-style <document-id> --from 1 --to 20 --column-separator between --page-number-start 1
 # Exercise the complete live Docs API surface inside the root-level "graham test" folder.
 # The run creates a disposable document and exercises text, styling, lists, tables,
 # images, headers/footers/footnotes, named ranges, and page setup.

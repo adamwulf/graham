@@ -40,9 +40,11 @@ encoded body, decoded reply, error propagation), then a thin subcommand in
 
 ### Section and named styles (advanced)
 
-- **`updateSectionStyle`** *(advanced)* — margins, columns, page numbering, and
-  header/footer ids for the sections overlapping a range; `fields` mask; the
-  range's `segmentId` must be empty. CLI `docs section-style`.
+- **`updateSectionStyle`** — built as `docs section-style` (margins, page
+  numbering, direction, column separator, first-page header/footer flag, flip
+  orientation). One sub-item is deferred: the per-column `columnProperties`
+  layout (multi-column width / padding), which is awkward from a CLI; the
+  section's header/footer ids and `sectionType` are read-only and out by design.
 - **`updateNamedStyle`** *(advanced)* — redefine a named style (e.g. what
   `HEADING_2` looks like document-wide); the mask must include
   `named_style_type`. CLI `docs named-style`.

@@ -10,7 +10,7 @@ struct Docs: AsyncParsableCommand {
             Replace.self, Style.self, Paragraph.self, Heading.self, Bullets.self,
             Unbullet.self, Table.self, Images.self, PageBreak.self, Image.self,
             SectionBreak.self, Header.self, Footer.self, Footnote.self,
-            NamedRange.self, PageSetup.self, Test.self,
+            NamedRange.self, PageSetup.self, SectionStyle.self, Test.self,
         ]
     )
 
@@ -2311,6 +2311,129 @@ struct Docs: AsyncParsableCommand {
             print("Updated the document style.")
         }
     }
+
+    struct SectionStyle: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "section-style",
+            abstract: "Set margins, page numbering, direction, and separators for the sections a range overlaps.",
+            discussion: """
+                Restyles every section the zero-based UTF-16 range --from..<--to \
+                overlaps (section style is a body concept, so the range is \
+                body-only). Margins are in points. --page-number-start sets the \
+                section's first page number (1 or greater). --direction is ltr or \
+                rtl. --column-separator is none or between. \
+                --first-page-header-footer toggles the section's first-page \
+                header/footer (--no- clears it). --flip-orientation swaps the \
+                section's page width and height. Every dimension must be a finite \
+                value greater than zero, and at least one option is required. The \
+                section's header/footer ids and type are read-only, and multi-column \
+                layout is not set here.
+                """
+        )
+
+        @Argument(help: "The document ID.")
+        var documentID: String
+
+        @Option(help: "The zero-based UTF-16 range start (inclusive).")
+        var from: Int
+
+        @Option(help: "The zero-based UTF-16 range end (exclusive).")
+        var to: Int
+
+        @Option(parsing: .unconditional, help: "The top margin in points.")
+        var marginTop: Double?
+
+        @Option(parsing: .unconditional, help: "The bottom margin in points.")
+        var marginBottom: Double?
+
+        @Option(parsing: .unconditional, help: "The left margin in points.")
+        var marginLeft: Double?
+
+        @Option(parsing: .unconditional, help: "The right margin in points.")
+        var marginRight: Double?
+
+        @Option(parsing: .unconditional, help: "The header margin in points.")
+        var marginHeader: Double?
+
+        @Option(parsing: .unconditional, help: "The footer margin in points.")
+        var marginFooter: Double?
+
+        @Option(help: "The text direction: ltr or rtl.")
+        var direction: DocsDirectionArgument?
+
+        @Option(help: "The column separator style: none or between.")
+        var columnSeparator: DocsColumnSeparatorArgument?
+
+        @Option(parsing: .unconditional, help: "The section's first page number (1 or greater).")
+        var pageNumberStart: Int?
+
+        @Flag(
+            inversion: .prefixedNo,
+            help: "Use the first-page header/footer for the section (--no- turns it off)."
+        )
+        var firstPageHeaderFooter: Bool?
+
+        @Flag(
+            inversion: .prefixedNo,
+            help: "Flip the section orientation, swapping width and height (--no- turns it off)."
+        )
+        var flipOrientation: Bool?
+
+        @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+        var requireRevision: String?
+
+        func validate() throws {
+            let hasOption =
+                marginTop != nil || marginBottom != nil || marginLeft != nil
+                || marginRight != nil || marginHeader != nil || marginFooter != nil
+                || direction != nil || columnSeparator != nil || pageNumberStart != nil
+                || firstPageHeaderFooter != nil || flipOrientation != nil
+            guard hasOption else {
+                throw ValidationError("Provide at least one section-style option.")
+            }
+            guard from >= 0 else {
+                throw ValidationError("--from must be zero or greater.")
+            }
+            guard to > from else {
+                throw ValidationError("--to must be greater than --from.")
+            }
+            func requirePositive(_ value: Double?, _ label: String) throws {
+                if let value, !(value.isFinite && value > 0) {
+                    throw ValidationError("\(label) must be a finite value greater than zero.")
+                }
+            }
+            try requirePositive(marginTop, "--margin-top")
+            try requirePositive(marginBottom, "--margin-bottom")
+            try requirePositive(marginLeft, "--margin-left")
+            try requirePositive(marginRight, "--margin-right")
+            try requirePositive(marginHeader, "--margin-header")
+            try requirePositive(marginFooter, "--margin-footer")
+            if let pageNumberStart, pageNumberStart < 1 {
+                throw ValidationError("--page-number-start must be 1 or greater.")
+            }
+        }
+
+        func run() async throws {
+            let client = DocsClient(api: try CLI.makeAPI())
+            _ = try await client.updateSectionStyle(
+                documentId: documentID,
+                startIndex: from,
+                endIndex: to,
+                marginTop: marginTop,
+                marginBottom: marginBottom,
+                marginLeft: marginLeft,
+                marginRight: marginRight,
+                marginHeader: marginHeader,
+                marginFooter: marginFooter,
+                columnSeparatorStyle: columnSeparator?.separatorStyle,
+                contentDirection: direction?.direction,
+                pageNumberStart: pageNumberStart,
+                useFirstPageHeaderFooter: firstPageHeaderFooter,
+                flipPageOrientation: flipOrientation,
+                requiredRevisionId: requireRevision)
+            print("Updated the section style.")
+        }
+    }
 }
 
 // MARK: - Docs styling argument enums
@@ -2427,6 +2550,21 @@ enum DocsDirectionArgument: String, ExpressibleByArgument {
         switch self {
         case .ltr: return .leftToRight
         case .rtl: return .rightToLeft
+        }
+    }
+}
+
+/// CLI-facing section column-separator names mapping to the API
+/// ``DocsColumnSeparatorStyle``. The user types the natural none/between words.
+enum DocsColumnSeparatorArgument: String, ExpressibleByArgument {
+    case none
+    case between
+
+    /// The Docs API column separator style this argument maps to.
+    var separatorStyle: DocsColumnSeparatorStyle {
+        switch self {
+        case .none: return .none
+        case .between: return .betweenEachColumn
         }
     }
 }

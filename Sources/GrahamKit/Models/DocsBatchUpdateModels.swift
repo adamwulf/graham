@@ -97,6 +97,10 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
     /// Sets document-wide style (page size, margins, header/footer flags,
     /// background); the `fields` mask decides which properties apply.
     case updateDocumentStyle(DocsUpdateDocumentStyleRequest)
+    /// Sets the style (margins, page numbering, direction, column separator,
+    /// header/footer flags) of every section a range overlaps; the `fields`
+    /// mask decides which properties apply.
+    case updateSectionStyle(DocsUpdateSectionStyleRequest)
 
     private enum CodingKeys: String, CodingKey {
         case insertText
@@ -130,6 +134,7 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
         case deleteNamedRange
         case replaceNamedRangeContent
         case updateDocumentStyle
+        case updateSectionStyle
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -197,6 +202,8 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
             try container.encode(request, forKey: .replaceNamedRangeContent)
         case .updateDocumentStyle(let request):
             try container.encode(request, forKey: .updateDocumentStyle)
+        case .updateSectionStyle(let request):
+            try container.encode(request, forKey: .updateSectionStyle)
         }
     }
 }
@@ -1658,6 +1665,81 @@ public struct DocsUpdateDocumentStyleRequest: Codable, Sendable, Equatable {
 
     public init(documentStyle: DocsDocumentStyle, fields: String) {
         self.documentStyle = documentStyle
+        self.fields = fields
+    }
+}
+
+// MARK: - Section style
+
+/// A Docs v1 `SectionStyle.columnSeparatorStyle`: the line drawn between columns
+/// of a multi-column section.
+public enum DocsColumnSeparatorStyle: String, Codable, Sendable, Equatable {
+    case none = "NONE"
+    case betweenEachColumn = "BETWEEN_EACH_COLUMN"
+}
+
+/// The writable subset of a Docs `SectionStyle`.
+///
+/// Margins are in points; `columnSeparatorStyle` and `contentDirection` are
+/// enums; `pageNumberStart` is the first page number for the section;
+/// `useFirstPageHeaderFooter` toggles the first-page header/footer for the
+/// section; `flipPageOrientation` swaps the section's page width and height.
+/// The section's header/footer ids and `sectionType` are read-only (the server
+/// assigns them), and the per-column `columnProperties` layout is out of this
+/// slice, so none of those are modeled here.
+public struct DocsSectionStyle: Codable, Sendable, Equatable {
+    public let marginTop: DocsDimension?
+    public let marginBottom: DocsDimension?
+    public let marginLeft: DocsDimension?
+    public let marginRight: DocsDimension?
+    public let marginHeader: DocsDimension?
+    public let marginFooter: DocsDimension?
+    public let columnSeparatorStyle: DocsColumnSeparatorStyle?
+    public let contentDirection: DocsContentDirection?
+    public let pageNumberStart: Int?
+    public let useFirstPageHeaderFooter: Bool?
+    public let flipPageOrientation: Bool?
+
+    public init(
+        marginTop: DocsDimension? = nil,
+        marginBottom: DocsDimension? = nil,
+        marginLeft: DocsDimension? = nil,
+        marginRight: DocsDimension? = nil,
+        marginHeader: DocsDimension? = nil,
+        marginFooter: DocsDimension? = nil,
+        columnSeparatorStyle: DocsColumnSeparatorStyle? = nil,
+        contentDirection: DocsContentDirection? = nil,
+        pageNumberStart: Int? = nil,
+        useFirstPageHeaderFooter: Bool? = nil,
+        flipPageOrientation: Bool? = nil
+    ) {
+        self.marginTop = marginTop
+        self.marginBottom = marginBottom
+        self.marginLeft = marginLeft
+        self.marginRight = marginRight
+        self.marginHeader = marginHeader
+        self.marginFooter = marginFooter
+        self.columnSeparatorStyle = columnSeparatorStyle
+        self.contentDirection = contentDirection
+        self.pageNumberStart = pageNumberStart
+        self.useFirstPageHeaderFooter = useFirstPageHeaderFooter
+        self.flipPageOrientation = flipPageOrientation
+    }
+}
+
+/// The `updateSectionStyle` operation. `range` selects the sections to restyle
+/// (its `segmentId` must be empty — section style is a body-only concept);
+/// `sectionStyle` carries the new values; `fields` is a comma-separated field
+/// mask of the ``DocsSectionStyle`` paths to apply, relative to the style root.
+/// At least one path is required.
+public struct DocsUpdateSectionStyleRequest: Codable, Sendable, Equatable {
+    public let range: DocsRange
+    public let sectionStyle: DocsSectionStyle
+    public let fields: String
+
+    public init(range: DocsRange, sectionStyle: DocsSectionStyle, fields: String) {
+        self.range = range
+        self.sectionStyle = sectionStyle
         self.fields = fields
     }
 }

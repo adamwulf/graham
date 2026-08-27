@@ -2093,6 +2093,128 @@ final class DocsWriteTests: XCTestCase {
         XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
     }
 
+    // MARK: - updateSectionStyle
+
+    func testUpdateSectionStyleWithAllOptionsPostsExactBodyAndMask() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(
+            urlContains: ":batchUpdate",
+            json: #"{"documentId":"doc-1","replies":[{}]}"#
+        )
+
+        let response = try await client.updateSectionStyle(
+            documentId: "doc-1",
+            startIndex: 1, endIndex: 20,
+            marginTop: 72, marginBottom: 72, marginLeft: 90, marginRight: 90,
+            marginHeader: 24, marginFooter: 24,
+            columnSeparatorStyle: .betweenEachColumn,
+            contentDirection: .rightToLeft,
+            pageNumberStart: 1,
+            useFirstPageHeaderFooter: true,
+            flipPageOrientation: true)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(
+            request.url.absoluteString,
+            "https://docs.googleapis.com/v1/documents/doc-1:batchUpdate"
+        )
+        // The fields mask is the fixed documented order; the sectionStyle keys and
+        // the body-only range keys are sorted by the shared encoder.
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateSectionStyle":{"fields":"marginTop,marginBottom,marginLeft,marginRight,marginHeader,marginFooter,columnSeparatorStyle,contentDirection,pageNumberStart,useFirstPageHeaderFooter,flipPageOrientation","range":{"endIndex":20,"startIndex":1},"sectionStyle":{"columnSeparatorStyle":"BETWEEN_EACH_COLUMN","contentDirection":"RIGHT_TO_LEFT","flipPageOrientation":true,"marginBottom":{"magnitude":72,"unit":"PT"},"marginFooter":{"magnitude":24,"unit":"PT"},"marginHeader":{"magnitude":24,"unit":"PT"},"marginLeft":{"magnitude":90,"unit":"PT"},"marginRight":{"magnitude":90,"unit":"PT"},"marginTop":{"magnitude":72,"unit":"PT"},"pageNumberStart":1,"useFirstPageHeaderFooter":true}}}]}"#
+        )
+        XCTAssertEqual(response.documentId, "doc-1")
+        XCTAssertEqual(response.replies?.count, 1)
+    }
+
+    func testUpdateSectionStyleMarginOnlyEmitsMinimalMaskAndBody() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.updateSectionStyle(
+            documentId: "doc-1", startIndex: 2, endIndex: 10, marginTop: 36)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        // Only the provided margin appears; absent fields are omitted entirely.
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateSectionStyle":{"fields":"marginTop","range":{"endIndex":10,"startIndex":2},"sectionStyle":{"marginTop":{"magnitude":36,"unit":"PT"}}}}]}"#
+        )
+    }
+
+    func testUpdateSectionStyleColumnSeparatorNoneAndDirectionKeepFixedMaskOrder() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.updateSectionStyle(
+            documentId: "doc-1", startIndex: 0, endIndex: 5,
+            columnSeparatorStyle: DocsColumnSeparatorStyle.none,
+            contentDirection: .leftToRight)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateSectionStyle":{"fields":"columnSeparatorStyle,contentDirection","range":{"endIndex":5,"startIndex":0},"sectionStyle":{"columnSeparatorStyle":"NONE","contentDirection":"LEFT_TO_RIGHT"}}}]}"#
+        )
+    }
+
+    func testUpdateSectionStyleWithRequiredRevisionCarriesWriteControl() async throws {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.updateSectionStyle(
+            documentId: "doc-1", startIndex: 1, endIndex: 4,
+            pageNumberStart: 3, requiredRevisionId: "rev-1")
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            Self.bodyString(request),
+            #"{"requests":[{"updateSectionStyle":{"fields":"pageNumberStart","range":{"endIndex":4,"startIndex":1},"sectionStyle":{"pageNumberStart":3}}}],"writeControl":{"requiredRevisionId":"rev-1"}}"#
+        )
+    }
+
+    func testUpdateSectionStyleRejectsBadInputWithoutSendingARequest() async {
+        let transport = StubTransport()
+        let client = makeClient(transport: transport)
+
+        // No option at all (empty mask).
+        await assertInvalidArgument {
+            _ = try await client.updateSectionStyle(documentId: "doc-1", startIndex: 1, endIndex: 5)
+        }
+        // A negative range start.
+        await assertInvalidArgument {
+            _ = try await client.updateSectionStyle(
+                documentId: "doc-1", startIndex: -1, endIndex: 5, marginTop: 36)
+        }
+        // An end not greater than the start.
+        await assertInvalidArgument {
+            _ = try await client.updateSectionStyle(
+                documentId: "doc-1", startIndex: 5, endIndex: 5, marginTop: 36)
+        }
+        // A non-positive margin.
+        await assertInvalidArgument {
+            _ = try await client.updateSectionStyle(
+                documentId: "doc-1", startIndex: 1, endIndex: 5, marginTop: 0)
+        }
+        // A non-finite margin.
+        await assertInvalidArgument {
+            _ = try await client.updateSectionStyle(
+                documentId: "doc-1", startIndex: 1, endIndex: 5, marginLeft: .infinity)
+        }
+        // A page number below one.
+        await assertInvalidArgument {
+            _ = try await client.updateSectionStyle(
+                documentId: "doc-1", startIndex: 1, endIndex: 5, pageNumberStart: 0)
+        }
+        XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
+    }
+
     // MARK: - Named-range and document-style union discriminators
 
     /// The document-mode raw values match the discovery document exactly, so the

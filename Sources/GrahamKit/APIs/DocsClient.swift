@@ -1984,6 +1984,106 @@ public struct DocsClient: Sendable {
             requiredRevisionId: requiredRevisionId)
     }
 
+    /// Restyles every section a body range overlaps.
+    ///
+    /// The `range` is body-only (its `segmentId` is empty) — section style is a
+    /// body concept. Indices are zero-based UTF-16 code units; `endIndex` must be
+    /// greater than `startIndex`. Margins are in points and each must be a finite
+    /// value greater than zero when given; `pageNumberStart` must be one or
+    /// greater. The `fields` mask is emitted in the fixed order `marginTop`,
+    /// `marginBottom`, `marginLeft`, `marginRight`, `marginHeader`,
+    /// `marginFooter`, `columnSeparatorStyle`, `contentDirection`,
+    /// `pageNumberStart`, `useFirstPageHeaderFooter`, `flipPageOrientation`. At
+    /// least one parameter is required.
+    ///
+    /// The section's header/footer ids and `sectionType` are read-only, and the
+    /// per-column layout (`columnProperties`) is out of this slice, so none are
+    /// settable here.
+    public func updateSectionStyle(
+        documentId: String,
+        startIndex: Int,
+        endIndex: Int,
+        marginTop: Double? = nil,
+        marginBottom: Double? = nil,
+        marginLeft: Double? = nil,
+        marginRight: Double? = nil,
+        marginHeader: Double? = nil,
+        marginFooter: Double? = nil,
+        columnSeparatorStyle: DocsColumnSeparatorStyle? = nil,
+        contentDirection: DocsContentDirection? = nil,
+        pageNumberStart: Int? = nil,
+        useFirstPageHeaderFooter: Bool? = nil,
+        flipPageOrientation: Bool? = nil,
+        requiredRevisionId: String? = nil
+    ) async throws -> DocsBatchUpdateResponse {
+        guard startIndex >= 0 else {
+            throw GrahamError.invalidArgument("the range start must be zero or greater")
+        }
+        guard endIndex > startIndex else {
+            throw GrahamError.invalidArgument("the range end must be greater than the start")
+        }
+        func requirePositive(_ value: Double?, _ label: String) throws {
+            if let value, !(value.isFinite && value > 0) {
+                throw GrahamError.invalidArgument(
+                    "\(label) must be a finite value greater than zero, got \(value)")
+            }
+        }
+        try requirePositive(marginTop, "top margin")
+        try requirePositive(marginBottom, "bottom margin")
+        try requirePositive(marginLeft, "left margin")
+        try requirePositive(marginRight, "right margin")
+        try requirePositive(marginHeader, "header margin")
+        try requirePositive(marginFooter, "footer margin")
+        if let pageNumberStart {
+            guard pageNumberStart >= 1 else {
+                throw GrahamError.invalidArgument(
+                    "page number start must be 1 or greater, got \(pageNumberStart)")
+            }
+        }
+
+        func points(_ value: Double?) -> DocsDimension? {
+            value.map { DocsDimension(magnitude: $0, unit: .pt) }
+        }
+
+        var mask: [String] = []
+        if marginTop != nil { mask.append("marginTop") }
+        if marginBottom != nil { mask.append("marginBottom") }
+        if marginLeft != nil { mask.append("marginLeft") }
+        if marginRight != nil { mask.append("marginRight") }
+        if marginHeader != nil { mask.append("marginHeader") }
+        if marginFooter != nil { mask.append("marginFooter") }
+        if columnSeparatorStyle != nil { mask.append("columnSeparatorStyle") }
+        if contentDirection != nil { mask.append("contentDirection") }
+        if pageNumberStart != nil { mask.append("pageNumberStart") }
+        if useFirstPageHeaderFooter != nil { mask.append("useFirstPageHeaderFooter") }
+        if flipPageOrientation != nil { mask.append("flipPageOrientation") }
+
+        guard !mask.isEmpty else {
+            throw GrahamError.invalidArgument("section style requires at least one style option")
+        }
+
+        let style = DocsSectionStyle(
+            marginTop: points(marginTop),
+            marginBottom: points(marginBottom),
+            marginLeft: points(marginLeft),
+            marginRight: points(marginRight),
+            marginHeader: points(marginHeader),
+            marginFooter: points(marginFooter),
+            columnSeparatorStyle: columnSeparatorStyle,
+            contentDirection: contentDirection,
+            pageNumberStart: pageNumberStart,
+            useFirstPageHeaderFooter: useFirstPageHeaderFooter,
+            flipPageOrientation: flipPageOrientation)
+        let request = DocsBatchUpdateRequest.updateSectionStyle(
+            DocsUpdateSectionStyleRequest(
+                range: DocsRange(startIndex: startIndex, endIndex: endIndex),
+                sectionStyle: style,
+                fields: mask.joined(separator: ",")))
+        return try await batchUpdate(
+            documentId: documentId, requests: [request],
+            requiredRevisionId: requiredRevisionId)
+    }
+
     // MARK: - Image download
 
     /// Downloads the bytes at an image `contentUri`.

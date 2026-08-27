@@ -307,4 +307,77 @@ final class DocsNamedRangeParsingTests: XCTestCase {
         XCTAssertThrowsError(try Docs.PageSetup.parse(["doc-1", "--margin-header", "inf"]))
         XCTAssertThrowsError(try Docs.PageSetup.parse(["doc-1", "--margin-footer", "nan"]))
     }
+
+    // MARK: - docs section-style
+
+    func testSectionStyleParsesAllOptions() throws {
+        let command = try Docs.SectionStyle.parse([
+            "doc-1", "--from", "1", "--to", "20",
+            "--margin-top", "72", "--margin-bottom", "72",
+            "--margin-left", "90", "--margin-right", "90",
+            "--margin-header", "24", "--margin-footer", "24",
+            "--direction", "rtl", "--column-separator", "between",
+            "--page-number-start", "1",
+            "--first-page-header-footer", "--flip-orientation",
+            "--require-revision", "rev-1",
+        ])
+        XCTAssertEqual(command.documentID, "doc-1")
+        XCTAssertEqual(command.from, 1)
+        XCTAssertEqual(command.to, 20)
+        XCTAssertEqual(command.marginTop, 72)
+        XCTAssertEqual(command.marginFooter, 24)
+        XCTAssertEqual(command.direction, .rtl)
+        XCTAssertEqual(command.columnSeparator, .between)
+        XCTAssertEqual(command.pageNumberStart, 1)
+        XCTAssertEqual(command.firstPageHeaderFooter, true)
+        XCTAssertEqual(command.flipOrientation, true)
+        XCTAssertEqual(command.requireRevision, "rev-1")
+    }
+
+    func testSectionStyleParsesColumnSeparatorNoneAndDefaultsFlagsToNil() throws {
+        let command = try Docs.SectionStyle.parse([
+            "doc-1", "--from", "0", "--to", "5", "--column-separator", "none",
+        ])
+        XCTAssertEqual(command.columnSeparator, DocsColumnSeparatorArgument.none)
+        XCTAssertNil(command.direction)
+        XCTAssertNil(command.firstPageHeaderFooter)
+        XCTAssertNil(command.flipOrientation)
+        XCTAssertNil(command.marginTop)
+    }
+
+    func testSectionStyleRejectsNoStyleOptions() {
+        XCTAssertThrowsError(try Docs.SectionStyle.parse(["doc-1", "--from", "1", "--to", "5"]))
+    }
+
+    func testSectionStyleRejectsBadRange() {
+        // --to must be greater than --from.
+        XCTAssertThrowsError(try Docs.SectionStyle.parse([
+            "doc-1", "--from", "5", "--to", "5", "--margin-top", "36",
+        ]))
+        // --from must be zero or greater.
+        XCTAssertThrowsError(try Docs.SectionStyle.parse([
+            "doc-1", "--from", "-1", "--to", "5", "--margin-top", "36",
+        ]))
+    }
+
+    func testSectionStyleRejectsNonPositiveAndNonFiniteMargins() {
+        XCTAssertThrowsError(try Docs.SectionStyle.parse([
+            "doc-1", "--from", "1", "--to", "5", "--margin-top", "0",
+        ]))
+        XCTAssertThrowsError(try Docs.SectionStyle.parse([
+            "doc-1", "--from", "1", "--to", "5", "--margin-left", "inf",
+        ]))
+    }
+
+    func testSectionStyleRejectsInvalidEnumsAndPageNumber() {
+        XCTAssertThrowsError(try Docs.SectionStyle.parse([
+            "doc-1", "--from", "1", "--to", "5", "--direction", "sideways",
+        ]))
+        XCTAssertThrowsError(try Docs.SectionStyle.parse([
+            "doc-1", "--from", "1", "--to", "5", "--column-separator", "dotted",
+        ]))
+        XCTAssertThrowsError(try Docs.SectionStyle.parse([
+            "doc-1", "--from", "1", "--to", "5", "--page-number-start", "0",
+        ]))
+    }
 }
