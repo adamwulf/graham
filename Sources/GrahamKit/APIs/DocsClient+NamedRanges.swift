@@ -1,7 +1,7 @@
 import Foundation
 
 extension DocsClient {
-    // MARK: - Named ranges and document style
+    // MARK: - Named ranges
     //
     // A named range labels a zero-based UTF-16 range so a later write can fill it
     // (the template-filling primitive). `createNamedRange` reuses the shared
@@ -10,10 +10,7 @@ extension DocsClient {
     // endIndex must be greater than startIndex) and returns the new id from its
     // reply. The delete and replace ops select the target by id or by name — the
     // two are mutually exclusive, so each method requires exactly one non-empty
-    // selector and dispatches to the matching typed init. `updateDocumentStyle`
-    // builds a deterministic `fields` mask (one path per provided parameter, in a
-    // fixed documented order) and requires at least one parameter, the same
-    // discipline as the text, paragraph, and table styling above.
+    // selector and dispatches to the matching typed init.
 
     /// Creates a named range over a zero-based UTF-16 range and returns the batch
     /// response plus the new named-range id (from the reply).

@@ -1,6 +1,30 @@
 import Foundation
 
 extension DocsClient {
+    // MARK: - Inline images
+
+    /// Inserts an inline image from a `uri` and returns the batch response plus
+    /// the new image's object id (from the reply).
+    ///
+    /// The `uri` must be publicly fetchable by Google at insertion time
+    /// (< 50MB, <= 25 megapixels, PNG/JPEG/GIF); Google fetches it once and
+    /// stores a copy. The destination is exactly one of an explicit `index` (a
+    /// ``DocsLocation``) or the end of the body or a segment (`endOfSegment`).
+    ///
+    /// - Parameters:
+    ///   - uri: the image URI; must not be empty.
+    ///   - index: the zero-based UTF-16 index to insert at. Required unless
+    ///     `endOfSegment` is set. The body's first editable index is 1; a named
+    ///     segment starts at 0.
+    ///   - endOfSegment: append to the end of the body (or the segment named by
+    ///     `segmentId`) without computing an index. Mutually exclusive with
+    ///     `index`; provide exactly one.
+    ///   - segmentId: a header or footer segment (an inline image cannot go in a
+    ///     footnote); nil or an empty string targets the body.
+    ///   - width / height: the optional display size in points; each must be
+    ///     greater than zero when given. Omitting both lets the API size the
+    ///     image from its resolution; giving one lets the API compute the other
+    ///     to preserve the aspect ratio.
     public func insertInlineImage(
         documentId: String,
         uri: String,
@@ -99,21 +123,6 @@ extension DocsClient {
             requiredRevisionId: requiredRevisionId)
     }
 
-    /// Inserts a section break (with a preceding newline) in the document body.
-    ///
-    /// The destination is exactly one of an explicit body `index` (a
-    /// ``DocsLocation``) or the end of the body (`endOfSegment`). Section breaks
-    /// are body-only in the Docs API, so there is no segment option.
-    ///
-    /// - Parameters:
-    ///   - sectionType: the section-type spelling (case-insensitive), `CONTINUOUS`
-    ///     or `NEXT_PAGE`. A value outside that set is rejected before any request
-    ///     goes out.
-    ///   - index: the zero-based UTF-16 body index to insert at. Required unless
-    ///     `endOfSegment` is set. The body's first editable index is 1 (index 0
-    ///     lands inside the initial section break).
-    ///   - endOfSegment: append the section break to the end of the body without
-    ///     computing an index. Mutually exclusive with `index`; provide exactly
     // MARK: - Image download
 
     /// Downloads the bytes at an image `contentUri`.

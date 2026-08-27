@@ -1,6 +1,22 @@
 import Foundation
 
 extension DocsClient {
+    /// Inserts `text` at a zero-based document index.
+    ///
+    /// `index` is a zero-based offset in **UTF-16 code units** into the
+    /// document, exactly as the Docs API defines it (see ``DocsLocation``). The
+    /// API index model is kept for Docs text operations; graham does not
+    /// translate it to a one-based position the way it does for slides and
+    /// tables.
+    /// - Parameters:
+    ///   - segmentId: names a header, footer, or footnote segment to insert
+    ///     into; when nil or empty, the insert targets the document body. A
+    ///     named segment starts its content at index 0, so the body-only
+    ///     `index >= 1` guard does not apply to it.
+    ///   - endOfSegment: append to the end of the segment (or the body, when
+    ///     `segmentId` is nil or empty) without computing an index. `index` is
+    ///     ignored in this mode, and no index guard applies. This encodes an
+    ///     ``DocsEndOfSegmentLocation`` instead of a ``DocsLocation``.
     public func insertText(
         documentId: String,
         text: String,

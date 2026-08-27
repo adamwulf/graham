@@ -373,11 +373,6 @@ extension SlidesClient {
         )
     }
 
-    /// Inserts text into a text-bearing page element, or a table cell.
-    ///
-    /// `insertionIndex` is a zero-based UTF-16 code-unit offset into the target
-    /// text. To insert into a table cell, pass both a one-based `row` and
-    /// `column`; the client translates them to the API's zero-based cell
     /// Moves one slide so it ends at a one-based final position.
     ///
     /// The API's `updateSlidesPosition.insertionIndex` is zero-based and refers
