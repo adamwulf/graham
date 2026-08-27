@@ -267,6 +267,52 @@ final class SlidesImageDownloadTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: tempDir.path))
     }
 
+    func testDownloadImagesRefusesToWriteThroughAPrePlantedSymlink() async throws {
+        // One image whose deterministic name is "001-slide1-img-a.png".
+        let json = #"""
+        {
+          "presentationId": "p",
+          "slides": [{"objectId": "slide-1", "pageElements": [
+            {"objectId": "img-a", "image": {"contentUrl": "https://c.example/png"}}
+          ]}]
+        }
+        """#
+        let transport = StubTransport()
+        transport.stub(urlContains: "c.example/png", responses: [
+            HTTPResponse(statusCode: 200, body: Self.png),
+        ])
+        let client = SlidesClient(
+            api: TestSupport.makeAPI(transport: transport),
+            downloadTransport: transport
+        )
+        let rows = try GoogleJSON.decoder.decode(Presentation.self, from: Data(json.utf8)).imageRows
+
+        // The directory must exist so the symlink can be planted before the run.
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let linkURL = tempDir.appendingPathComponent("001-slide1-img-a.png")
+        // The symlink points OUTSIDE the target directory; if the write followed
+        // it, the bytes would land at `escapeTarget`.
+        let escapeTarget = tempDir.deletingLastPathComponent()
+            .appendingPathComponent("graham-slides-escape-\(ProcessInfo.processInfo.globallyUniqueString).png")
+        defer { try? FileManager.default.removeItem(at: escapeTarget) }
+        try FileManager.default.createSymbolicLink(at: linkURL, withDestinationURL: escapeTarget)
+
+        let results = try await client.downloadImages(rows, to: tempDir)
+
+        // The write is refused and recorded as a failure, not a crash.
+        guard case .failed = Self.outcome(results, "img-a") else {
+            return XCTFail(
+                "a symlinked target must fail: \(String(describing: Self.outcome(results, "img-a")))")
+        }
+        // Nothing was written through the link: the escape target never appears.
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: escapeTarget.path),
+            "the download must not follow the symlink out of the directory")
+        // The symlink itself is left in place, untouched.
+        let attributes = try FileManager.default.attributesOfItem(atPath: linkURL.path)
+        XCTAssertEqual(attributes[.type] as? FileAttributeType, .typeSymbolicLink)
+    }
+
     // MARK: - Helpers and fixtures
 
     private static func outcome(_ results: [SlideImageDownloadResult], _ objectId: String) -> SlideImageDownloadOutcome? {

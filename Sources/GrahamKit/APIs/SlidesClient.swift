@@ -2112,7 +2112,7 @@ public struct SlidesClient: Sendable {
                     ))
                     continue
                 }
-                try data.write(to: fileURL)
+                try writeRefusingSymlink(data, to: fileURL)
                 results.append(SlideImageDownloadResult(
                     objectId: row.objectId,
                     slideIndex: row.slideIndex,
