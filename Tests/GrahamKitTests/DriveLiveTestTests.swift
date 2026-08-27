@@ -391,7 +391,14 @@ private final class DriveLiveFixture: @unchecked Sendable {
             trashed: false,
             starred: false)
         files[file.id] = file
-        return driveFile(file)
+        var object = fileObject(file)
+        // The live API returns only its default projection unless the caller
+        // explicitly requests parents. Modeling that here prevents the fixture
+        // from hiding a missing `fields` selector on files.copy.
+        if queryValue("fields", in: request)?.contains("parents") != true {
+            object["parents"] = nil
+        }
+        return json(object)
     }
 
     private func updateResponse(_ request: HTTPRequest) -> HTTPResponse {

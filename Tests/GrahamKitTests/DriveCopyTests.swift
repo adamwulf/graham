@@ -22,8 +22,12 @@ final class DriveCopyTests: XCTestCase {
         XCTAssertEqual(request.method, "POST")
         XCTAssertEqual(Self.path(request.url), "/drive/v3/files/f1/copy")
         XCTAssertEqual(request.headers["Content-Type"], "application/json")
-        // The one and only query item is supportsAllDrives=true; nothing else.
-        XCTAssertEqual(Self.queryItems(request.url), [URLQueryItem(name: "supportsAllDrives", value: "true")])
+        // Ask for the same complete metadata as create/get, including parents,
+        // so callers can verify the copy landed in its requested folder.
+        XCTAssertEqual(Self.queryItems(request.url), [
+            URLQueryItem(name: "fields", value: DriveClient.fileFields),
+            URLQueryItem(name: "supportsAllDrives", value: "true"),
+        ])
         // The name is carried in the body, never in the URL.
         let body = try Self.body(request)
         XCTAssertEqual(body.name, "My Copy")
@@ -80,6 +84,9 @@ final class DriveCopyTests: XCTestCase {
         let request = try XCTUnwrap(transport.requests(urlContains: "/drive/v3/files/f1/copy").first)
         XCTAssertEqual(try Self.body(request).parents, ["folder-7"])
         XCTAssertFalse(request.url.absoluteString.contains("folder-7"))
+        XCTAssertTrue(try XCTUnwrap(Self.queryItems(request.url).first {
+            $0.name == "fields"
+        }?.value).contains("parents"))
     }
 
     func testCopyReturnsTheNewFilesId() async throws {

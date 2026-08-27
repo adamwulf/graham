@@ -215,7 +215,8 @@ public struct DriveClient: Sendable {
         name: String? = nil,
         parent: String? = nil
     ) async throws -> DriveFile {
-        let url = try Self.fileURL(fileId, suffix: "/copy")
+        let url = try Self.fileURL(
+            fileId, suffix: "/copy", extra: [("fields", Self.fileFields)])
         let body = DriveFileCopyRequest(name: name, parents: parent.map { [$0] })
         return try await api.sendJSON(DriveFile.self, method: "POST", url: url, body: body)
     }
