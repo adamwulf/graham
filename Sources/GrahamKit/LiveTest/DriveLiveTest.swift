@@ -328,7 +328,10 @@ public struct DriveLiveTest: Sendable {
             recorder: recorder,
             skipReason: fileID == nil ? "\(dependency) failed" : nil
         ) {
-            _ = try await drive.trash(fileId: fileID!)
+            let file = try await drive.trash(fileId: fileID!)
+            guard file.id == fileID!, file.trashed == true else {
+                throw GrahamError.invalidResponse("the cleanup trash state did not round-trip")
+            }
         }
     }
 

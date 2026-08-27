@@ -155,6 +155,15 @@ final class DriveLiveTestTests: XCTestCase {
             summary.steps.first(where: { $0.name == "untrash-copy" })?.outcome,
             .skip(reason: "trash-copy failed"))
         XCTAssertTrue(fixture.deleteRequests.isEmpty)
+        for name in [
+            "drive-trash-shortcut", "drive-trash-document",
+            "drive-trash-source-folder", "drive-trash-destination-folder",
+        ] {
+            XCTAssertEqual(
+                summary.steps.first(where: { $0.name == name })?.outcome,
+                .fail(reason: "Invalid response: the cleanup trash state did not round-trip"),
+                "unexpected outcome for \(name)")
+        }
     }
 
     func testRootFolderCreationFailureStopsBeforeCreatingArtifacts() async {
