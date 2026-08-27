@@ -220,4 +220,51 @@ final class DocsWriteParsingTests: XCTestCase {
             "doc-1", "--timestamp", "2026-08-27T00:00:00Z", "--date-format", "weekday", "--at", "1",
         ]))
     }
+
+    // MARK: - docs tab
+
+    func testDocsRegistersTabSubcommand() {
+        let names = Docs.configuration.subcommands.map { String(describing: $0) }
+        XCTAssertTrue(names.contains("Tab"), "docs should list a Tab subcommand: \(names)")
+        let tabNames = Docs.Tab.configuration.subcommands.map { String(describing: $0) }
+        for expected in ["Add", "Delete", "Update"] {
+            XCTAssertTrue(tabNames.contains(expected), "tab should list \(expected): \(tabNames)")
+        }
+    }
+
+    func testTabAddParsesTitlePositionParentAndIcon() throws {
+        let command = try Docs.Tab.Add.parse([
+            "doc-1", "--title", "Notes", "--position", "2",
+            "--parent", "t.parent", "--icon", "📓",
+        ])
+        XCTAssertEqual(command.documentID, "doc-1")
+        XCTAssertEqual(command.title, "Notes")
+        XCTAssertEqual(command.position, 2)
+        XCTAssertEqual(command.parent, "t.parent")
+        XCTAssertEqual(command.icon, "📓")
+    }
+
+    func testTabAddRejectsNonPositivePosition() {
+        XCTAssertThrowsError(try Docs.Tab.Add.parse(["doc-1", "--position", "0"]))
+    }
+
+    func testTabDeleteRequiresTabId() {
+        XCTAssertThrowsError(try Docs.Tab.Delete.parse(["doc-1"]))
+        let command = try? Docs.Tab.Delete.parse(["doc-1", "--tab-id", "t.1"])
+        XCTAssertEqual(command?.tabId, "t.1")
+    }
+
+    func testTabUpdateRequiresTabIdAndAtLeastOneProperty() throws {
+        // Missing --tab-id.
+        XCTAssertThrowsError(try Docs.Tab.Update.parse(["doc-1", "--title", "x"]))
+        // Present tab id but no property to change.
+        XCTAssertThrowsError(try Docs.Tab.Update.parse(["doc-1", "--tab-id", "t.1"]))
+        // A valid rename+move parses.
+        let command = try Docs.Tab.Update.parse([
+            "doc-1", "--tab-id", "t.1", "--title", "Renamed", "--position", "3",
+        ])
+        XCTAssertEqual(command.tabId, "t.1")
+        XCTAssertEqual(command.title, "Renamed")
+        XCTAssertEqual(command.position, 3)
+    }
 }

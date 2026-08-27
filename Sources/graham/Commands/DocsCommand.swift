@@ -11,7 +11,7 @@ struct Docs: AsyncParsableCommand {
             Unbullet.self, Table.self, Images.self, PageBreak.self, Image.self,
             SectionBreak.self, Header.self, Footer.self, Footnote.self,
             NamedRange.self, PageSetup.self, SectionStyle.self, NamedStyle.self,
-            Chip.self, Test.self,
+            Chip.self, Tab.self, Test.self,
         ]
     )
 
@@ -2746,6 +2746,124 @@ struct Docs: AsyncParsableCommand {
                     index: at ?? 1, segmentId: segment, endOfSegment: end, tabId: tabId,
                     requiredRevisionId: requireRevision)
                 print("Inserted a date chip.")
+            }
+        }
+    }
+
+    struct Tab: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "tab",
+            abstract: "Add, delete, rename, or move document tabs.",
+            subcommands: [Add.self, Delete.self, Update.self]
+        )
+
+        struct Add: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Add a document tab and print its new id."
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "The tab title.")
+            var title: String?
+
+            @Option(help: "The one-based tab position; appends when omitted.")
+            var position: Int?
+
+            @Option(help: "Nest the new tab under this parent tab id.")
+            var parent: String?
+
+            @Option(help: "An icon emoji for the tab.")
+            var icon: String?
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func validate() throws {
+                if let position, position < 1 {
+                    throw ValidationError("--position must be 1 or greater.")
+                }
+            }
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                let (_, tabId) = try await client.addDocumentTab(
+                    documentId: documentID, title: title, position: position,
+                    parentTabId: parent, iconEmoji: icon,
+                    requiredRevisionId: requireRevision)
+                if let tabId {
+                    print(tabId)
+                } else {
+                    print("Added a tab.")
+                }
+            }
+        }
+
+        struct Delete: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Delete a tab and its child tabs by id."
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "The id of the tab to delete.")
+            var tabId: String
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                _ = try await client.deleteTab(
+                    documentId: documentID, tabId: tabId, requiredRevisionId: requireRevision)
+                print("Deleted tab \(tabId).")
+            }
+        }
+
+        struct Update: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Rename or move a tab; at least one property is required."
+            )
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "The id of the tab to update.")
+            var tabId: String
+
+            @Option(help: "A new title.")
+            var title: String?
+
+            @Option(help: "A new one-based tab position.")
+            var position: Int?
+
+            @Option(help: "A new parent tab id (re-nests the tab).")
+            var parent: String?
+
+            @Option(help: "A new icon emoji.")
+            var icon: String?
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func validate() throws {
+                guard title != nil || position != nil || parent != nil || icon != nil else {
+                    throw ValidationError(
+                        "Provide at least one of --title, --position, --parent, or --icon.")
+                }
+                if let position, position < 1 {
+                    throw ValidationError("--position must be 1 or greater.")
+                }
+            }
+
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                _ = try await client.updateDocumentTabProperties(
+                    documentId: documentID, tabId: tabId, title: title, position: position,
+                    parentTabId: parent, iconEmoji: icon, requiredRevisionId: requireRevision)
+                print("Updated tab \(tabId).")
             }
         }
     }

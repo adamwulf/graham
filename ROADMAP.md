@@ -53,17 +53,18 @@ encoded body, decoded reply, error propagation), then a thin subcommand in
 
 ### Tabs, smart chips, suggestions (advanced, beyond the cut line)
 
-- **`addDocumentTab`** *(advanced)* — add a tab; the reply returns
-  `TabProperties`. `TabProperties.index` is zero-based; the CLI shows one-based.
-- **`deleteTab`** *(advanced)* — delete a tab and its child tabs.
-- **`updateDocumentTabProperties`** *(advanced)* — rename / move a tab; `fields`
-  mask.
-- **`documents.get` parameters** *(advanced)* — `includeTabsContent` (populate
-  `Document.tabs` instead of the legacy top-level fields) and
-  `suggestionsViewMode`. Optional parameters on `DocsClient.document(id:)`, a
-  `Tab`/`DocumentTab` model, and tab-aware `blockRows`. Also surface
-  `tabsCriteria` on `replaceAllText` and the named-range operations, and `tabId`
-  on locations, once tabs are modeled.
+- **`addDocumentTab` / `deleteTab` / `updateDocumentTabProperties`** — built as
+  `docs tab add|delete|update` (add prints the new tab id from the reply;
+  positions are one-based and translated to the API's zero-based `index`;
+  `--parent` nests a tab). The read-only `nestingLevel` is out by design.
+- **`documents.get` parameters + tab-aware reads** *(advanced, next)* —
+  `includeTabsContent` (populate `Document.tabs` instead of the legacy top-level
+  fields) and `suggestionsViewMode`. Optional parameters on
+  `DocsClient.document(id:)`, a `Tab`/`DocumentTab` model, and tab-aware
+  `blockRows`. Also surface `tabsCriteria` on `replaceAllText` and the
+  named-range operations, and `--tab-id` on the write commands whose requests
+  already carry a `tabId`. (The tab **writes** above and `docs named-style
+  --tab-id` are done; this item is the remaining read/threading work.)
 - **`insertPerson` / `insertRichLink` / `insertDate`** — built as
   `docs chip person|rich-link|date` (each inserts at a zero-based `--at` index or
   the segment end `--end`, with `--segment` and `--tab-id`). The date chip's

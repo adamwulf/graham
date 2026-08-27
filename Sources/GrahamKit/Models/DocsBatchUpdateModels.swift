@@ -110,6 +110,12 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
     case insertRichLink(DocsInsertRichLinkRequest)
     /// Inserts a date smart chip (a timestamp with optional format).
     case insertDate(DocsInsertDateRequest)
+    /// Adds a document tab; the reply returns the new tab's `TabProperties`.
+    case addDocumentTab(DocsAddDocumentTabRequest)
+    /// Deletes a tab and its child tabs.
+    case deleteTab(DocsDeleteTabRequest)
+    /// Renames or moves a tab; the `fields` mask decides which properties apply.
+    case updateDocumentTabProperties(DocsUpdateDocumentTabPropertiesRequest)
 
     private enum CodingKeys: String, CodingKey {
         case insertText
@@ -148,6 +154,9 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
         case insertPerson
         case insertRichLink
         case insertDate
+        case addDocumentTab
+        case deleteTab
+        case updateDocumentTabProperties
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -225,6 +234,12 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
             try container.encode(request, forKey: .insertRichLink)
         case .insertDate(let request):
             try container.encode(request, forKey: .insertDate)
+        case .addDocumentTab(let request):
+            try container.encode(request, forKey: .addDocumentTab)
+        case .deleteTab(let request):
+            try container.encode(request, forKey: .deleteTab)
+        case .updateDocumentTabProperties(let request):
+            try container.encode(request, forKey: .updateDocumentTabProperties)
         }
     }
 }
@@ -1948,6 +1963,74 @@ public struct DocsInsertDateRequest: Codable, Sendable, Equatable {
     }
 }
 
+// MARK: - Document tabs
+
+/// The writable subset of a Docs v1 `TabProperties`, also decoded from an
+/// `addDocumentTab` reply. `tabId` identifies an existing tab (a selector on
+/// update, and the server-assigned id in a reply); `title`, `index`,
+/// `iconEmoji`, and `parentTabId` are the writable fields. `index` is
+/// **zero-based**, matching the API; the CLI shows and accepts one-based tab
+/// positions and ``GrahamKit`` translates. `nestingLevel` is read-only (the
+/// server derives it from `parentTabId`). Every field is optional and encodes
+/// only when set.
+public struct DocsTabProperties: Codable, Sendable, Equatable {
+    public let tabId: String?
+    public let title: String?
+    public let index: Int?
+    public let iconEmoji: String?
+    public let parentTabId: String?
+    public let nestingLevel: Int?
+
+    public init(
+        tabId: String? = nil,
+        title: String? = nil,
+        index: Int? = nil,
+        iconEmoji: String? = nil,
+        parentTabId: String? = nil,
+        nestingLevel: Int? = nil
+    ) {
+        self.tabId = tabId
+        self.title = title
+        self.index = index
+        self.iconEmoji = iconEmoji
+        self.parentTabId = parentTabId
+        self.nestingLevel = nestingLevel
+    }
+}
+
+/// The `addDocumentTab` operation. `tabProperties` carries the new tab's fields
+/// (all optional; the server assigns the `tabId` and returns it in the reply).
+public struct DocsAddDocumentTabRequest: Codable, Sendable, Equatable {
+    public let tabProperties: DocsTabProperties
+
+    public init(tabProperties: DocsTabProperties) {
+        self.tabProperties = tabProperties
+    }
+}
+
+/// The `deleteTab` operation: removes the tab `tabId` and its child tabs.
+public struct DocsDeleteTabRequest: Codable, Sendable, Equatable {
+    public let tabId: String
+
+    public init(tabId: String) {
+        self.tabId = tabId
+    }
+}
+
+/// The `updateDocumentTabProperties` operation. `tabProperties.tabId` selects
+/// the tab; the other set fields carry the new values; `fields` is a
+/// comma-separated field mask of the ``DocsTabProperties`` paths to apply
+/// (`tabId` is the selector, never masked). At least one path is required.
+public struct DocsUpdateDocumentTabPropertiesRequest: Codable, Sendable, Equatable {
+    public let tabProperties: DocsTabProperties
+    public let fields: String
+
+    public init(tabProperties: DocsTabProperties, fields: String) {
+        self.tabProperties = tabProperties
+        self.fields = fields
+    }
+}
+
 // MARK: - Responses
 
 /// The response of a `documents.batchUpdate` call.
@@ -1980,6 +2063,14 @@ public struct DocsBatchUpdateReply: Codable, Sendable {
     public let createFooter: DocsCreateFooterReply?
     public let createFootnote: DocsCreateFootnoteReply?
     public let createNamedRange: DocsCreateNamedRangeReply?
+    public let addDocumentTab: DocsAddDocumentTabReply?
+}
+
+/// The reply of an `addDocumentTab` operation, carrying the new tab's
+/// ``DocsTabProperties`` (its server-assigned `tabId`, resolved `index`, and so
+/// on) so a caller can address the tab afterwards.
+public struct DocsAddDocumentTabReply: Codable, Sendable {
+    public let tabProperties: DocsTabProperties?
 }
 
 /// The reply of a `replaceAllText` operation.
