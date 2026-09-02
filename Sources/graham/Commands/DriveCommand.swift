@@ -321,15 +321,37 @@ struct Drive: AsyncParsableCommand {
         @Argument(help: "The Drive file ID.")
         var fileID: String
 
-        @Option(help: "The target MIME type, for example text/plain, text/csv, or application/pdf.")
-        var mime: String = "text/plain"
+        @Option(help: "A common export format that maps to the correct MIME type.")
+        var type: DriveExportFormat?
+
+        @Option(help: """
+            A raw target MIME type, for a format --type does not list \
+            (for example application/rtf). Cannot be used with --type. \
+            The default, when neither is given, is text/plain.
+            """)
+        var mime: String?
 
         @Option(name: [.short, .long], help: "Write the export to this file instead of stdout.")
         var output: String?
 
+        /// The MIME type sent to Drive: an explicit `--mime` wins, else the
+        /// `--type` mapping, else plain text. `validate()` rejects both at once,
+        /// so at most one of the first two is set here.
+        var resolvedMimeType: String {
+            mime ?? type?.mimeType ?? DriveExportFormat.txt.mimeType
+        }
+
+        func validate() throws {
+            if type != nil, mime != nil {
+                throw ValidationError(
+                    "Pass either --type (a common format) or --mime (a raw MIME type), not both."
+                )
+            }
+        }
+
         func run() async throws {
             let client = DriveClient(api: try CLI.makeAPI())
-            let data = try await client.export(id: fileID, mimeType: mime)
+            let data = try await client.export(id: fileID, mimeType: resolvedMimeType)
             if let output {
                 try data.write(to: URL(fileURLWithPath: output))
             } else {

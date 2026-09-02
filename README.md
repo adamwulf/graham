@@ -124,7 +124,10 @@ graham drive list --query "name contains 'report'" --limit 20
 graham drive get <file-id> --format json
 # Export a Google Workspace file to another format, or download a binary file's
 # raw bytes (Docs/Sheets/Slides have no bytes to download — export them).
-graham drive export <file-id> --mime application/pdf -o report.pdf
+# --type names a common format (txt, md, csv, pdf, docx, pptx, xlsx); --mime
+# takes a raw MIME type for anything else (e.g. application/rtf). One, not both.
+graham drive export <file-id> --type pdf -o report.pdf
+graham drive export <file-id> --type csv -o data.csv
 graham drive download <file-id> -o photo.jpg
 # Create an empty Google Workspace file and print its new id. The type is a
 # subcommand: doc, sheet, slides, or folder. --parent places the new file in a
