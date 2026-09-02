@@ -276,6 +276,17 @@ write. Tests remain offline and exercise the real encoding path.
 - `drive download` exposes `DriveClient.download` (raw `alt=media` bytes) for
   binary files; `drive export` converts a Workspace file instead. Both write to
   `-o/--output` or stdout. A Workspace file has no bytes to download.
+  `drive export` takes the target format two ways: `--type` names a common
+  format (`txt`, `md`, `csv`, `pdf`, `docx`, `pptx`, `xlsx`) that
+  `DriveExportFormat` maps to the right MIME type, so a caller need not memorize
+  `application/vnd.openxmlformats-...`; `--mime` is the raw escape hatch for any
+  format the enum omits (`application/rtf`, OpenDocument, etc.). The command rejects
+  both at once (`validate()`), and `Export.resolvedMimeType` holds the
+  precedence (explicit `--mime`, else the `--type` mapping, else `text/plain`).
+  `DriveExportFormat` lives in `GrahamKit` beside `DriveFileType`; its
+  `ExpressibleByArgument` conformance lives in the CLI. The enum only names the
+  format — it does not check that the format fits the file (`docx` on a Sheet,
+  say); Google returns a `400` for a bad pairing and the client surfaces it.
 - Slides batch updates use zero-based insertion indices based on the slide order
   before a move, while graham displays and accepts final slide positions as
   one-based. Resolve the source index and translate at the high-level client
