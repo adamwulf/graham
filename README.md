@@ -4,63 +4,6 @@ A command-line tool for Google Drive, Docs, Sheets, and Slides.
 
 Named after Graham's number — a contrast to the googol that named Google.
 
-## What works today
-
-- **Auth** — OAuth login that saves the refresh token to `.env`, and a status
-  check.
-- **Drive** — navigate the top-level drives, list a folder or shared drive,
-  search across all drives, and filter by type; get metadata; export and
-  download files; create folders and empty Docs, Sheets, and Slides files; copy files;
-  move files to trash; and permanently delete files.
-- **Sheets and Docs** — read a spreadsheet (with frozen row / column counts) and
-  its values (formatted, raw, or as formulas, one range or several at once);
-  write cell values from comma rows, a JSON array, or tab-separated stdin; append
-  rows after a table; clear a range; add, rename, and delete tabs; freeze rows
-  or columns and resize them; format a range (bold, text and background color,
-  font family and size, number type and pattern, alignment — each set, toggled,
-  or cleared) and draw cell borders; merge and unmerge cells, sort ranges,
-  auto-size dimensions, and name ranges (add, list, delete); add boolean and
-  gradient (color-scale) conditional-format rules and delete them, set and clear
-  data validation, turn on basic filters
-  and add filter views, and add and delete protected ranges; add, update, move,
-  and delete charts (basic, pie, combo, histogram, scorecard, or candlestick; on
-  a new sheet or as an overlay) and list them; and run a live end-to-end smoke
-  test of the Sheets command surface; read a document,
-  render it as Markdown,
-  and list its block structure with index ranges; list or download its images;
-  create a blank document; and through the shared `documents.batchUpdate` write
-  path insert, delete, and replace text, style text and paragraphs, manage
-  bulleted and numbered lists, edit table structure (insert and delete rows
-  and columns, merge and unmerge cells, and pin header rows), style tables
-  (cell background, borders, padding, and alignment; row height, header, and
-  overflow; and column width), edit structure and images (insert page and
-  section breaks, insert an inline image from a URI, and replace an image),
-  manage headers, footers, and footnotes
-  (create and delete headers and footers, and create a footnote with optional
-  text), fill templates with named ranges (create, list, delete, and replace
-  the content of a named range by id or name), set document-wide page style
-  (page size, margins, first-page and even-page header/footer flags, background,
-  and page mode), set the style of the sections a range overlaps (margins, page
-  numbering, direction, and column separator), redefine a named style
-  (HEADING_2, TITLE, ...) document-wide, insert smart chips (a person, a rich
-  link, or a date), manage document tabs (list, add, delete, rename, and move) and read one tab's
-  structure or text, and run a live end-to-end smoke test of the complete Docs
-  command surface.
-- **Slides** — read presentation text; list every page element with its type,
-  geometry, text, links, and alt text; list or download every image, including
-  images nested in groups; add, move, and delete slides through the shared
-  `presentations.batchUpdate` write path; create text boxes, images, videos,
-  lines, tables, and Sheets charts; group and ungroup elements; move, scale,
-  rotate, transform, and reorder elements; style shape fills, outlines, and
-  shadows; style lines and videos; edit table rows, columns, merged cells, and
-  borders; refresh linked charts; and insert, delete, and style text and
-  paragraphs, manage bullets, and set links; set or clear element alt text;
-  read, set, and clear speaker notes; list presentation layouts and create
-  slides from an exact layout id; delete any page element by exact id; and run
-  a live end-to-end smoke test of the complete command surface.
-
-See `ROADMAP.md` for future work.
-
 ## Install
 
 ```bash
@@ -107,6 +50,67 @@ An External app in **Testing** mode issues refresh tokens that **expire after
 Production removes the expiry, but because graham requests the full `drive`
 scope (a Google "restricted" scope), Publishing requires Google's verification
 review.
+
+## What works today
+
+- **Auth** — OAuth login that saves the refresh token to `.env`, and a status
+  check.
+- **Drive**
+  - List and search: navigate the top-level roots, list a folder or shared
+    drive, search across all drives, and filter by type.
+  - Read: get file metadata; export a Workspace file or download a binary file.
+  - Create: folders; empty Docs, Sheets, and Slides files; shortcuts; and copies.
+  - Organize: rename, move, star, trash, untrash, and permanently delete files.
+  - A live end-to-end smoke test of the Drive command surface.
+- **Sheets**
+  - Read: the spreadsheet (with frozen row and column counts) and its values
+    (formatted, raw, or as formulas; one range or several at once).
+  - Write: values from comma rows, a JSON array, or tab-separated stdin; append
+    rows after a table; clear a range.
+  - Tabs and layout: add, rename, and delete tabs; freeze, resize, and auto-size
+    rows or columns; merge and unmerge cells; sort ranges.
+  - Format: bold, text and background color, font, number format, alignment, and
+    cell borders (each set, toggled, or cleared).
+  - Data tools: named ranges; boolean and gradient conditional-format rules; data
+    validation; basic filters and filter views; and protected ranges.
+  - Charts: add, update, move, delete, and list charts (basic, pie, combo,
+    histogram, scorecard, or candlestick; on a new sheet or as an overlay).
+  - A live end-to-end smoke test of the Sheets command surface.
+- **Docs**
+  - Read: the document; render it as Markdown; list its block structure with
+    index ranges; list or download its images.
+  - Text: insert, delete, replace, and style text and paragraphs; manage
+    bulleted and numbered lists.
+  - Tables: insert and delete rows and columns; merge and unmerge cells; pin
+    header rows; and style cells, rows, and columns.
+  - Structure and images: insert page and section breaks; insert an inline image
+    from a URI; and replace an image.
+  - Headers, footers, and footnotes: create and delete headers and footers; and
+    create a footnote with optional text.
+  - Named ranges: create, list, delete, and fill a named range by id or name.
+  - Document style: page setup, section style, and named-style redefinition; and
+    smart chips (a person, a rich link, or a date).
+  - Tabs: list, add, delete, rename, and move tabs; and read one tab's structure
+    or text.
+  - A live end-to-end smoke test of the Docs command surface.
+- **Slides**
+  - Read: presentation text; list every page element with its type, geometry,
+    text, links, and alt text; list or download every image, including images
+    nested in groups.
+  - Slides: add, move, and delete slides; list layouts; and create a slide from
+    an exact layout id.
+  - Elements: create text boxes, images, videos, lines, tables, and Sheets
+    charts; group and ungroup; move, scale, rotate, transform, and reorder; and
+    delete by exact id.
+  - Style: shape fills, outlines, and shadows; lines; videos; and table rows,
+    columns, merged cells, and borders.
+  - Text: insert, delete, and style text and paragraphs; manage bullets; and set
+    links.
+  - Other: refresh linked charts; set or clear alt text; and read, set, and
+    clear speaker notes.
+  - A live end-to-end smoke test of the Slides command surface.
+
+See `ROADMAP.md` for future work.
 
 ## Usage
 
@@ -220,7 +224,10 @@ graham sheets filter clear <spreadsheet-id> --sheet "Sheet1"
 graham sheets protect add <spreadsheet-id> "Sheet1!A1:D10" --description "Locked"
 graham sheets protect delete <spreadsheet-id> --protected-range-id 42
 # Add a chart and print the chart id; pass it to `slides create chart --chart-id`.
-# --kind selects: column/bar/line/area/scatter/combo/pie/histogram/scorecard/candlestick.
+# Pick the chart in one of three ways: --type for a basic chart (column, bar,
+# line, area, scatter, or combo); --kind for any chart (the basic set plus pie,
+# histogram, scorecard, or candlestick); or the --pie flag. --kind overrides
+# --type and --pie.
 graham sheets chart add <spreadsheet-id> --range "Sheet1!A1:B3" --title "Sales" --type column
 graham sheets chart add <spreadsheet-id> --range "Sheet1!A1:E20" --kind candlestick
 # A pie chart, or an overlay chart floated over a sheet at an anchor cell.
