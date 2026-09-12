@@ -77,8 +77,10 @@ review.
     histogram, scorecard, or candlestick; on a new sheet or as an overlay).
   - A live end-to-end smoke test of the Sheets command surface.
 - **Docs**
-  - Read: the document; render it as Markdown; list its block structure with
-    index ranges; list or download its images.
+  - Read: the document (the full style surface: paragraph, text, table,
+    section, and page styles); render it as Markdown; list its block structure
+    with index ranges; read the paragraph and text formatting of any range,
+    explicit and effective; list or download its images.
   - Text: insert, delete, replace, and style text and paragraphs; manage
     bulleted and numbered lists.
   - Tables: insert and delete rows and columns; merge and unmerge cells; pin
@@ -257,6 +259,22 @@ graham docs cat <document-id> --markdown
 # commands below consume; JSON adds the full detail.
 graham docs structure <document-id>
 graham docs structure <document-id> --format json
+# Formatting commands are get/set pairs: `docs paragraph get|set` and `docs style
+# get|set`. `get` reads every paragraph (or text run) a range touches
+# (--from/--to), the one containing --at, or the whole body with no bounds;
+# --segment reads a header/footer/footnote and --tab one tab. The table shows the
+# EFFECTIVE values (after inheritance from the list level, the named style, and
+# NORMAL_TEXT) in the units `set` takes. For paragraphs: LINE is --line-spacing
+# (percent), ABOVE/BELOW are --space-above/--space-below (points), INDENT/END/
+# FIRST are --indent-start/--indent-end/--indent-first-line (points), FLAGS lists
+# the pagination toggles and borders, SHADING is the hex background. For text
+# runs: FLAGS (bold/italic/underline/strike/small-caps), SIZE (points), FONT and
+# WEIGHT, COLOR and BG (hex), BASELINE (super/sub), and LINK. --format json/jsonl
+# adds the EXPLICIT values (set on the paragraph or run itself; an absent value is
+# inherited) beside the effective ones, borders included.
+graham docs paragraph get <document-id> --from 565 --to 722
+graham docs paragraph get <document-id> --at 622 --format json
+graham docs style get <document-id> --from 565 --to 722
 # Edit document text (indices are zero-based UTF-16 code units, as the Docs API defines them).
 graham docs insert <document-id> --text "Hello" --at 1
 graham docs delete <document-id> --from 1 --to 6
@@ -276,7 +294,7 @@ graham docs delete <document-id> --from 0 --to 6 --segment <segment-id>
 # toggles (use the --no- form to turn one off), colors are hex like #FF0000, --size
 # is in points, --baseline is super/sub/none, and --link sets a URL. At least one
 # flag is required.
-graham docs style <document-id> --from 1 --to 6 --bold --small-caps --color "#1155CC"
+graham docs style set <document-id> --from 1 --to 6 --bold --small-caps --color "#1155CC"
 # Style whole paragraphs a range touches: --style is a named style (normal-text,
 # title, subtitle, heading-1..heading-6), --align is start/center/end/justified,
 # --direction is ltr/rtl, --line-spacing is a percent (100 = single), and spacing
@@ -287,8 +305,8 @@ graham docs style <document-id> --from 1 --to 6 --bold --small-caps --color "#11
 # --border-width (points; 0 hides), --border-dash (solid/dot/dash), and
 # --border-padding (points) are shared and need a border color. At least one flag
 # is required.
-graham docs paragraph <document-id> --from 1 --to 20 --style heading-1 --align center
-graham docs paragraph <document-id> --from 1 --to 20 --border "#000000" --border-width 1 --border-dash solid
+graham docs paragraph set <document-id> --from 1 --to 20 --style heading-1 --align center
+graham docs paragraph set <document-id> --from 1 --to 20 --border "#000000" --border-width 1 --border-dash solid
 # Shortcut for just the named style: a level 1-6, or title, subtitle, or normal.
 graham docs heading <document-id> 2 --from 1 --to 20
 # Turn the paragraphs a range touches into a bulleted or numbered list. --preset
@@ -390,7 +408,7 @@ graham docs section-style <document-id> --from 1 --to 20 --margin-left 108 --mar
 graham docs section-style <document-id> --from 1 --to 20 --column-separator between --page-number-start 1
 # Redefine a named style (e.g. what HEADING_2 looks like) document-wide. --style
 # selects it (normal-text, title, subtitle, heading-1..heading-6). The text flags
-# mirror `docs style` and the paragraph flags mirror `docs paragraph`; at least one
+# mirror `docs style set` and the paragraph flags mirror `docs paragraph set`; at least one
 # is required. --tab-id scopes the change to one tab.
 graham docs named-style <document-id> --style heading-2 --bold --color "#1155CC" --size 18 --font Arial
 graham docs named-style <document-id> --style normal-text --line-spacing 150 --align justified
@@ -455,7 +473,7 @@ graham slides element delete <presentation-id> <object-id>
 graham slides alt-text <presentation-id> <object-id> --title "Chart" --description "Quarterly revenue"
 graham slides alt-text <presentation-id> <object-id> --clear-title --clear-description
 # Read, set, or clear presenter speaker notes by slide id.
-graham slides notes show <presentation-id>
+graham slides notes get <presentation-id>
 graham slides notes set <presentation-id> <slide-id> --text "Discuss the forecast"
 graham slides notes clear <presentation-id> <slide-id>
 # Style a shape's fill, outline, and drop shadow (colors are hex like #FF0000 or theme names like accent1).

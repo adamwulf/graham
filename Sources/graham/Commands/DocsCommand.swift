@@ -159,6 +159,71 @@ struct Docs: AsyncParsableCommand {
         }
     }
 
+    /// The range, segment, tab, and format options shared by the two
+    /// formatting reads (`docs paragraph get` and `docs style get`).
+    struct FormatReadOptions: ParsableArguments {
+        @Option(help: "The zero-based UTF-16 start index (inclusive). Omit to start at 0.")
+        var from: Int?
+
+        @Option(help: "The zero-based UTF-16 end index (exclusive). Omit to run to the end.")
+        var to: Int?
+
+        @Option(help: "One zero-based UTF-16 index; shows what contains it. Not with --from/--to.")
+        var at: Int?
+
+        @Option(help: "A header, footer, or footnote segment id. Omit for the body.")
+        var segment: String?
+
+        @Option(help: "Read one tab by its id (from `docs tab list`). Not combinable with --segment.")
+        var tab: String?
+
+        @Option(help: "The output format: table, json, jsonl, or id.")
+        var format: OutputFormat = .table
+
+        func validate() throws {
+            if at != nil, from != nil || to != nil {
+                throw ValidationError("Pass either --at or --from/--to, not both.")
+            }
+            if let from, from < 0 {
+                throw ValidationError("--from must not be negative.")
+            }
+            if let to, to < 0 {
+                throw ValidationError("--to must not be negative.")
+            }
+            if let at, at < 0 {
+                throw ValidationError("--at must not be negative.")
+            }
+            if let from, let to, from >= to {
+                throw ValidationError("--from must be less than --to.")
+            }
+            if tab != nil, segment != nil {
+                throw ValidationError(
+                    "--tab cannot combine with --segment: a tab read covers the tab's body.")
+            }
+        }
+
+        /// The half-open bounds: `--at N` reads as `[N, N + 1)`; otherwise the
+        /// optional `--from`/`--to`.
+        var bounds: (from: Int?, to: Int?) {
+            if let at { return (at, at + 1) }
+            return (from, to)
+        }
+
+        /// Fetches the document, and the requested tab when `--tab` is set.
+        /// A tab read requests tabs content; a body or segment read uses the
+        /// classic single-body shape.
+        func load(client: DocsClient, documentID: String) async throws -> (Document, DocTab?) {
+            guard let tab else {
+                return (try await client.document(id: documentID), nil)
+            }
+            let document = try await client.document(id: documentID, includeTabsContent: true)
+            guard let found = document.tab(withId: tab) else {
+                throw ValidationError("No tab with id \(tab) in this document.")
+            }
+            return (document, found)
+        }
+    }
+
     struct Insert: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Insert text at a document index, or at the end of a segment.",
@@ -302,314 +367,417 @@ struct Docs: AsyncParsableCommand {
 
     struct Style: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Style a range of text: bold, colors, font, link, and so on.",
-            discussion: """
-                Sets the character style of a zero-based UTF-16 range from --from
-                up to but not including --to; at least one style flag is required.
-                --bold, --italic, --underline, --strike, and --small-caps are
-                toggles: pass the flag to turn it on, or its --no- form (for
-                example --no-bold) to turn it off. Colors are a hex value like
-                #FF0000. --size is in points and --font names a family, with an
-                optional --font-weight (a multiple of 100 from 100 to 900).
-                --baseline is super, sub, or none. In a named segment (--segment)
-                the content starts at index 0. Get index ranges from `docs
-                structure`.
-                """
+            commandName: "style",
+            abstract: "Read (get) or set the text style of a range: bold, colors, font, link, and so on.",
+            subcommands: [Get.self, Set.self]
         )
 
-        @Argument(help: "The document ID.")
-        var documentID: String
+        struct Get: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "get",
+                abstract: "Show the text style of a range; the read side of `docs style set`.",
+                discussion: """
+                    Read-only. Prints one row per text run in the body (or a \
+                    --segment) whose zero-based UTF-16 range intersects --from up to \
+                    but not including --to, or the runs at --at; with no bounds, \
+                    every run. A run is reported whole, at the API's granularity, \
+                    even when the range cuts through it. The table shows the \
+                    EFFECTIVE values — what the run renders with after inheritance \
+                    from the paragraph's named style and NORMAL_TEXT — in the units \
+                    `docs style set` takes: FLAGS lists bold, italic, underline, strike, \
+                    and small-caps; SIZE is --size in points; FONT and WEIGHT are \
+                    --font and --font-weight; COLOR and BG are the hex --color and \
+                    --background; BASELINE is super or sub; LINK is --link. --format \
+                    json or jsonl carries both the explicit values (set on the run \
+                    itself; an absent value is inherited) and the effective values.
+                    """
+            )
 
-        @Option(help: "The zero-based UTF-16 start index (inclusive).")
-        var from: Int
+            @Argument(help: "The document ID.")
+            var documentID: String
 
-        @Option(help: "The zero-based UTF-16 end index (exclusive).")
-        var to: Int
+            @OptionGroup var options: FormatReadOptions
 
-        @Option(help: "A header, footer, or footnote segment id. Omit for the body.")
-        var segment: String?
-
-        @Flag(inversion: .prefixedNo, help: "Bold the text (--no-bold turns it off).")
-        var bold: Bool?
-
-        @Flag(inversion: .prefixedNo, help: "Italicize the text (--no-italic turns it off).")
-        var italic: Bool?
-
-        @Flag(inversion: .prefixedNo, help: "Underline the text (--no-underline turns it off).")
-        var underline: Bool?
-
-        @Flag(inversion: .prefixedNo, help: "Strike through the text (--no-strike turns it off).")
-        var strike: Bool?
-
-        @Flag(
-            inversion: .prefixedNo,
-            help: "Render the text in small caps (--no-small-caps turns it off)."
-        )
-        var smallCaps: Bool?
-
-        @Option(help: "The text color as a hex value like #FF0000.")
-        var color: String?
-
-        @Option(help: "The background color as a hex value like #FF0000.")
-        var background: String?
-
-        @Option(
-            parsing: .unconditional,
-            help: "The font size in points; must be greater than zero."
-        )
-        var size: Double?
-
-        @Option(help: "The font family name, such as Arial.")
-        var font: String?
-
-        @Option(
-            parsing: .unconditional,
-            help: "The font weight, a multiple of 100 from 100 to 900; requires --font."
-        )
-        var fontWeight: Int?
-
-        @Option(help: "The baseline offset: super, sub, or none.")
-        var baseline: DocsBaselineArgument?
-
-        @Option(help: "Set a link to this URL.")
-        var link: String?
-
-        @Option(help: "Require the document be at this revision id; the write fails otherwise.")
-        var requireRevision: String?
-
-        func validate() throws {
-            let hasStyle =
-                bold != nil || italic != nil || underline != nil || strike != nil
-                || smallCaps != nil || color != nil || background != nil || size != nil
-                || font != nil || fontWeight != nil || baseline != nil || link != nil
-            guard hasStyle else {
-                throw ValidationError("Provide at least one style flag.")
-            }
-            if let fontWeight {
-                guard font != nil else {
-                    throw ValidationError("--font-weight requires --font.")
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                let (document, tab) = try await options.load(client: client, documentID: documentID)
+                let bounds = options.bounds
+                let rows: [DocTextFormatRow]
+                if let tab {
+                    rows = tab.textFormatRows(from: bounds.from, to: bounds.to)
+                } else {
+                    rows = try document.textFormatRows(
+                        from: bounds.from, to: bounds.to, segmentId: options.segment)
                 }
-                guard (100...900).contains(fontWeight), fontWeight % 100 == 0 else {
-                    throw ValidationError(
-                        "--font-weight must be a multiple of 100 from 100 to 900.")
-                }
+                print(try OutputFormatter.render(rows, format: options.format))
             }
-            try validatePositive(size, name: "--size")
         }
 
-        func run() async throws {
-            let foreground = try color.map { try DocsOptionalColor.parse($0) }
-            let backgroundColor = try background.map { try DocsOptionalColor.parse($0) }
-            let client = DocsClient(api: try CLI.makeAPI())
-            _ = try await client.styleText(
-                documentId: documentID,
-                startIndex: from,
-                endIndex: to,
-                segmentId: segment,
-                bold: bold,
-                italic: italic,
-                underline: underline,
-                strikethrough: strike,
-                foregroundColor: foreground,
-                backgroundColor: backgroundColor,
-                fontSize: size,
-                fontFamily: font,
-                fontWeight: fontWeight,
-                baselineOffset: baseline?.baselineOffset,
-                linkURL: link,
-                smallCaps: smallCaps,
-                requiredRevisionId: requireRevision
+        struct Set: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "set",
+                abstract: "Style a range of text: bold, colors, font, link, and so on.",
+                discussion: """
+                    Sets the character style of a zero-based UTF-16 range from --from
+                    up to but not including --to; at least one style flag is required.
+                    --bold, --italic, --underline, --strike, and --small-caps are
+                    toggles: pass the flag to turn it on, or its --no- form (for
+                    example --no-bold) to turn it off. Colors are a hex value like
+                    #FF0000. --size is in points and --font names a family, with an
+                    optional --font-weight (a multiple of 100 from 100 to 900).
+                    --baseline is super, sub, or none. In a named segment (--segment)
+                    the content starts at index 0. Get index ranges from `docs
+                    structure`.
+                    """
             )
-            print("Styled text in [\(from), \(to)).")
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "The zero-based UTF-16 start index (inclusive).")
+            var from: Int
+
+            @Option(help: "The zero-based UTF-16 end index (exclusive).")
+            var to: Int
+
+            @Option(help: "A header, footer, or footnote segment id. Omit for the body.")
+            var segment: String?
+
+            @Flag(inversion: .prefixedNo, help: "Bold the text (--no-bold turns it off).")
+            var bold: Bool?
+
+            @Flag(inversion: .prefixedNo, help: "Italicize the text (--no-italic turns it off).")
+            var italic: Bool?
+
+            @Flag(inversion: .prefixedNo, help: "Underline the text (--no-underline turns it off).")
+            var underline: Bool?
+
+            @Flag(inversion: .prefixedNo, help: "Strike through the text (--no-strike turns it off).")
+            var strike: Bool?
+
+            @Flag(
+                inversion: .prefixedNo,
+                help: "Render the text in small caps (--no-small-caps turns it off)."
+            )
+            var smallCaps: Bool?
+
+            @Option(help: "The text color as a hex value like #FF0000.")
+            var color: String?
+
+            @Option(help: "The background color as a hex value like #FF0000.")
+            var background: String?
+
+            @Option(
+                parsing: .unconditional,
+                help: "The font size in points; must be greater than zero."
+            )
+            var size: Double?
+
+            @Option(help: "The font family name, such as Arial.")
+            var font: String?
+
+            @Option(
+                parsing: .unconditional,
+                help: "The font weight, a multiple of 100 from 100 to 900; requires --font."
+            )
+            var fontWeight: Int?
+
+            @Option(help: "The baseline offset: super, sub, or none.")
+            var baseline: DocsBaselineArgument?
+
+            @Option(help: "Set a link to this URL.")
+            var link: String?
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func validate() throws {
+                let hasStyle =
+                    bold != nil || italic != nil || underline != nil || strike != nil
+                    || smallCaps != nil || color != nil || background != nil || size != nil
+                    || font != nil || fontWeight != nil || baseline != nil || link != nil
+                guard hasStyle else {
+                    throw ValidationError("Provide at least one style flag.")
+                }
+                if let fontWeight {
+                    guard font != nil else {
+                        throw ValidationError("--font-weight requires --font.")
+                    }
+                    guard (100...900).contains(fontWeight), fontWeight % 100 == 0 else {
+                        throw ValidationError(
+                            "--font-weight must be a multiple of 100 from 100 to 900.")
+                    }
+                }
+                try validatePositive(size, name: "--size")
+            }
+
+            func run() async throws {
+                let foreground = try color.map { try DocsOptionalColor.parse($0) }
+                let backgroundColor = try background.map { try DocsOptionalColor.parse($0) }
+                let client = DocsClient(api: try CLI.makeAPI())
+                _ = try await client.styleText(
+                    documentId: documentID,
+                    startIndex: from,
+                    endIndex: to,
+                    segmentId: segment,
+                    bold: bold,
+                    italic: italic,
+                    underline: underline,
+                    strikethrough: strike,
+                    foregroundColor: foreground,
+                    backgroundColor: backgroundColor,
+                    fontSize: size,
+                    fontFamily: font,
+                    fontWeight: fontWeight,
+                    baselineOffset: baseline?.baselineOffset,
+                    linkURL: link,
+                    smallCaps: smallCaps,
+                    requiredRevisionId: requireRevision
+                )
+                print("Styled text in [\(from), \(to)).")
+            }
         }
     }
 
     struct Paragraph: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Style whole paragraphs: named style, alignment, spacing, and indents.",
-            discussion: """
-                Sets paragraph-level style across every paragraph the zero-based
-                UTF-16 range from --from up to but not including --to touches; at
-                least one style flag is required. --style is a named style:
-                normal-text, title, subtitle, or heading-1 through heading-6.
-                --align is start, center, end, or justified; --direction is ltr or
-                rtl. --line-spacing is a percent of normal, where 100 is single;
-                spacing and indents are in points. --keep-lines-together,
-                --keep-with-next, --avoid-widows, and --page-break-before are
-                pagination toggles (use the --no- form to turn one off). --shading
-                is a hex background color; --spacing-mode is never-collapse or
-                collapse-lists. --border sets the four outer paragraph borders
-                (top, bottom, left, right) and --border-between sets the
-                between-paragraph border; both take a hex color. --border-width
-                (points, default 1; 0 hides a border), --border-dash (solid, dot,
-                or dash; default solid), and --border-padding (points, default 0)
-                are shared by both borders and require a border color. In a named
-                segment (--segment) the content starts at index 0. Get index
-                ranges from `docs structure`.
-                """
+            commandName: "paragraph",
+            abstract: "Read (get) or set whole-paragraph style: named style, alignment, spacing, indents.",
+            subcommands: [Get.self, Set.self]
         )
 
-        @Argument(help: "The document ID.")
-        var documentID: String
+        struct Get: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "get",
+                abstract: "Show the paragraph style of a range; the read side of `docs paragraph set`.",
+                discussion: """
+                    Read-only. Prints one row per paragraph in the body (or a \
+                    --segment) whose zero-based UTF-16 range intersects --from up to \
+                    but not including --to, or the one paragraph containing --at; \
+                    with no bounds, every paragraph. Paragraphs inside table cells \
+                    are included. The table shows the EFFECTIVE values — what the \
+                    paragraph renders with after inheritance from its list level, \
+                    its named style, and NORMAL_TEXT — in the units `docs paragraph set` \
+                    takes: LINE is --line-spacing (a percent; 100 is single), \
+                    ABOVE/BELOW are --space-above/--space-below in points, and \
+                    INDENT/END/FIRST are --indent-start/--indent-end/\
+                    --indent-first-line in points. FLAGS lists the set pagination \
+                    toggles (keep-lines, keep-next, avoid-widows, page-break), rtl, \
+                    collapse-lists, and border/border-between; SHADING is the hex \
+                    background. --format json or jsonl carries both the explicit \
+                    values (set on the paragraph itself; an absent value is \
+                    inherited) and the effective values, including the borders.
+                    """
+            )
 
-        @Option(help: "The zero-based UTF-16 start index (inclusive).")
-        var from: Int
+            @Argument(help: "The document ID.")
+            var documentID: String
 
-        @Option(help: "The zero-based UTF-16 end index (exclusive).")
-        var to: Int
+            @OptionGroup var options: FormatReadOptions
 
-        @Option(help: "A header, footer, or footnote segment id. Omit for the body.")
-        var segment: String?
-
-        @Option(help: "The named style: normal-text, title, subtitle, or heading-1..heading-6.")
-        var style: DocsNamedStyleArgument?
-
-        @Option(help: "The alignment: start, center, end, or justified.")
-        var align: DocsAlignmentArgument?
-
-        @Option(help: "The text direction: ltr or rtl.")
-        var direction: DocsDirectionArgument?
-
-        @Option(
-            parsing: .unconditional,
-            help: "The line spacing as a percent of normal; 100 is single."
-        )
-        var lineSpacing: Double?
-
-        @Option(parsing: .unconditional, help: "The space above each paragraph in points.")
-        var spaceAbove: Double?
-
-        @Option(parsing: .unconditional, help: "The space below each paragraph in points.")
-        var spaceBelow: Double?
-
-        @Option(parsing: .unconditional, help: "The start-edge indent in points.")
-        var indentStart: Double?
-
-        @Option(parsing: .unconditional, help: "The end-edge indent in points.")
-        var indentEnd: Double?
-
-        @Option(parsing: .unconditional, help: "The first-line indent in points.")
-        var indentFirstLine: Double?
-
-        @Flag(
-            inversion: .prefixedNo,
-            help: "Keep every line of the paragraph on one page (--no- turns it off)."
-        )
-        var keepLinesTogether: Bool?
-
-        @Flag(
-            inversion: .prefixedNo,
-            help: "Keep the paragraph on the same page as the next one (--no- turns it off)."
-        )
-        var keepWithNext: Bool?
-
-        @Flag(
-            inversion: .prefixedNo,
-            help: "Avoid a single line stranded across a page break (--no- turns it off)."
-        )
-        var avoidWidows: Bool?
-
-        @Flag(
-            inversion: .prefixedNo,
-            help: """
-                Start the paragraph on a new page (--no- turns it off). The server \
-                rejects this inside tables, headers, footers, and footnotes.
-                """
-        )
-        var pageBreakBefore: Bool?
-
-        @Option(help: "The paragraph background (shading) color as a hex value like #FFFF00.")
-        var shading: String?
-
-        @Option(help: "The spacing mode: never-collapse or collapse-lists.")
-        var spacingMode: DocsSpacingModeArgument?
-
-        @Option(help: "Set the four outer paragraph borders to this hex color, like #000000.")
-        var border: String?
-
-        @Option(help: "Set the between-paragraph border to this hex color, like #000000.")
-        var borderBetween: String?
-
-        @Option(
-            parsing: .unconditional,
-            help: "The border width in points; requires a border color (defaults to 1)."
-        )
-        var borderWidth: Double?
-
-        @Option(help: "The border dash style: solid, dot, or dash; requires a border color.")
-        var borderDash: DocsDashStyleArgument?
-
-        @Option(
-            parsing: .unconditional,
-            help: "The border padding in points; requires a border color (defaults to 0)."
-        )
-        var borderPadding: Double?
-
-        @Option(help: "Require the document be at this revision id; the write fails otherwise.")
-        var requireRevision: String?
-
-        func validate() throws {
-            // A border's width, dash, and padding attach to a border color; a
-            // width/dash/padding with neither --border nor --border-between has
-            // nothing to attach to. This is checked before the at-least-one gate
-            // so a lone --border-width earns its specific message.
-            if borderWidth != nil || borderDash != nil || borderPadding != nil,
-                border == nil, borderBetween == nil {
-                throw ValidationError(
-                    "--border-width, --border-dash, and --border-padding require "
-                    + "--border or --border-between.")
+            func run() async throws {
+                let client = DocsClient(api: try CLI.makeAPI())
+                let (document, tab) = try await options.load(client: client, documentID: documentID)
+                let bounds = options.bounds
+                let rows: [DocParagraphFormatRow]
+                if let tab {
+                    rows = tab.paragraphFormatRows(from: bounds.from, to: bounds.to)
+                } else {
+                    rows = try document.paragraphFormatRows(
+                        from: bounds.from, to: bounds.to, segmentId: options.segment)
+                }
+                print(try OutputFormatter.render(rows, format: options.format))
             }
-            let hasStyle =
-                style != nil || align != nil || direction != nil || lineSpacing != nil
-                || spaceAbove != nil || spaceBelow != nil || indentStart != nil
-                || indentEnd != nil || indentFirstLine != nil || keepLinesTogether != nil
-                || keepWithNext != nil || avoidWidows != nil || pageBreakBefore != nil
-                || shading != nil || spacingMode != nil || border != nil || borderBetween != nil
-            guard hasStyle else {
-                throw ValidationError("Provide at least one style flag.")
-            }
-            try validatePositive(lineSpacing, name: "--line-spacing")
-            try validateNonNegative(
-                borderWidth,
-                message: "--border-width must not be negative (0 hides the border).")
-            try validateNonNegative(
-                borderPadding,
-                message: "--border-padding must not be negative (0 means no padding).")
         }
 
-        func run() async throws {
-            let shadingColor = try shading.map { try DocsOptionalColor.parse($0) }
-            let outerBorderColor = try border.map { try DocsOptionalColor.parse($0) }
-            let betweenBorderColor = try borderBetween.map { try DocsOptionalColor.parse($0) }
-            let client = DocsClient(api: try CLI.makeAPI())
-            _ = try await client.styleParagraphs(
-                documentId: documentID,
-                startIndex: from,
-                endIndex: to,
-                segmentId: segment,
-                namedStyleType: style?.namedStyleType,
-                alignment: align?.alignment,
-                direction: direction?.direction,
-                lineSpacing: lineSpacing,
-                spaceAbove: spaceAbove,
-                spaceBelow: spaceBelow,
-                indentStart: indentStart,
-                indentEnd: indentEnd,
-                indentFirstLine: indentFirstLine,
-                keepLinesTogether: keepLinesTogether,
-                keepWithNext: keepWithNext,
-                avoidWidowAndOrphan: avoidWidows,
-                pageBreakBefore: pageBreakBefore,
-                shadingBackgroundColor: shadingColor,
-                spacingMode: spacingMode?.spacingMode,
-                outerBorderColor: outerBorderColor,
-                betweenBorderColor: betweenBorderColor,
-                borderWidth: borderWidth,
-                borderDash: borderDash?.dashStyle,
-                borderPadding: borderPadding,
-                requiredRevisionId: requireRevision
+        struct Set: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "set",
+                abstract: "Style whole paragraphs: named style, alignment, spacing, and indents.",
+                discussion: """
+                    Sets paragraph-level style across every paragraph the zero-based
+                    UTF-16 range from --from up to but not including --to touches; at
+                    least one style flag is required. --style is a named style:
+                    normal-text, title, subtitle, or heading-1 through heading-6.
+                    --align is start, center, end, or justified; --direction is ltr or
+                    rtl. --line-spacing is a percent of normal, where 100 is single;
+                    spacing and indents are in points. --keep-lines-together,
+                    --keep-with-next, --avoid-widows, and --page-break-before are
+                    pagination toggles (use the --no- form to turn one off). --shading
+                    is a hex background color; --spacing-mode is never-collapse or
+                    collapse-lists. --border sets the four outer paragraph borders
+                    (top, bottom, left, right) and --border-between sets the
+                    between-paragraph border; both take a hex color. --border-width
+                    (points, default 1; 0 hides a border), --border-dash (solid, dot,
+                    or dash; default solid), and --border-padding (points, default 0)
+                    are shared by both borders and require a border color. In a named
+                    segment (--segment) the content starts at index 0. Get index
+                    ranges from `docs structure`.
+                    """
             )
-            print("Styled paragraphs in [\(from), \(to)).")
+
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "The zero-based UTF-16 start index (inclusive).")
+            var from: Int
+
+            @Option(help: "The zero-based UTF-16 end index (exclusive).")
+            var to: Int
+
+            @Option(help: "A header, footer, or footnote segment id. Omit for the body.")
+            var segment: String?
+
+            @Option(help: "The named style: normal-text, title, subtitle, or heading-1..heading-6.")
+            var style: DocsNamedStyleArgument?
+
+            @Option(help: "The alignment: start, center, end, or justified.")
+            var align: DocsAlignmentArgument?
+
+            @Option(help: "The text direction: ltr or rtl.")
+            var direction: DocsDirectionArgument?
+
+            @Option(
+                parsing: .unconditional,
+                help: "The line spacing as a percent of normal; 100 is single."
+            )
+            var lineSpacing: Double?
+
+            @Option(parsing: .unconditional, help: "The space above each paragraph in points.")
+            var spaceAbove: Double?
+
+            @Option(parsing: .unconditional, help: "The space below each paragraph in points.")
+            var spaceBelow: Double?
+
+            @Option(parsing: .unconditional, help: "The start-edge indent in points.")
+            var indentStart: Double?
+
+            @Option(parsing: .unconditional, help: "The end-edge indent in points.")
+            var indentEnd: Double?
+
+            @Option(parsing: .unconditional, help: "The first-line indent in points.")
+            var indentFirstLine: Double?
+
+            @Flag(
+                inversion: .prefixedNo,
+                help: "Keep every line of the paragraph on one page (--no- turns it off)."
+            )
+            var keepLinesTogether: Bool?
+
+            @Flag(
+                inversion: .prefixedNo,
+                help: "Keep the paragraph on the same page as the next one (--no- turns it off)."
+            )
+            var keepWithNext: Bool?
+
+            @Flag(
+                inversion: .prefixedNo,
+                help: "Avoid a single line stranded across a page break (--no- turns it off)."
+            )
+            var avoidWidows: Bool?
+
+            @Flag(
+                inversion: .prefixedNo,
+                help: """
+                    Start the paragraph on a new page (--no- turns it off). The server \
+                    rejects this inside tables, headers, footers, and footnotes.
+                    """
+            )
+            var pageBreakBefore: Bool?
+
+            @Option(help: "The paragraph background (shading) color as a hex value like #FFFF00.")
+            var shading: String?
+
+            @Option(help: "The spacing mode: never-collapse or collapse-lists.")
+            var spacingMode: DocsSpacingModeArgument?
+
+            @Option(help: "Set the four outer paragraph borders to this hex color, like #000000.")
+            var border: String?
+
+            @Option(help: "Set the between-paragraph border to this hex color, like #000000.")
+            var borderBetween: String?
+
+            @Option(
+                parsing: .unconditional,
+                help: "The border width in points; requires a border color (defaults to 1)."
+            )
+            var borderWidth: Double?
+
+            @Option(help: "The border dash style: solid, dot, or dash; requires a border color.")
+            var borderDash: DocsDashStyleArgument?
+
+            @Option(
+                parsing: .unconditional,
+                help: "The border padding in points; requires a border color (defaults to 0)."
+            )
+            var borderPadding: Double?
+
+            @Option(help: "Require the document be at this revision id; the write fails otherwise.")
+            var requireRevision: String?
+
+            func validate() throws {
+                // A border's width, dash, and padding attach to a border color; a
+                // width/dash/padding with neither --border nor --border-between has
+                // nothing to attach to. This is checked before the at-least-one gate
+                // so a lone --border-width earns its specific message.
+                if borderWidth != nil || borderDash != nil || borderPadding != nil,
+                    border == nil, borderBetween == nil {
+                    throw ValidationError(
+                        "--border-width, --border-dash, and --border-padding require "
+                        + "--border or --border-between.")
+                }
+                let hasStyle =
+                    style != nil || align != nil || direction != nil || lineSpacing != nil
+                    || spaceAbove != nil || spaceBelow != nil || indentStart != nil
+                    || indentEnd != nil || indentFirstLine != nil || keepLinesTogether != nil
+                    || keepWithNext != nil || avoidWidows != nil || pageBreakBefore != nil
+                    || shading != nil || spacingMode != nil || border != nil || borderBetween != nil
+                guard hasStyle else {
+                    throw ValidationError("Provide at least one style flag.")
+                }
+                try validatePositive(lineSpacing, name: "--line-spacing")
+                try validateNonNegative(
+                    borderWidth,
+                    message: "--border-width must not be negative (0 hides the border).")
+                try validateNonNegative(
+                    borderPadding,
+                    message: "--border-padding must not be negative (0 means no padding).")
+            }
+
+            func run() async throws {
+                let shadingColor = try shading.map { try DocsOptionalColor.parse($0) }
+                let outerBorderColor = try border.map { try DocsOptionalColor.parse($0) }
+                let betweenBorderColor = try borderBetween.map { try DocsOptionalColor.parse($0) }
+                let client = DocsClient(api: try CLI.makeAPI())
+                _ = try await client.styleParagraphs(
+                    documentId: documentID,
+                    startIndex: from,
+                    endIndex: to,
+                    segmentId: segment,
+                    namedStyleType: style?.namedStyleType,
+                    alignment: align?.alignment,
+                    direction: direction?.direction,
+                    lineSpacing: lineSpacing,
+                    spaceAbove: spaceAbove,
+                    spaceBelow: spaceBelow,
+                    indentStart: indentStart,
+                    indentEnd: indentEnd,
+                    indentFirstLine: indentFirstLine,
+                    keepLinesTogether: keepLinesTogether,
+                    keepWithNext: keepWithNext,
+                    avoidWidowAndOrphan: avoidWidows,
+                    pageBreakBefore: pageBreakBefore,
+                    shadingBackgroundColor: shadingColor,
+                    spacingMode: spacingMode?.spacingMode,
+                    outerBorderColor: outerBorderColor,
+                    betweenBorderColor: betweenBorderColor,
+                    borderWidth: borderWidth,
+                    borderDash: borderDash?.dashStyle,
+                    borderPadding: borderPadding,
+                    requiredRevisionId: requireRevision
+                )
+                print("Styled paragraphs in [\(from), \(to)).")
+            }
         }
     }
 
@@ -617,7 +785,7 @@ struct Docs: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Set the named paragraph style (heading, title, or body) over a range.",
             discussion: """
-                A thin shortcut for `docs paragraph --style`: it sets only the
+                A thin shortcut for `docs paragraph set --style`: it sets only the
                 named style of every paragraph the zero-based UTF-16 range from
                 --from up to but not including --to touches. <level> is 1 through 6
                 for a heading, or title, subtitle, or normal for the body styles.
@@ -2424,9 +2592,9 @@ struct Docs: AsyncParsableCommand {
             discussion: """
                 Redefines the look of --style (normal-text, title, subtitle, or \
                 heading-1 through heading-6) everywhere it is used. The text flags \
-                mirror `docs style` (--bold/--italic/--underline/--strike/\
+                mirror `docs style set` (--bold/--italic/--underline/--strike/\
                 --small-caps toggles, --color, --background, --size, --font, \
-                --font-weight) and the paragraph flags mirror `docs paragraph` \
+                --font-weight) and the paragraph flags mirror `docs paragraph set` \
                 (--align, --direction, --line-spacing, --space-above, \
                 --space-below, --indent-start, --indent-end, --indent-first-line). \
                 At least one text or paragraph flag is required. --tab-id scopes \

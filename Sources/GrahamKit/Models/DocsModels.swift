@@ -59,11 +59,18 @@ public struct DocTab: Codable, Sendable {
     public let childTabs: [DocTab]?
 }
 
-/// The content of one tab. Only the `body` is modeled — the part graham reads
-/// for a tab's structure and text. Per-tab headers, footers, and images are out
-/// of this slice.
+/// The content of one tab: its `body` (the part graham reads for a tab's
+/// structure and text) plus the per-tab `lists`, `namedStyles`, and
+/// `documentStyle` the formatting reads resolve inherited values against.
+/// Per-tab headers, footers, and images are out of this slice.
 public struct DocTabContent: Codable, Sendable {
     public let body: DocumentBody?
+    /// The tab's lists, keyed by list id.
+    public let lists: [String: DocList]?
+    /// The tab's named styles.
+    public let namedStyles: DocNamedStyles?
+    /// The tab's document style.
+    public let documentStyle: DocDocumentStyle?
 }
 
 public struct DocumentBody: Codable, Sendable {
@@ -190,6 +197,8 @@ public struct DocTable: Codable, Sendable {
     /// The number of columns in the table.
     public let columns: Int?
     public let tableRows: [DocTableRow]?
+    /// The table-wide style: one column-properties entry per column.
+    public let tableStyle: DocTableStyle?
 
     var plainText: String {
         let rows = (tableRows ?? []).map { row in
@@ -212,6 +221,8 @@ public struct DocTableRow: Codable, Sendable {
     /// The row's zero-based end index (exclusive) in UTF-16 code units.
     public let endIndex: Int?
     public let tableCells: [DocTableCell]?
+    /// The row's style: minimum height, header designation, overflow guard.
+    public let tableRowStyle: DocTableRowStyle?
 }
 
 public struct DocTableCell: Codable, Sendable {
@@ -220,14 +231,80 @@ public struct DocTableCell: Codable, Sendable {
     /// The cell's zero-based end index (exclusive) in UTF-16 code units.
     public let endIndex: Int?
     public let content: [StructuralElement]?
+    /// The cell's style: spans, background, borders, padding, and vertical
+    /// alignment.
+    public let tableCellStyle: DocTableCellStyle?
+}
+
+// MARK: - Table styles (read side)
+//
+// These mirror the Docs v1 `TableStyle`, `TableColumnProperties`,
+// `TableRowStyle`, `TableCellStyle`, and `TableCellBorder` shapes — the read
+// counterparts of the `docs table style`, `row-style`, and `column-width`
+// setters. Every field is optional; dimensions are in points.
+
+/// The table-wide style: the width settings of each column, in column order.
+public struct DocTableStyle: Codable, Sendable, Equatable {
+    public let tableColumnProperties: [DocTableColumnProperties]?
+}
+
+/// One column's width: `EVENLY_DISTRIBUTED` (no explicit width) or
+/// `FIXED_WIDTH` with a ``width`` in points.
+public struct DocTableColumnProperties: Codable, Sendable, Equatable {
+    public let widthType: String?
+    public let width: DocDimension?
+}
+
+/// A table row's style. ``tableHeader`` is read-only in the API (set when the
+/// header rows are pinned); ``minRowHeight`` and ``preventOverflow`` are the
+/// two writable fields.
+public struct DocTableRowStyle: Codable, Sendable, Equatable {
+    public let minRowHeight: DocDimension?
+    public let tableHeader: Bool?
+    public let preventOverflow: Bool?
+}
+
+/// A table cell's style. ``rowSpan`` and ``columnSpan`` describe a merged
+/// cell; the borders, paddings (points), background, and ``contentAlignment``
+/// (`TOP`, `MIDDLE`, or `BOTTOM`) are what `docs table style` sets.
+public struct DocTableCellStyle: Codable, Sendable, Equatable {
+    public let rowSpan: Int?
+    public let columnSpan: Int?
+    public let backgroundColor: DocOptionalColor?
+    public let borderLeft: DocTableCellBorder?
+    public let borderRight: DocTableCellBorder?
+    public let borderTop: DocTableCellBorder?
+    public let borderBottom: DocTableCellBorder?
+    public let paddingLeft: DocDimension?
+    public let paddingRight: DocDimension?
+    public let paddingTop: DocDimension?
+    public let paddingBottom: DocDimension?
+    public let contentAlignment: String?
+}
+
+/// One side of a table cell's border: color, width in points, and dash style
+/// (`SOLID`, `DOT`, or `DASH`).
+public struct DocTableCellBorder: Codable, Sendable, Equatable {
+    public let color: DocOptionalColor?
+    public let width: DocDimension?
+    public let dashStyle: String?
 }
 
 // MARK: - Paragraph and text styles
 
-/// A paragraph's style. graham reads the subset the structured facade and a
-/// later Markdown renderer need; every field is optional and decoded
-/// defensively.
-public struct DocParagraphStyle: Codable, Sendable {
+/// A paragraph's style, mirroring the full Docs v1 `ParagraphStyle`. Every
+/// field is optional and decoded defensively.
+///
+/// The API reports only the values set on this paragraph itself; an unset field
+/// is **inherited**: a paragraph inherits from its named style
+/// (``namedStyleType``), a named style inherits from `NORMAL_TEXT`, and
+/// `NORMAL_TEXT` inherits from the Docs editor defaults. ``Document/paragraphFormatRows(from:to:segmentId:)``
+/// resolves that chain into effective values; this struct is the raw wire
+/// shape. Every dimension is in points (the Docs API's only unit), and
+/// ``lineSpacing`` is a percent of single spacing (100 = single). A dimension
+/// the API reports with no `magnitude` (for example `{"unit": "PT"}`) is an
+/// explicit zero, not an inherited value.
+public struct DocParagraphStyle: Codable, Sendable, Equatable {
     /// The named style, for example `HEADING_1`, `TITLE`, or `NORMAL_TEXT`.
     public let namedStyleType: String?
     /// The id of the heading this paragraph is, if any.
@@ -236,6 +313,62 @@ public struct DocParagraphStyle: Codable, Sendable {
     public let alignment: String?
     /// The text direction, for example `LEFT_TO_RIGHT`.
     public let direction: String?
+    /// The line spacing as a percent of normal, where 100 is single.
+    public let lineSpacing: Double?
+    /// How space above/below collapses between paragraphs: `NEVER_COLLAPSE` or
+    /// `COLLAPSE_LISTS`.
+    public let spacingMode: String?
+    /// The extra space above the paragraph, in points.
+    public let spaceAbove: DocDimension?
+    /// The extra space below the paragraph, in points.
+    public let spaceBelow: DocDimension?
+    /// The border between this paragraph and the next, when both share the
+    /// same border and indent.
+    public let borderBetween: DocParagraphBorder?
+    public let borderTop: DocParagraphBorder?
+    public let borderBottom: DocParagraphBorder?
+    public let borderLeft: DocParagraphBorder?
+    public let borderRight: DocParagraphBorder?
+    /// The indent of the first line, in points, relative to ``indentStart``.
+    public let indentFirstLine: DocDimension?
+    /// The indent of the start edge (left in LTR text), in points.
+    public let indentStart: DocDimension?
+    /// The indent of the end edge (right in LTR text), in points.
+    public let indentEnd: DocDimension?
+    /// The paragraph's tab stops. Read-only in the Docs API, so graham never
+    /// writes them, but they are part of the paragraph's formatting.
+    public let tabStops: [DocTabStop]?
+    /// Whether every line of the paragraph stays on one page.
+    public let keepLinesTogether: Bool?
+    /// Whether the paragraph stays on the same page as the next one.
+    public let keepWithNext: Bool?
+    /// Whether a single line is kept from being stranded across a page break.
+    public let avoidWidowAndOrphan: Bool?
+    /// The paragraph's background shading.
+    public let shading: DocShading?
+    /// Whether the paragraph starts on a new page.
+    public let pageBreakBefore: Bool?
+}
+
+/// One side of a paragraph's border: its color, width and padding in points,
+/// and dash style (`SOLID`, `DOT`, or `DASH`).
+public struct DocParagraphBorder: Codable, Sendable, Equatable {
+    public let color: DocOptionalColor?
+    public let width: DocDimension?
+    public let padding: DocDimension?
+    public let dashStyle: String?
+}
+
+/// A paragraph's background shading: a single optional background color.
+public struct DocShading: Codable, Sendable, Equatable {
+    public let backgroundColor: DocOptionalColor?
+}
+
+/// One tab stop: its offset from the start of the line, in points, and its
+/// alignment (`START`, `CENTER`, or `END`).
+public struct DocTabStop: Codable, Sendable, Equatable {
+    public let offset: DocDimension?
+    public let alignment: String?
 }
 
 /// The bullet on a list paragraph: which list it belongs to, how deeply it
@@ -248,14 +381,24 @@ public struct DocBullet: Codable, Sendable {
     public let textStyle: DocTextStyle?
 }
 
-/// The style of a text run. graham reads the subset needed to render text and,
-/// later, Markdown: the toggles, the baseline offset, the hyperlink, the font
-/// size, and the font family.
-public struct DocTextStyle: Codable, Sendable {
+/// The style of a text run, mirroring the full Docs v1 `TextStyle`: the
+/// toggles, the colors, the font size and family, the baseline offset, and
+/// the hyperlink.
+///
+/// Like ``DocParagraphStyle``, an unset field is inherited (from the
+/// paragraph's named style, then `NORMAL_TEXT`, then the editor defaults);
+/// ``Document/textFormatRows(from:to:segmentId:)`` resolves the chain.
+public struct DocTextStyle: Codable, Sendable, Equatable {
     public let bold: Bool?
     public let italic: Bool?
     public let underline: Bool?
     public let strikethrough: Bool?
+    /// Whether the text renders in small capital letters.
+    public let smallCaps: Bool?
+    /// The text background (highlight) color.
+    public let backgroundColor: DocOptionalColor?
+    /// The text color.
+    public let foregroundColor: DocOptionalColor?
     /// The baseline offset, for example `SUPERSCRIPT`, `SUBSCRIPT`, or `NONE`.
     public let baselineOffset: String?
     /// The hyperlink on the run, if any.
@@ -266,7 +409,7 @@ public struct DocTextStyle: Codable, Sendable {
 
 /// A hyperlink. A web link sets ``url``; the other fields target a heading,
 /// bookmark, or tab within the document.
-public struct DocLink: Codable, Sendable {
+public struct DocLink: Codable, Sendable, Equatable {
     /// The URL of an external link.
     public let url: String?
     /// The id of a heading this link targets.
@@ -278,22 +421,68 @@ public struct DocLink: Codable, Sendable {
 }
 
 /// A font family plus a numeric weight.
-public struct DocWeightedFontFamily: Codable, Sendable {
+public struct DocWeightedFontFamily: Codable, Sendable, Equatable {
     public let fontFamily: String?
     /// The weight, a multiple of 100 from 100 to 900.
     public let weight: Int?
 }
 
 /// A length: a magnitude and its unit (`PT` or `UNIT_UNSPECIFIED`).
-public struct DocDimension: Codable, Sendable {
+///
+/// The API omits a zero `magnitude` (proto3 JSON drops default values), so a
+/// dimension that arrives as `{"unit": "PT"}` is an explicit zero. ``points``
+/// reads it that way.
+public struct DocDimension: Codable, Sendable, Equatable {
     public let magnitude: Double?
     public let unit: String?
+
+    /// The magnitude in points, reading an omitted magnitude as 0. Points are
+    /// the Docs API's only length unit, so no conversion is needed.
+    public var points: Double { magnitude ?? 0 }
 }
 
 /// The width and height of an object.
-public struct DocSize: Codable, Sendable {
+public struct DocSize: Codable, Sendable, Equatable {
     public let width: DocDimension?
     public let height: DocDimension?
+}
+
+// MARK: - Colors (read side)
+//
+// These mirror the Docs v1 `OptionalColor` / `Color` / `RgbColor` shapes. They
+// are separate from the write-side `DocsOptionalColor` family on purpose: the
+// write models require every channel, but the API omits a zero channel when it
+// reports a color (`{"rgbColor": {"red": 1}}` is pure red), so the read side
+// keeps every channel optional and reads an omitted one as 0.
+
+/// A color that may be explicitly transparent: an empty `OptionalColor` (no
+/// ``color``) means "no color", a set one is a solid RGB color.
+public struct DocOptionalColor: Codable, Sendable, Equatable {
+    public let color: DocColor?
+
+    /// The color as `#RRGGBB`, or nil when the color is unset (transparent).
+    /// Each channel is a float from 0 to 1; an omitted channel is 0.
+    public var hex: String? {
+        guard let rgb = color?.rgbColor else { return nil }
+        func channel(_ value: Double?) -> String {
+            let scaled = Int((min(1, max(0, value ?? 0)) * 255).rounded())
+            return String(format: "%02X", scaled)
+        }
+        return "#" + channel(rgb.red) + channel(rgb.green) + channel(rgb.blue)
+    }
+}
+
+/// A solid color, carried as an RGB triple.
+public struct DocColor: Codable, Sendable, Equatable {
+    public let rgbColor: DocRgbColor?
+}
+
+/// An RGB color. Each channel is a float from 0 to 1; the API omits a channel
+/// whose value is 0.
+public struct DocRgbColor: Codable, Sendable, Equatable {
+    public let red: Double?
+    public let green: Double?
+    public let blue: Double?
 }
 
 // MARK: - Paragraph element variants
@@ -385,8 +574,49 @@ public struct DocDateElementProperties: Codable, Sendable {
 
 // MARK: - Structural element variants
 
-/// A section break. graham reports its presence; a later phase reads its style.
-public struct DocSectionBreak: Codable, Sendable {}
+/// A section break. Its ``sectionStyle`` describes the section that follows
+/// it: margins, columns, direction, page numbering, and header/footer ids.
+public struct DocSectionBreak: Codable, Sendable {
+    public let sectionStyle: DocSectionStyle?
+}
+
+/// A section's style, mirroring the Docs v1 `SectionStyle` — the read
+/// counterpart of `docs section-style`. Margins are in points. The
+/// header/footer ids and ``sectionType`` are read-only (the server assigns
+/// them); everything else is what the setter writes.
+public struct DocSectionStyle: Codable, Sendable, Equatable {
+    /// One entry per column in a multi-column section; empty or absent for a
+    /// single-column section.
+    public let columnProperties: [DocSectionColumnProperties]?
+    /// `NONE` or `BETWEEN_EACH_COLUMN`.
+    public let columnSeparatorStyle: String?
+    /// `LEFT_TO_RIGHT` or `RIGHT_TO_LEFT`.
+    public let contentDirection: String?
+    public let marginTop: DocDimension?
+    public let marginBottom: DocDimension?
+    public let marginRight: DocDimension?
+    public let marginLeft: DocDimension?
+    public let marginHeader: DocDimension?
+    public let marginFooter: DocDimension?
+    /// `CONTINUOUS` or `NEXT_PAGE`.
+    public let sectionType: String?
+    public let defaultHeaderId: String?
+    public let defaultFooterId: String?
+    public let firstPageHeaderId: String?
+    public let firstPageFooterId: String?
+    public let evenPageHeaderId: String?
+    public let evenPageFooterId: String?
+    public let useFirstPageHeaderFooter: Bool?
+    public let pageNumberStart: Int?
+    public let flipPageOrientation: Bool?
+}
+
+/// One column of a multi-column section: its width and the padding after it,
+/// both in points.
+public struct DocSectionColumnProperties: Codable, Sendable, Equatable {
+    public let width: DocDimension?
+    public let paddingEnd: DocDimension?
+}
 
 /// A table of contents. Its ``content`` holds the generated entries as more
 /// structural elements.
@@ -459,12 +689,21 @@ public struct DocListProperties: Codable, Sendable {
 
 /// One nesting level of a list. ``glyphType`` (for example `DECIMAL`, `ALPHA`,
 /// `ROMAN`, or an unset value for a bullet) tells a renderer whether the level
-/// is ordered.
-public struct DocNestingLevel: Codable, Sendable {
+/// is ordered. ``indentStart`` and ``indentFirstLine`` are the indents (in
+/// points) a paragraph at this level takes when its own paragraph style does
+/// not set them.
+public struct DocNestingLevel: Codable, Sendable, Equatable {
     public let glyphType: String?
     public let glyphFormat: String?
     public let glyphSymbol: String?
     public let startNumber: Int?
+    /// The alignment of the bullet glyph within its indent: `START`, `CENTER`,
+    /// or `END`.
+    public let bulletAlignment: String?
+    /// The first-line indent, in points, of paragraphs at this level.
+    public let indentFirstLine: DocDimension?
+    /// The start indent, in points, of paragraphs at this level.
+    public let indentStart: DocDimension?
     public let textStyle: DocTextStyle?
 }
 
@@ -538,18 +777,49 @@ public struct DocNamedStyle: Codable, Sendable {
     public let textStyle: DocTextStyle?
 }
 
-/// The document-wide style. graham reads the subset a later page-setup command
-/// and reader need; every field is optional and decoded defensively.
-public struct DocDocumentStyle: Codable, Sendable {
-    public let pageSize: DocSize?
-    public let marginTop: DocDimension?
-    public let marginBottom: DocDimension?
-    public let marginLeft: DocDimension?
-    public let marginRight: DocDimension?
+/// The document-wide style, mirroring the full Docs v1 `DocumentStyle` — the
+/// read counterpart of `docs page-setup`. Every field is optional and decoded
+/// defensively; dimensions are in points.
+public struct DocDocumentStyle: Codable, Sendable, Equatable {
+    /// The document background color.
+    public let background: DocBackground?
+    public let defaultHeaderId: String?
+    public let defaultFooterId: String?
+    public let evenPageHeaderId: String?
+    public let evenPageFooterId: String?
+    public let firstPageHeaderId: String?
+    public let firstPageFooterId: String?
     /// Whether the first page uses its own header and footer.
     public let useFirstPageHeaderFooter: Bool?
     /// Whether even pages use their own header and footer.
     public let useEvenPageHeaderFooter: Bool?
+    /// The first visible page number.
+    public let pageNumberStart: Int?
+    public let marginTop: DocDimension?
+    public let marginBottom: DocDimension?
+    public let marginRight: DocDimension?
+    public let marginLeft: DocDimension?
+    public let pageSize: DocSize?
+    public let marginHeader: DocDimension?
+    public let marginFooter: DocDimension?
+    /// Whether ``marginHeader`` and ``marginFooter`` apply (read-only; the
+    /// server derives it).
+    public let useCustomHeaderFooterMargins: Bool?
+    /// Whether the page width and height are swapped (landscape).
+    public let flipPageOrientation: Bool?
+    /// The document mode: `PAGES` or `PAGELESS`.
+    public let documentFormat: DocDocumentFormat?
+}
+
+/// The document background: a single color.
+public struct DocBackground: Codable, Sendable, Equatable {
+    public let color: DocOptionalColor?
+}
+
+/// Document-level format settings; graham reads the ``documentMode``
+/// (`PAGES` or `PAGELESS`).
+public struct DocDocumentFormat: Codable, Sendable, Equatable {
+    public let documentMode: String?
 }
 
 // MARK: - Structured read facade (the flattened block view)
@@ -618,6 +888,28 @@ public struct DocBlockRow: Codable, Sendable, Equatable {
     /// text is on the cell rows), a section break, and a table of contents.
     public let preview: String
 
+    // The paragraph's own alignment, spacing, and indents, exactly as the API
+    // reports them on the paragraph (an absent value is inherited from the
+    // named style — see ``Document/paragraphFormatRows(from:to:segmentId:)``
+    // for the resolved values). Points throughout; `lineSpacing` is a percent.
+    // These are `nil` for every non-paragraph block, so they drop out of the
+    // JSON of a table, section break, or TOC row.
+
+    /// The paragraph's alignment (`START`, `CENTER`, `END`, `JUSTIFIED`).
+    public let alignment: String?
+    /// The paragraph's line spacing as a percent of single (100 = single).
+    public let lineSpacing: Double?
+    /// The paragraph's space above, in points.
+    public let spaceAbove: Double?
+    /// The paragraph's space below, in points.
+    public let spaceBelow: Double?
+    /// The paragraph's start-edge indent, in points.
+    public let indentStart: Double?
+    /// The paragraph's end-edge indent, in points.
+    public let indentEnd: Double?
+    /// The paragraph's first-line indent, in points.
+    public let indentFirstLine: Double?
+
     init(element: StructuralElement, depth: Int) {
         startIndex = element.startIndex
         endIndex = element.endIndex
@@ -630,6 +922,15 @@ public struct DocBlockRow: Codable, Sendable, Equatable {
         var nestingLevel: Int?
         var objectIds: [String] = []
         var preview = ""
+
+        let style = element.paragraph?.paragraphStyle
+        alignment = style?.alignment
+        lineSpacing = style?.lineSpacing
+        spaceAbove = style?.spaceAbove?.points
+        spaceBelow = style?.spaceBelow?.points
+        indentStart = style?.indentStart?.points
+        indentEnd = style?.indentEnd?.points
+        indentFirstLine = style?.indentFirstLine?.points
 
         if let paragraph = element.paragraph {
             namedStyleType = paragraph.paragraphStyle?.namedStyleType
