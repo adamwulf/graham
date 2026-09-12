@@ -305,22 +305,22 @@ final class SlidesParsingTests: XCTestCase {
         let names = Slides.Notes.configuration.subcommands.compactMap {
             $0.configuration.commandName ?? "\($0)".lowercased()
         }
-        XCTAssertEqual(names, ["show", "set", "clear"])
+        XCTAssertEqual(names, ["get", "set", "clear"])
     }
 
     func testSlidesNotesShowParsesDefaults() throws {
-        let command = try Slides.Notes.Show.parse(["deck-id"])
+        let command = try Slides.Notes.Get.parse(["deck-id"])
         XCTAssertEqual(command.presentationID, "deck-id")
         XCTAssertEqual(command.format, .table)
     }
 
     func testSlidesNotesShowParsesFormat() throws {
-        let command = try Slides.Notes.Show.parse(["deck-id", "--format", "json"])
+        let command = try Slides.Notes.Get.parse(["deck-id", "--format", "json"])
         XCTAssertEqual(command.format, .json)
     }
 
     func testSlidesNotesShowRequiresAPresentationID() {
-        XCTAssertThrowsError(try Slides.Notes.Show.parse([]))
+        XCTAssertThrowsError(try Slides.Notes.Get.parse([]))
     }
 
     func testSlidesNotesSetParsesArguments() throws {

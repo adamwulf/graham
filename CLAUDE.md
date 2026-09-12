@@ -115,9 +115,13 @@ named style → `NORMAL_TEXT` → editor defaults, which the API does not report
 and `textFormatRows` (plus the `DocTab` variants, which resolve against the
 tab's own lists and named styles) return one row per paragraph / text run a
 range touches, carrying `explicit` and `effective` values in the setters' units
-(points, a line-spacing percent, `#RRGGBB`, the API enum spellings). `docs
-paragraph-style` and `docs text-style` are the thin commands: the table shows
-effective values, JSON shows both. `docs structure` JSON rows also carry the
+(points, a line-spacing percent, `#RRGGBB`, the API enum spellings). The
+commands follow one shape: **a formatting noun is a group with `get` (read) and
+`set` (write)**, both taking the same range options — `docs paragraph get|set`
+and `docs style get|set` today; `slides notes get|set|clear` uses the same
+verbs. A new formatting setter is a `set` under its noun with a `get` beside
+it, never a bare verb or a `--read` mode. `get`'s table shows effective values,
+its JSON shows both. `docs structure` JSON rows also carry the
 paragraph's explicit alignment / spacing / indents; its table columns are
 unchanged. The Docs live test writes a paragraph style and reads it back
 through the facade, so the units are checked end to end.
@@ -349,13 +353,13 @@ write. Tests remain offline and exercise the real encoding path.
   only `minRowHeight` and `preventOverflow`; mark headers with `pinTableHeaderRows`
   (`docs table pin-headers`) instead.
 - `docs named-style` (`updateNamedStyle`) deliberately exposes only the text
-  attributes (`docs style`) and the paragraph alignment / spacing / indent
+  attributes (`docs style set`) and the paragraph alignment / spacing / indent
   attributes. The paragraph **pagination toggles** (`keepLinesTogether`,
   `keepWithNext`, `avoidWidowAndOrphan`, `pageBreakBefore`), **shading**, and
   **borders** — plus the text `baselineOffset` and `link` — are a **never-
   implement** decision on this command, not a deferral: do not add flags for
   them. The API would accept them inside a `NamedStyle`, but a named-style
-  redefinition is not their place; set them per-paragraph with `docs paragraph`.
+  redefinition is not their place; set them per-paragraph with `docs paragraph set`.
 
 ## Commands
 

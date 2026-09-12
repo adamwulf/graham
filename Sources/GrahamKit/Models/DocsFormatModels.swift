@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Formatting read facade
 //
-// The read mirror of the `docs paragraph` and `docs style` setters. The Docs
+// The read side (`get`) of the `docs paragraph` and `docs style` groups. The Docs
 // API reports only the values set on a paragraph or text run itself; an unset
 // field is inherited — a paragraph (or run) from its named style, a named
 // style from `NORMAL_TEXT`, and `NORMAL_TEXT` from the Docs editor defaults. A
@@ -12,11 +12,11 @@ import Foundation
 // The rows below carry both the raw `explicit` values and the resolved
 // `effective` values, in the units the setters take (points, a percent for
 // line spacing, `#RRGGBB` colors, the API enum spellings), so a value read here
-// can be passed straight back to `docs paragraph` or `docs style`. Like the
+// can be passed straight back to `docs paragraph set` or `docs style set`. Like the
 // block rows, all the lookup and resolution lives here; the CLI only fetches
 // and renders.
 
-/// The paragraph-level formatting `docs paragraph` can set: alignment,
+/// The paragraph-level formatting `docs paragraph set` writes: alignment,
 /// direction, line spacing (a percent of single), spacing and indents (points),
 /// the pagination toggles, shading (`#RRGGBB`), spacing mode, and the five
 /// borders. Every field is optional; in an `explicit` value nil means "not set
@@ -105,7 +105,7 @@ public struct DocParagraphFormat: Codable, Sendable, Equatable {
     }
 }
 
-/// One paragraph border as `docs paragraph` sets it: a `#RRGGBB` color, a
+/// One paragraph border as `docs paragraph set` writes it: a `#RRGGBB` color, a
 /// width and padding in points, and a dash style (`SOLID`, `DOT`, `DASH`).
 public struct DocBorderFormat: Codable, Sendable, Equatable {
     public let color: String?
@@ -136,7 +136,7 @@ public struct DocBorderFormat: Codable, Sendable, Equatable {
     }
 }
 
-/// One row of `docs paragraph-style`: a paragraph's index range, named style,
+/// One row of `docs paragraph get`: a paragraph's index range, named style,
 /// list membership, its explicit and effective formatting, and a text preview.
 public struct DocParagraphFormatRow: Codable, Sendable, Equatable {
     /// The paragraph's zero-based start index in UTF-16 code units (0 when
@@ -216,7 +216,7 @@ extension DocParagraphFormatRow: GrahamRow {
 
 // MARK: - Text format
 
-/// The text formatting `docs style` can set: the toggles, colors (`#RRGGBB`),
+/// The text formatting `docs style set` writes: the toggles, colors (`#RRGGBB`),
 /// font size (points), font family and weight, baseline offset, and link.
 /// Every field is optional; in an `explicit` value nil means "not set on this
 /// run" (inherited), in an `effective` value nil means the editor default.
@@ -287,7 +287,7 @@ public struct DocTextFormat: Codable, Sendable, Equatable {
     }
 }
 
-/// One row of `docs text-style`: a text run's index range, its explicit and
+/// One row of `docs style get`: a text run's index range, its explicit and
 /// effective formatting, and its text.
 public struct DocTextFormatRow: Codable, Sendable, Equatable {
     /// The run's zero-based start index in UTF-16 code units.
@@ -493,7 +493,7 @@ struct DocFormatResolver {
 
 extension Document {
     /// The formatting of every paragraph in a segment whose range intersects
-    /// `[from, to)` — the read mirror of `docs paragraph`. A nil `from` starts
+    /// `[from, to)` — the read side of `docs paragraph set`. A nil `from` starts
     /// at 0 and a nil `to` runs to the segment end, so no bounds means every
     /// paragraph. `segmentId` names a header, footer, or footnote; nil or empty
     /// is the body. Paragraphs inside table cells are included. Throws
@@ -507,7 +507,7 @@ extension Document {
     }
 
     /// The formatting of every text run in a segment whose range intersects
-    /// `[from, to)` — the read mirror of `docs style`. The bounds and segment
+    /// `[from, to)` — the read side of `docs style set`. The bounds and segment
     /// follow ``paragraphFormatRows(from:to:segmentId:)``.
     public func textFormatRows(
         from: Int? = nil, to: Int? = nil, segmentId: String? = nil

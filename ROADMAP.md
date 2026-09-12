@@ -46,8 +46,14 @@ encoded body, decoded reply, error propagation), then a thin subcommand in
   layout (multi-column width / padding), which is awkward from a CLI; the
   section's header/footer ids and `sectionType` are read-only and out by design.
 - **`updateNamedStyle`** — built as `docs named-style` (redefines a named style
-  document-wide with the `docs style` text flags and the `docs paragraph`
+  document-wide with the `docs style set` text flags and the `docs paragraph set`
   alignment / spacing / indent flags; `--tab-id` scopes it to a tab).
+- **`get` twins for the remaining setters** — `docs paragraph` and `docs style`
+  are `get|set` groups; `docs page-setup`, `docs section-style`, `docs
+  named-style`, and `docs table style|row-style|column-width` are still bare
+  setters. The read models already decode everything they write, so each needs
+  only a row facade in `GrahamKit` and a `get` subcommand beside a renamed
+  `set`. Slides' `slides text style|paragraph` can follow the same shape.
 
 ### Tabs, smart chips, suggestions (advanced, beyond the cut line)
 

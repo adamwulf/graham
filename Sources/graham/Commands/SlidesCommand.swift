@@ -1012,12 +1012,12 @@ struct Slides: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "notes",
             abstract: "Read, set, or clear slide speaker notes.",
-            subcommands: [Show.self, Set.self, Clear.self]
+            subcommands: [Get.self, Set.self, Clear.self]
         )
 
-        struct Show: AsyncParsableCommand {
+        struct Get: AsyncParsableCommand {
             static let configuration = CommandConfiguration(
-                commandName: "show",
+                commandName: "get",
                 abstract: "Show each slide's speaker notes.",
                 discussion: """
                     Lists one row per slide: its one-based number, slide id, \
@@ -1047,7 +1047,7 @@ struct Slides: AsyncParsableCommand {
                     Replaces the slide's speaker notes with --text. graham reads \
                     the presentation to find the slide's notes shape, then \
                     replaces its text in a single batch update. Get slide ids \
-                    from `slides list --format json` or `slides notes show`.
+                    from `slides list --format json` or `slides notes get`.
                     """
             )
 
@@ -1074,7 +1074,7 @@ struct Slides: AsyncParsableCommand {
                 abstract: "Clear a slide's speaker notes and print the slide id.",
                 discussion: """
                     Removes all speaker-notes text from the slide. Get slide ids \
-                    from `slides list --format json` or `slides notes show`.
+                    from `slides list --format json` or `slides notes get`.
                     """
             )
 

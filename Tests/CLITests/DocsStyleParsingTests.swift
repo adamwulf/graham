@@ -19,7 +19,7 @@ final class DocsStyleParsingTests: XCTestCase {
     // MARK: - docs style
 
     func testDocsStyleParsesRangeAndFlags() throws {
-        let command = try Docs.Style.parse([
+        let command = try Docs.Style.Set.parse([
             "doc-1", "--from", "1", "--to", "9",
             "--bold", "--italic", "--underline", "--strike",
             "--color", "#FF0000", "--background", "#0000FF",
@@ -47,27 +47,27 @@ final class DocsStyleParsingTests: XCTestCase {
     }
 
     func testDocsStyleNoBoldSetsFalse() throws {
-        let command = try Docs.Style.parse(["doc-1", "--from", "1", "--to", "5", "--no-bold"])
+        let command = try Docs.Style.Set.parse(["doc-1", "--from", "1", "--to", "5", "--no-bold"])
         XCTAssertEqual(command.bold, false)
     }
 
     func testDocsStyleLeavesToggleFlagsNilWhenAbsent() throws {
-        let command = try Docs.Style.parse(["doc-1", "--from", "1", "--to", "5", "--italic"])
+        let command = try Docs.Style.Set.parse(["doc-1", "--from", "1", "--to", "5", "--italic"])
         XCTAssertNil(command.bold)
         XCTAssertNil(command.underline)
         XCTAssertNil(command.strike)
     }
 
     func testDocsStyleRequiresDocumentAndBothBounds() {
-        XCTAssertThrowsError(try Docs.Style.parse([]))
-        XCTAssertThrowsError(try Docs.Style.parse(["doc-1", "--bold"]))
-        XCTAssertThrowsError(try Docs.Style.parse(["doc-1", "--from", "1", "--bold"]))
-        XCTAssertThrowsError(try Docs.Style.parse(["doc-1", "--to", "5", "--bold"]))
+        XCTAssertThrowsError(try Docs.Style.Set.parse([]))
+        XCTAssertThrowsError(try Docs.Style.Set.parse(["doc-1", "--bold"]))
+        XCTAssertThrowsError(try Docs.Style.Set.parse(["doc-1", "--from", "1", "--bold"]))
+        XCTAssertThrowsError(try Docs.Style.Set.parse(["doc-1", "--to", "5", "--bold"]))
     }
 
     func testDocsStyleRequiresAtLeastOneStyleFlag() {
-        XCTAssertThrowsError(try Docs.Style.parse(["doc-1", "--from", "1", "--to", "5"])) { error in
-            let message = Docs.Style.message(for: error)
+        XCTAssertThrowsError(try Docs.Style.Set.parse(["doc-1", "--from", "1", "--to", "5"])) { error in
+            let message = Docs.Style.Set.message(for: error)
             XCTAssertTrue(
                 message.contains("at least one"), "Expected a no-style message: \(message)")
         }
@@ -75,9 +75,9 @@ final class DocsStyleParsingTests: XCTestCase {
 
     func testDocsStyleFontWeightRequiresFont() {
         XCTAssertThrowsError(
-            try Docs.Style.parse(["doc-1", "--from", "1", "--to", "5", "--font-weight", "700"])
+            try Docs.Style.Set.parse(["doc-1", "--from", "1", "--to", "5", "--font-weight", "700"])
         ) { error in
-            let message = Docs.Style.message(for: error)
+            let message = Docs.Style.Set.message(for: error)
             XCTAssertTrue(
                 message.contains("--font-weight requires --font"),
                 "Expected a weight-needs-font message: \(message)")
@@ -86,7 +86,7 @@ final class DocsStyleParsingTests: XCTestCase {
 
     func testDocsStyleRejectsAWeightOutsideTheAllowedSteps() {
         XCTAssertThrowsError(
-            try Docs.Style.parse([
+            try Docs.Style.Set.parse([
                 "doc-1", "--from", "1", "--to", "5", "--font", "Arial", "--font-weight", "250",
             ])
         )
@@ -94,7 +94,7 @@ final class DocsStyleParsingTests: XCTestCase {
 
     func testDocsStyleRejectsANonPositiveSize() {
         XCTAssertThrowsError(
-            try Docs.Style.parse(["doc-1", "--from", "1", "--to", "5", "--size", "0"])
+            try Docs.Style.Set.parse(["doc-1", "--from", "1", "--to", "5", "--size", "0"])
         )
     }
 
@@ -105,29 +105,29 @@ final class DocsStyleParsingTests: XCTestCase {
     }
 
     func testDocsStyleParsesSubAndNoneBaselines() throws {
-        let sub = try Docs.Style.parse(["doc-1", "--from", "1", "--to", "5", "--baseline", "sub"])
+        let sub = try Docs.Style.Set.parse(["doc-1", "--from", "1", "--to", "5", "--baseline", "sub"])
         XCTAssertEqual(sub.baseline, .`subscript`)
-        let none = try Docs.Style.parse(["doc-1", "--from", "1", "--to", "5", "--baseline", "none"])
+        let none = try Docs.Style.Set.parse(["doc-1", "--from", "1", "--to", "5", "--baseline", "none"])
         XCTAssertEqual(none.baseline, .normal)
     }
 
     func testDocsStyleParsesSmallCaps() throws {
         // --small-caps alone also satisfies the "at least one style flag" check.
-        let on = try Docs.Style.parse(["doc-1", "--from", "1", "--to", "5", "--small-caps"])
+        let on = try Docs.Style.Set.parse(["doc-1", "--from", "1", "--to", "5", "--small-caps"])
         XCTAssertEqual(on.smallCaps, true)
-        let off = try Docs.Style.parse(["doc-1", "--from", "1", "--to", "5", "--no-small-caps"])
+        let off = try Docs.Style.Set.parse(["doc-1", "--from", "1", "--to", "5", "--no-small-caps"])
         XCTAssertEqual(off.smallCaps, false)
     }
 
     func testDocsStyleLeavesSmallCapsNilWhenAbsent() throws {
-        let command = try Docs.Style.parse(["doc-1", "--from", "1", "--to", "5", "--bold"])
+        let command = try Docs.Style.Set.parse(["doc-1", "--from", "1", "--to", "5", "--bold"])
         XCTAssertNil(command.smallCaps)
     }
 
     // MARK: - docs paragraph
 
     func testDocsParagraphParsesRangeAndFlags() throws {
-        let command = try Docs.Paragraph.parse([
+        let command = try Docs.Paragraph.Set.parse([
             "doc-1", "--from", "3", "--to", "20",
             "--style", "heading-2", "--align", "center", "--direction", "rtl",
             "--line-spacing", "150", "--space-above", "6", "--space-below", "6",
@@ -152,16 +152,16 @@ final class DocsStyleParsingTests: XCTestCase {
     }
 
     func testDocsParagraphRequiresDocumentAndBothBounds() {
-        XCTAssertThrowsError(try Docs.Paragraph.parse([]))
-        XCTAssertThrowsError(try Docs.Paragraph.parse(["doc-1", "--align", "center"]))
-        XCTAssertThrowsError(try Docs.Paragraph.parse(["doc-1", "--from", "1", "--align", "center"]))
+        XCTAssertThrowsError(try Docs.Paragraph.Set.parse([]))
+        XCTAssertThrowsError(try Docs.Paragraph.Set.parse(["doc-1", "--align", "center"]))
+        XCTAssertThrowsError(try Docs.Paragraph.Set.parse(["doc-1", "--from", "1", "--align", "center"]))
     }
 
     func testDocsParagraphRequiresAtLeastOneStyleFlag() {
         XCTAssertThrowsError(
-            try Docs.Paragraph.parse(["doc-1", "--from", "1", "--to", "9"])
+            try Docs.Paragraph.Set.parse(["doc-1", "--from", "1", "--to", "9"])
         ) { error in
-            let message = Docs.Paragraph.message(for: error)
+            let message = Docs.Paragraph.Set.message(for: error)
             XCTAssertTrue(
                 message.contains("at least one"), "Expected a no-style message: \(message)")
         }
@@ -169,7 +169,7 @@ final class DocsStyleParsingTests: XCTestCase {
 
     func testDocsParagraphRejectsANonPositiveLineSpacing() {
         XCTAssertThrowsError(
-            try Docs.Paragraph.parse(["doc-1", "--from", "1", "--to", "9", "--line-spacing", "0"])
+            try Docs.Paragraph.Set.parse(["doc-1", "--from", "1", "--to", "9", "--line-spacing", "0"])
         )
     }
 
@@ -191,7 +191,7 @@ final class DocsStyleParsingTests: XCTestCase {
     }
 
     func testDocsParagraphParsesPaginationShadingAndSpacingFlags() throws {
-        let command = try Docs.Paragraph.parse([
+        let command = try Docs.Paragraph.Set.parse([
             "doc-1", "--from", "1", "--to", "9",
             "--keep-lines-together", "--keep-with-next", "--avoid-widows",
             "--page-break-before", "--shading", "#FFFF00", "--spacing-mode", "collapse-lists",
@@ -205,7 +205,7 @@ final class DocsStyleParsingTests: XCTestCase {
     }
 
     func testDocsParagraphParsesNoFormsOfThePaginationFlags() throws {
-        let command = try Docs.Paragraph.parse([
+        let command = try Docs.Paragraph.Set.parse([
             "doc-1", "--from", "1", "--to", "9",
             "--no-keep-lines-together", "--no-keep-with-next",
             "--no-avoid-widows", "--no-page-break-before",
@@ -218,19 +218,19 @@ final class DocsStyleParsingTests: XCTestCase {
 
     func testDocsParagraphNewFlagsSatisfyTheAtLeastOneCheck() throws {
         // --spacing-mode alone is enough to pass the "at least one style" check.
-        let byMode = try Docs.Paragraph.parse([
+        let byMode = try Docs.Paragraph.Set.parse([
             "doc-1", "--from", "1", "--to", "9", "--spacing-mode", "never-collapse",
         ])
         XCTAssertEqual(byMode.spacingMode, .neverCollapse)
         // --shading alone is enough too.
-        let byShading = try Docs.Paragraph.parse([
+        let byShading = try Docs.Paragraph.Set.parse([
             "doc-1", "--from", "1", "--to", "9", "--shading", "#00FF00",
         ])
         XCTAssertEqual(byShading.shading, "#00FF00")
     }
 
     func testDocsParagraphLeavesNewFlagsNilWhenAbsent() throws {
-        let command = try Docs.Paragraph.parse(["doc-1", "--from", "1", "--to", "9", "--align", "center"])
+        let command = try Docs.Paragraph.Set.parse(["doc-1", "--from", "1", "--to", "9", "--align", "center"])
         XCTAssertNil(command.keepLinesTogether)
         XCTAssertNil(command.keepWithNext)
         XCTAssertNil(command.avoidWidows)
@@ -246,7 +246,7 @@ final class DocsStyleParsingTests: XCTestCase {
 
     func testDocsParagraphRejectsAnInvalidSpacingMode() {
         XCTAssertThrowsError(
-            try Docs.Paragraph.parse([
+            try Docs.Paragraph.Set.parse([
                 "doc-1", "--from", "1", "--to", "9", "--spacing-mode", "always",
             ])
         )
@@ -255,7 +255,7 @@ final class DocsStyleParsingTests: XCTestCase {
     // MARK: - docs paragraph borders
 
     func testDocsParagraphParsesBorderFlags() throws {
-        let command = try Docs.Paragraph.parse([
+        let command = try Docs.Paragraph.Set.parse([
             "doc-1", "--from", "1", "--to", "9",
             "--border", "#000000", "--border-between", "#0000FF",
             "--border-width", "2", "--border-dash", "dash", "--border-padding", "3",
@@ -268,7 +268,7 @@ final class DocsStyleParsingTests: XCTestCase {
     }
 
     func testDocsParagraphLeavesBorderFlagsNilWhenAbsent() throws {
-        let command = try Docs.Paragraph.parse([
+        let command = try Docs.Paragraph.Set.parse([
             "doc-1", "--from", "1", "--to", "9", "--align", "center",
         ])
         XCTAssertNil(command.border)
@@ -280,12 +280,12 @@ final class DocsStyleParsingTests: XCTestCase {
 
     func testDocsParagraphBorderAloneSatisfiesTheAtLeastOneCheck() throws {
         // --border alone is enough to pass the "at least one style" check.
-        let byBorder = try Docs.Paragraph.parse([
+        let byBorder = try Docs.Paragraph.Set.parse([
             "doc-1", "--from", "1", "--to", "9", "--border", "#000000",
         ])
         XCTAssertEqual(byBorder.border, "#000000")
         // --border-between alone is enough too.
-        let byBetween = try Docs.Paragraph.parse([
+        let byBetween = try Docs.Paragraph.Set.parse([
             "doc-1", "--from", "1", "--to", "9", "--border-between", "#00FF00",
         ])
         XCTAssertEqual(byBetween.borderBetween, "#00FF00")
@@ -293,11 +293,11 @@ final class DocsStyleParsingTests: XCTestCase {
 
     func testDocsParagraphBorderWidthWithoutAColorIsRejected() {
         XCTAssertThrowsError(
-            try Docs.Paragraph.parse([
+            try Docs.Paragraph.Set.parse([
                 "doc-1", "--from", "1", "--to", "9", "--border-width", "2",
             ])
         ) { error in
-            let message = Docs.Paragraph.message(for: error)
+            let message = Docs.Paragraph.Set.message(for: error)
             XCTAssertTrue(
                 message.contains("--border"), "Expected a border-requires-color message: \(message)")
         }
@@ -305,12 +305,12 @@ final class DocsStyleParsingTests: XCTestCase {
 
     func testDocsParagraphRejectsANegativeBorderWidthAndPadding() {
         XCTAssertThrowsError(
-            try Docs.Paragraph.parse([
+            try Docs.Paragraph.Set.parse([
                 "doc-1", "--from", "1", "--to", "9", "--border", "#000000", "--border-width", "-1",
             ])
         )
         XCTAssertThrowsError(
-            try Docs.Paragraph.parse([
+            try Docs.Paragraph.Set.parse([
                 "doc-1", "--from", "1", "--to", "9", "--border", "#000000", "--border-padding", "-1",
             ])
         )
@@ -318,7 +318,7 @@ final class DocsStyleParsingTests: XCTestCase {
 
     func testDocsParagraphRejectsAnInvalidBorderDash() {
         XCTAssertThrowsError(
-            try Docs.Paragraph.parse([
+            try Docs.Paragraph.Set.parse([
                 "doc-1", "--from", "1", "--to", "9", "--border", "#000000", "--border-dash", "wavy",
             ])
         )

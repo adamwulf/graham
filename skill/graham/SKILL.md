@@ -157,12 +157,15 @@ format, data validation, filters, protected ranges, and charts. Run
 graham docs cat <document-id>                     # plain text
 graham docs cat <document-id> --markdown          # render as Markdown
 graham docs structure <document-id>               # blocks + index ranges
-# Read formatting (the mirror of `docs paragraph` / `docs style`): one row per
-# paragraph or text run in a range, with effective values in the setters' units
-# (points, line-spacing percent, hex colors). --at <index> reads one paragraph;
-# --format json adds the explicit (set on the paragraph) values.
-graham docs paragraph-style <document-id> --from 565 --to 722   # indents, spacing
-graham docs text-style <document-id> --at 600                   # bold, font, color
+# Formatting is a get/set pair per noun: `docs paragraph get|set` (alignment,
+# spacing, indents) and `docs style get|set` (bold, colors, font, link). `get`
+# prints one row per paragraph or text run in a range, with effective values in
+# the units `set` takes (points, line-spacing percent, hex colors). --at <index>
+# reads one paragraph; --format json adds the explicit (set on the paragraph) values.
+graham docs paragraph get <document-id> --from 565 --to 722   # indents, spacing
+graham docs paragraph set <document-id> --from 565 --to 722 --indent-start 36 --space-above 6
+graham docs style get <document-id> --at 600                  # bold, font, color
+graham docs style set <document-id> --from 565 --to 600 --bold --color "#1155CC"
 # Edit text. Indices are ZERO-based UTF-16 code units (the Docs API definition).
 graham docs insert <document-id> --text "Hello" --at 1
 graham docs delete <document-id> --from 1 --to 6
@@ -182,7 +185,7 @@ graham slides list <presentation-id>                      # every element
 graham slides list <presentation-id> --format json        # + geometry, ids, URLs
 graham slides images <presentation-id> --download ./images
 graham slides add <presentation-id> --at 2 --layout TITLE_AND_BODY
-graham slides notes show <presentation-id>                # speaker notes
+graham slides notes get <presentation-id>                 # speaker notes
 ```
 
 Slide and element object ids come from `graham slides list --format json`.
