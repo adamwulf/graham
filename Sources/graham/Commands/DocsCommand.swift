@@ -6,7 +6,7 @@ struct Docs: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Work with Google Docs documents.",
         subcommands: [
-            Cat.self, Structure.self, Insert.self, Delete.self,
+            Cat.self, Structure.self, ParagraphStyle.self, TextStyle.self, Insert.self, Delete.self,
             Replace.self, Style.self, Paragraph.self, Heading.self, Bullets.self,
             Unbullet.self, Table.self, Images.self, PageBreak.self, Image.self,
             SectionBreak.self, Header.self, Footer.self, Footnote.self,
@@ -156,6 +156,156 @@ struct Docs: AsyncParsableCommand {
             }
             let document = try await client.document(id: documentID)
             print(try OutputFormatter.render(document.blockRows, format: format))
+        }
+    }
+
+    /// The range, segment, tab, and format options shared by the two
+    /// formatting reads (`paragraph-style` and `text-style`).
+    struct FormatReadOptions: ParsableArguments {
+        @Option(help: "The zero-based UTF-16 start index (inclusive). Omit to start at 0.")
+        var from: Int?
+
+        @Option(help: "The zero-based UTF-16 end index (exclusive). Omit to run to the end.")
+        var to: Int?
+
+        @Option(help: "One zero-based UTF-16 index; shows what contains it. Not with --from/--to.")
+        var at: Int?
+
+        @Option(help: "A header, footer, or footnote segment id. Omit for the body.")
+        var segment: String?
+
+        @Option(help: "Read one tab by its id (from `docs tab list`). Not combinable with --segment.")
+        var tab: String?
+
+        @Option(help: "The output format: table, json, jsonl, or id.")
+        var format: OutputFormat = .table
+
+        func validate() throws {
+            if at != nil, from != nil || to != nil {
+                throw ValidationError("Pass either --at or --from/--to, not both.")
+            }
+            if let from, from < 0 {
+                throw ValidationError("--from must not be negative.")
+            }
+            if let to, to < 0 {
+                throw ValidationError("--to must not be negative.")
+            }
+            if let at, at < 0 {
+                throw ValidationError("--at must not be negative.")
+            }
+            if let from, let to, from >= to {
+                throw ValidationError("--from must be less than --to.")
+            }
+            if tab != nil, segment != nil {
+                throw ValidationError(
+                    "--tab cannot combine with --segment: a tab read covers the tab's body.")
+            }
+        }
+
+        /// The half-open bounds: `--at N` reads as `[N, N + 1)`; otherwise the
+        /// optional `--from`/`--to`.
+        var bounds: (from: Int?, to: Int?) {
+            if let at { return (at, at + 1) }
+            return (from, to)
+        }
+
+        /// Fetches the document, and the requested tab when `--tab` is set.
+        /// A tab read requests tabs content; a body or segment read uses the
+        /// classic single-body shape.
+        func load(client: DocsClient, documentID: String) async throws -> (Document, DocTab?) {
+            guard let tab else {
+                return (try await client.document(id: documentID), nil)
+            }
+            let document = try await client.document(id: documentID, includeTabsContent: true)
+            guard let found = document.tab(withId: tab) else {
+                throw ValidationError("No tab with id \(tab) in this document.")
+            }
+            return (document, found)
+        }
+    }
+
+    struct ParagraphStyle: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "paragraph-style",
+            abstract: "Show the paragraph formatting `docs paragraph` sets: alignment, spacing, indents.",
+            discussion: """
+                Read-only. Prints one row per paragraph in the body (or a \
+                --segment) whose zero-based UTF-16 range intersects --from up to \
+                but not including --to, or the one paragraph containing --at; \
+                with no bounds, every paragraph. Paragraphs inside table cells \
+                are included. The table shows the EFFECTIVE values — what the \
+                paragraph renders with after inheritance from its list level, \
+                its named style, and NORMAL_TEXT — in the units `docs paragraph` \
+                takes: LINE is --line-spacing (a percent; 100 is single), \
+                ABOVE/BELOW are --space-above/--space-below in points, and \
+                INDENT/END/FIRST are --indent-start/--indent-end/\
+                --indent-first-line in points. FLAGS lists the set pagination \
+                toggles (keep-lines, keep-next, avoid-widows, page-break), rtl, \
+                collapse-lists, and border/border-between; SHADING is the hex \
+                background. --format json or jsonl carries both the explicit \
+                values (set on the paragraph itself; an absent value is \
+                inherited) and the effective values, including the borders.
+                """
+        )
+
+        @Argument(help: "The document ID.")
+        var documentID: String
+
+        @OptionGroup var options: FormatReadOptions
+
+        func run() async throws {
+            let client = DocsClient(api: try CLI.makeAPI())
+            let (document, tab) = try await options.load(client: client, documentID: documentID)
+            let bounds = options.bounds
+            let rows: [DocParagraphFormatRow]
+            if let tab {
+                rows = tab.paragraphFormatRows(from: bounds.from, to: bounds.to)
+            } else {
+                rows = try document.paragraphFormatRows(
+                    from: bounds.from, to: bounds.to, segmentId: options.segment)
+            }
+            print(try OutputFormatter.render(rows, format: options.format))
+        }
+    }
+
+    struct TextStyle: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "text-style",
+            abstract: "Show the text formatting `docs style` sets: bold, colors, font, link, and so on.",
+            discussion: """
+                Read-only. Prints one row per text run in the body (or a \
+                --segment) whose zero-based UTF-16 range intersects --from up to \
+                but not including --to, or the runs at --at; with no bounds, \
+                every run. A run is reported whole, at the API's granularity, \
+                even when the range cuts through it. The table shows the \
+                EFFECTIVE values — what the run renders with after inheritance \
+                from the paragraph's named style and NORMAL_TEXT — in the units \
+                `docs style` takes: FLAGS lists bold, italic, underline, strike, \
+                and small-caps; SIZE is --size in points; FONT and WEIGHT are \
+                --font and --font-weight; COLOR and BG are the hex --color and \
+                --background; BASELINE is super or sub; LINK is --link. --format \
+                json or jsonl carries both the explicit values (set on the run \
+                itself; an absent value is inherited) and the effective values.
+                """
+        )
+
+        @Argument(help: "The document ID.")
+        var documentID: String
+
+        @OptionGroup var options: FormatReadOptions
+
+        func run() async throws {
+            let client = DocsClient(api: try CLI.makeAPI())
+            let (document, tab) = try await options.load(client: client, documentID: documentID)
+            let bounds = options.bounds
+            let rows: [DocTextFormatRow]
+            if let tab {
+                rows = tab.textFormatRows(from: bounds.from, to: bounds.to)
+            } else {
+                rows = try document.textFormatRows(
+                    from: bounds.from, to: bounds.to, segmentId: options.segment)
+            }
+            print(try OutputFormatter.render(rows, format: options.format))
         }
     }
 

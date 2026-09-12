@@ -40,6 +40,8 @@ Sources/GrahamKit/            the library — ALL logic lives here
     DocsClient.swift
     SlidesClient.swift
   Models/                     trimmed Codable models, one file per service
+    DocsFormatModels.swift    Docs formatting read facade: paragraph / text
+                              rows with explicit + effective (inherited) values
   Helpers/                    GoogleURL, GoogleJSON, OutputFormatter, GrahamLog
 Sources/graham/               the thin CLI
   Graham.swift                @main root command; bootstraps + drains logging
@@ -91,6 +93,34 @@ depth, and extracts direct text, links, alt text, raw geometry, and image URLs.
 recursing into nested groups; the geometry edits use it to read an element's
 current transform before writing. Keep extraction and flattening logic in
 `GrahamKit`; commands only fetch and render.
+
+### Docs style models and the formatting read facade
+
+The Docs read models (`Doc*` in `DocsModels.swift`) mirror the **full** wire
+`ParagraphStyle`, `TextStyle`, `TableStyle` / `TableRowStyle` /
+`TableCellStyle`, `SectionStyle`, `DocumentStyle`, and list `NestingLevel`, so
+`docs cat --json` shows every style field the API returns. Rule: **anything
+`graham` can set must be readable.** A new setter field gets its read-side
+counterpart in the same change. The read (`Doc*`) and write (`Docs*`) models
+stay separate on purpose: the write models require every channel / magnitude,
+but the API **omits zero values** when it reports them (`{"unit": "PT"}` is an
+explicit 0 pt, `{"rgbColor": {"red": 1}}` is pure red), so every read field is
+optional and `DocDimension.points` / `DocOptionalColor.hex` read an omitted
+value as 0. An omitted *dimension* is inherited; an omitted *magnitude* is zero.
+
+The API reports only the values set on a paragraph or run itself; unset fields
+are inherited (paragraph → list nesting level for a list item's indents → its
+named style → `NORMAL_TEXT` → editor defaults, which the API does not report).
+`DocsFormatModels.swift` resolves that chain: `Document.paragraphFormatRows`
+and `textFormatRows` (plus the `DocTab` variants, which resolve against the
+tab's own lists and named styles) return one row per paragraph / text run a
+range touches, carrying `explicit` and `effective` values in the setters' units
+(points, a line-spacing percent, `#RRGGBB`, the API enum spellings). `docs
+paragraph-style` and `docs text-style` are the thin commands: the table shows
+effective values, JSON shows both. `docs structure` JSON rows also carry the
+paragraph's explicit alignment / spacing / indents; its table columns are
+unchanged. The Docs live test writes a paragraph style and reads it back
+through the facade, so the units are checked end to end.
 
 ### The transport seam
 

@@ -84,7 +84,8 @@ filling and listing), page setup (including pageless), and structured/Markdown
 reads. What is left above — `updateSectionStyle`, `updateNamedStyle`, and the
 tabs / smart-chips / suggestions group — is advanced polish, rarely needed from
 a CLI. The read-only `ParagraphStyle.tabStops` and `TextStyle`/`DocumentStyle`
-ids are not writable and are intentionally omitted.
+ids are not writable; they are decoded (and shown by `docs cat --json`) but
+no write for them is planned.
 
 ### Notes for implementation
 

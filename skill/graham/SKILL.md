@@ -157,6 +157,12 @@ format, data validation, filters, protected ranges, and charts. Run
 graham docs cat <document-id>                     # plain text
 graham docs cat <document-id> --markdown          # render as Markdown
 graham docs structure <document-id>               # blocks + index ranges
+# Read formatting (the mirror of `docs paragraph` / `docs style`): one row per
+# paragraph or text run in a range, with effective values in the setters' units
+# (points, line-spacing percent, hex colors). --at <index> reads one paragraph;
+# --format json adds the explicit (set on the paragraph) values.
+graham docs paragraph-style <document-id> --from 565 --to 722   # indents, spacing
+graham docs text-style <document-id> --at 600                   # bold, font, color
 # Edit text. Indices are ZERO-based UTF-16 code units (the Docs API definition).
 graham docs insert <document-id> --text "Hello" --at 1
 graham docs delete <document-id> --from 1 --to 6

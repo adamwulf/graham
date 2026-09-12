@@ -77,8 +77,10 @@ review.
     histogram, scorecard, or candlestick; on a new sheet or as an overlay).
   - A live end-to-end smoke test of the Sheets command surface.
 - **Docs**
-  - Read: the document; render it as Markdown; list its block structure with
-    index ranges; list or download its images.
+  - Read: the document (the full style surface: paragraph, text, table,
+    section, and page styles); render it as Markdown; list its block structure
+    with index ranges; read the paragraph and text formatting of any range,
+    explicit and effective; list or download its images.
   - Text: insert, delete, replace, and style text and paragraphs; manage
     bulleted and numbered lists.
   - Tables: insert and delete rows and columns; merge and unmerge cells; pin
@@ -257,6 +259,23 @@ graham docs cat <document-id> --markdown
 # commands below consume; JSON adds the full detail.
 graham docs structure <document-id>
 graham docs structure <document-id> --format json
+# Read paragraph formatting — the mirror of `docs paragraph` — for every paragraph
+# a range touches (--from/--to), the one paragraph containing --at, or the whole
+# body with no bounds; --segment reads a header/footer/footnote and --tab one tab.
+# The table shows the EFFECTIVE values (after inheritance from the list level,
+# the named style, and NORMAL_TEXT) in the setter's units: LINE is --line-spacing
+# (percent), ABOVE/BELOW are --space-above/--space-below (points), INDENT/END/
+# FIRST are --indent-start/--indent-end/--indent-first-line (points), FLAGS lists
+# the pagination toggles and borders, SHADING is the hex background. --format
+# json/jsonl adds the EXPLICIT values (set on the paragraph itself; an absent
+# value is inherited) beside the effective ones, borders included.
+graham docs paragraph-style <document-id> --from 565 --to 722
+graham docs paragraph-style <document-id> --at 622 --format json
+# Read text formatting — the mirror of `docs style` — one row per text run the
+# range touches: FLAGS (bold/italic/underline/strike/small-caps), SIZE (points),
+# FONT and WEIGHT, COLOR and BG (hex), BASELINE (super/sub), and LINK; the same
+# bounds, --segment, --tab, and explicit/effective JSON as paragraph-style.
+graham docs text-style <document-id> --from 565 --to 722
 # Edit document text (indices are zero-based UTF-16 code units, as the Docs API defines them).
 graham docs insert <document-id> --text "Hello" --at 1
 graham docs delete <document-id> --from 1 --to 6

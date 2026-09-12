@@ -264,6 +264,10 @@ private final class SimParagraph {
     var namedStyleType: String?
     var bulletListId: String?
     var inlineObjectId: String?
+    /// The paragraph-style fields an `updateParagraphStyle` set on this
+    /// paragraph (only the masked ones), echoed back on every read exactly as
+    /// they were written, so the runner's read-back checks the real values.
+    var paragraphStyle: [String: Any] = [:]
 
     init(
         text: String,
@@ -855,10 +859,24 @@ private final class DocsLiveFixture: @unchecked Sendable {
         return count
     }
 
+    /// Applies only the fields the request masks, like the API: a masked
+    /// field is stored on every paragraph the range touches (and a masked
+    /// `namedStyleType` also drives the heading/kind logic); unmasked fields in
+    /// the body are ignored.
     private func applyParagraphStyle(_ op: [String: Any]) {
-        guard let named = (op["paragraphStyle"] as? [String: Any])?["namedStyleType"] as? String
-        else { return }
-        forEachParagraph(op) { $0.namedStyleType = named }
+        let style = op["paragraphStyle"] as? [String: Any] ?? [:]
+        let fields = (op["fields"] as? String ?? "")
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        forEachParagraph(op) { paragraph in
+            for field in fields {
+                guard let value = style[field] else { continue }
+                paragraph.paragraphStyle[field] = value
+                if field == "namedStyleType", let named = value as? String {
+                    paragraph.namedStyleType = named
+                }
+            }
+        }
     }
 
     private func applyBullets(_ op: [String: Any], listId: String?) {
@@ -1066,8 +1084,12 @@ private final class DocsLiveFixture: @unchecked Sendable {
             ])
         }
         var paragraphObject: [String: Any] = ["elements": inner]
+        var style = paragraph.paragraphStyle
         if let named = paragraph.namedStyleType {
-            paragraphObject["paragraphStyle"] = ["namedStyleType": named]
+            style["namedStyleType"] = named
+        }
+        if !style.isEmpty {
+            paragraphObject["paragraphStyle"] = style
         }
         if let listId = paragraph.bulletListId {
             paragraphObject["bullet"] = ["listId": listId, "nestingLevel": 0]

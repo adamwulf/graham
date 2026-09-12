@@ -243,6 +243,28 @@ public struct DocsLiveTest: Sendable {
                 spacingMode: .neverCollapse,
                 outerBorderColor: black, betweenBorderColor: gray,
                 borderWidth: 1, borderDash: .solid, borderPadding: 2)
+            // Read the same paragraph back through the formatting facade: every
+            // value must come back explicit, in the units it was written
+            // (points, a percent, hex) — the write and read sides share units.
+            let after = try await docs.document(id: documentID)
+            guard let row = try after.paragraphFormatRows(
+                from: range.start, to: range.start + 1).first
+            else {
+                throw GrahamError.invalidResponse("the styled paragraph was not found on read-back")
+            }
+            let read = row.explicit
+            guard read.alignment == "CENTER", read.lineSpacing == 150,
+                read.spaceAbove == 6, read.spaceBelow == 6,
+                read.indentStart == 18, read.indentEnd == 18, read.indentFirstLine == 12,
+                read.keepLinesTogether == true, read.spacingMode == "NEVER_COLLAPSE",
+                read.shading == "#FFFF99",
+                read.borderTop?.color == "#000000", read.borderTop?.width == 1,
+                read.borderTop?.padding == 2, read.borderTop?.dashStyle == "SOLID",
+                read.borderBetween?.color == "#808080"
+            else {
+                throw GrahamError.invalidResponse(
+                    "the paragraph style did not round-trip through paragraphFormatRows: \(read)")
+            }
         }
         // The Docs heading convenience: styleParagraphs with only a named style.
         _ = await actionStep("heading", recorder: recorder, skipReason: insertedSkip) {
