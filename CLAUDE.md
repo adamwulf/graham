@@ -378,6 +378,22 @@ write. Tests remain offline and exercise the real encoding path.
   implement** decision on this command, not a deferral: do not add flags for
   them. The API would accept them inside a `NamedStyle`, but a named-style
   redefinition is not their place; set them per-paragraph with `docs paragraph set`.
+- `docs chip rich-link` (`insertRichLink`) accepts ONLY a Google Drive /
+  Workspace file URL, even though the wire `RichLink` union can *report* YouTube
+  and Calendar chips a user added interactively in the editor. A live experiment
+  (2026-09-13) confirmed a Drive file URL succeeds in both the
+  `docs.google.com/.../edit` and `drive.google.com/open?id=` forms (the API
+  fetches the file's `title` and `mimeType`), while a YouTube watch URL, a
+  youtu.be short URL, and a plain web URL are each rejected with `400
+  INVALID_ARGUMENT` "Invalid requests[0].insertRichLink: The URL is invalid."
+  This is not a graham bug: `insertRichLink` forwards the `--uri` unchanged and
+  the Drive URL works, so the client does NOT pre-validate or rewrite the URL —
+  Google is the authority and the client surfaces its 400, exactly like the
+  export/convert MIME pairings. The offline encoding tests
+  (`DocsSmartChipsWriteTests`) lock that every URL form is forwarded verbatim;
+  the `DocsLiveTest` runner's `chip-rich-link` step inserts a Drive-file rich
+  link (the test document's own URL) and reads it back, and its offline
+  simulator rejects a non-Drive URL with the same 400 so the read-back has teeth.
 
 ## Commands
 

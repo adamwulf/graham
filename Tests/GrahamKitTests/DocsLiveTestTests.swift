@@ -212,6 +212,43 @@ final class DocsLiveTestTests: XCTestCase {
         }
     }
 
+    func testSimulatorRejectsANonDriveRichLinkURLButAcceptsADriveURL() async throws {
+        let fixture = DocsLiveFixture()
+        let docs = DocsClient(api: TestSupport.makeAPI(transport: fixture.transport))
+        // insertRichLink accepts only a Drive / Workspace file URL. A YouTube
+        // URL is rejected exactly as the live API rejects it (400 "The URL is
+        // invalid"), so this proves the rich-link read-back has teeth.
+        for uri in [
+            "https://www.youtube.com/watch?v=b5v43xfIqO0",
+            "https://youtu.be/b5v43xfIqO0",
+            "https://example.com/",
+        ] {
+            do {
+                _ = try await docs.insertRichLink(
+                    documentId: "doc-1", uri: uri, endOfSegment: true)
+                XCTFail("a non-Drive rich-link URL should be rejected: \(uri)")
+            } catch {
+                // Expected: the "URL is invalid" 400, not some unrelated error.
+                XCTAssertTrue(
+                    "\(error)".lowercased().contains("invalid"),
+                    "expected an 'invalid URL' rejection for \(uri), got: \(error)")
+            }
+        }
+        // A Drive URL is accepted and reads back with its resolved title.
+        _ = try await docs.insertRichLink(
+            documentId: "doc-1",
+            uri: "https://docs.google.com/document/d/doc-1/edit", endOfSegment: true)
+        let after = try await docs.document(id: "doc-1")
+        let link = after.body?.content?
+            .compactMap { $0.paragraph?.elements }
+            .flatMap { $0 }
+            .compactMap { $0.richLink }
+            .first
+        XCTAssertEqual(
+            link?.richLinkProperties?.uri, "https://docs.google.com/document/d/doc-1/edit")
+        XCTAssertNotNil(link?.richLinkProperties?.title)
+    }
+
     private static let expectedStepNames = [
         "folder", "create-doc",
         "doc-fetch", "structure-read", "plaintext-read", "markdown-read", "images-read",
@@ -225,6 +262,7 @@ final class DocsLiveTestTests: XCTestCase {
         "header-create", "header-insert", "footer-create", "footer-insert", "footnote-create",
         "header-delete", "footer-delete",
         "range-create", "range-list", "range-fill", "range-delete",
+        "chip-rich-link",
         "page-setup", "page-mode-pageless", "write-control",
         "trash-doc",
     ]
@@ -264,6 +302,7 @@ private final class SimParagraph {
     var namedStyleType: String?
     var bulletListId: String?
     var inlineObjectId: String?
+    var richLink: SimRichLink?
     /// The paragraph-style fields an `updateParagraphStyle` set on this
     /// paragraph (only the masked ones), echoed back on every read exactly as
     /// they were written, so the runner's read-back checks the real values.
@@ -273,13 +312,23 @@ private final class SimParagraph {
         text: String,
         namedStyleType: String? = nil,
         bulletListId: String? = nil,
-        inlineObjectId: String? = nil
+        inlineObjectId: String? = nil,
+        richLink: SimRichLink? = nil
     ) {
         self.text = text
         self.namedStyleType = namedStyleType
         self.bulletListId = bulletListId
         self.inlineObjectId = inlineObjectId
+        self.richLink = richLink
     }
+}
+
+/// A rich-link smart chip inside a paragraph, resolved to its title and MIME
+/// type the way the API resolves a Drive file at insertion time.
+private struct SimRichLink {
+    let uri: String
+    let title: String
+    let mimeType: String
 }
 
 /// A table in the simulated document. A reference type so a row/column insert
@@ -613,6 +662,27 @@ private final class DocsLiveFixture: @unchecked Sendable {
             }
             image.sourceUri = op["uri"] as? String ?? image.sourceUri
             return [:]
+        case "insertRichLink":
+            let properties = op["richLinkProperties"] as? [String: Any] ?? [:]
+            let uri = properties["uri"] as? String ?? ""
+            // insertRichLink accepts ONLY a Drive / Workspace file URL. A live
+            // experiment (2026-09-13) showed a YouTube or plain web URL is
+            // rejected with 400 "The URL is invalid"; mirror that so the
+            // simulator is not a rubber stamp.
+            guard Self.isDriveRichLinkURL(uri) else {
+                throw SimReject(
+                    message: "Invalid requests[0].insertRichLink: The URL is invalid.")
+            }
+            // The API fetches the linked file's title and MIME type when the
+            // caller omits them; the simulator supplies stand-ins so a read-back
+            // sees a fully resolved chip.
+            let link = SimRichLink(
+                uri: uri,
+                title: properties["title"] as? String ?? "linked resource",
+                mimeType: properties["mimeType"] as? String
+                    ?? "application/vnd.google-apps.document")
+            appendToBody(.paragraph(SimParagraph(text: "", richLink: link)))
+            return [:]
         case "createHeader":
             headerCounter += 1
             let id = "header-\(headerCounter)"
@@ -783,6 +853,15 @@ private final class DocsLiveFixture: @unchecked Sendable {
         for index in indices where index < 0 || index >= count {
             throw SimReject(message: "\(label) index \(index) is out of range")
         }
+    }
+
+    /// Whether a URL is a Google Drive / Workspace file URL that the
+    /// `insertRichLink` operation accepts. The live experiment confirmed
+    /// `docs.google.com` and `drive.google.com` URLs succeed, while YouTube and
+    /// plain web URLs are rejected.
+    private static func isDriveRichLinkURL(_ uri: String) -> Bool {
+        guard let host = URLComponents(string: uri)?.host else { return false }
+        return host == "docs.google.com" || host == "drive.google.com"
     }
 
     // MARK: Mutations
@@ -1032,8 +1111,10 @@ private final class DocsLiveFixture: @unchecked Sendable {
         switch block {
         case .sectionBreak: return 1
         case .paragraph(let paragraph):
-            // An image paragraph is the object element (1) plus the newline (1).
-            return paragraph.inlineObjectId != nil ? 2 : paragraph.text.utf16.count + 1
+            // An image or rich-link paragraph is the chip element (1) plus the
+            // newline (1); a text paragraph is its text plus the newline.
+            if paragraph.inlineObjectId != nil || paragraph.richLink != nil { return 2 }
+            return paragraph.text.utf16.count + 1
         case .table(let table):
             return tableElement(table, start: start).length
         }
@@ -1069,6 +1150,22 @@ private final class DocsLiveFixture: @unchecked Sendable {
             inner.append([
                 "startIndex": start, "endIndex": start + 1,
                 "inlineObjectElement": ["inlineObjectId": objectId, "textStyle": [:]],
+            ])
+            inner.append([
+                "startIndex": start + 1, "endIndex": start + 2,
+                "textRun": ["content": "\n", "textStyle": [:]],
+            ])
+            length = 2
+        } else if let link = paragraph.richLink {
+            inner.append([
+                "startIndex": start, "endIndex": start + 1,
+                "richLink": [
+                    "richLinkId": "kix.sim-richlink",
+                    "richLinkProperties": [
+                        "uri": link.uri, "title": link.title, "mimeType": link.mimeType,
+                    ],
+                    "textStyle": [:],
+                ],
             ])
             inner.append([
                 "startIndex": start + 1, "endIndex": start + 2,

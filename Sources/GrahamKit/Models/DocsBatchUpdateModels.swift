@@ -106,7 +106,8 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
     case updateNamedStyle(DocsUpdateNamedStyleRequest)
     /// Inserts a person smart chip (an email, with an optional display name).
     case insertPerson(DocsInsertPersonRequest)
-    /// Inserts a rich-link smart chip (a Drive/YouTube/Calendar URI).
+    /// Inserts a rich-link smart chip. The API accepts ONLY a Google Drive /
+    /// Workspace file URL here; see ``DocsRichLinkProperties``.
     case insertRichLink(DocsInsertRichLinkRequest)
     /// Inserts a date smart chip (a timestamp with optional format).
     case insertDate(DocsInsertDateRequest)
@@ -1876,9 +1877,13 @@ public struct DocsInsertPersonRequest: Codable, Sendable, Equatable {
     }
 }
 
-/// The properties of a rich-link smart chip (a Drive file, YouTube video, or
-/// Calendar event): the `uri` (required) and an optional `title` and
-/// `mimeType`. The API fetches the link's metadata at insertion time.
+/// The properties of a rich-link smart chip: the `uri` (required) and an
+/// optional `title` and `mimeType`. The API fetches the link's metadata at
+/// insertion time. On the WRITE path (`insertRichLink`) the API accepts ONLY a
+/// Google Drive / Workspace file URL; a YouTube or plain web URL is rejected
+/// with `400 INVALID_ARGUMENT` "The URL is invalid" (verified live 2026-09-13).
+/// (The read side, `DocRichLink`, can still report YouTube or Calendar chips a
+/// user added interactively in the editor — those just cannot be inserted here.)
 public struct DocsRichLinkProperties: Codable, Sendable, Equatable {
     public let uri: String
     public let title: String?

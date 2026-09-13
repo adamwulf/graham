@@ -580,6 +580,24 @@ public struct DocsLiveTest: Sendable {
             }
         }
 
+        // Smart chips. Insert a rich-link chip and read it back. The Docs
+        // `insertRichLink` operation accepts ONLY a Google Drive / Workspace file
+        // URL — a live experiment on 2026-09-13 showed a YouTube watch URL, a
+        // youtu.be short URL, and a plain web URL are each rejected with 400
+        // "The URL is invalid." So the chip links to the test document's own
+        // Drive URL, a file guaranteed to exist; the API fetches its title and
+        // MIME type, which the read-back confirms.
+        _ = await actionStep("chip-rich-link", recorder: recorder) {
+            let uri = "https://docs.google.com/document/d/\(documentID)/edit"
+            _ = try await docs.insertRichLink(
+                documentId: documentID, uri: uri, endOfSegment: true)
+            let after = try await docs.document(id: documentID)
+            guard let link = self.firstRichLink(after),
+                  link.richLinkProperties?.uri?.contains(documentID) == true else {
+                throw GrahamError.invalidResponse("the rich-link chip did not round-trip")
+            }
+        }
+
         // Document-wide style. This masks the page-oriented DocumentStyle fields
         // in one call: page size, margins, the header/footer flags, background,
         // the starting page number, custom header/footer margins, and the
@@ -714,6 +732,16 @@ public struct DocsLiveTest: Sendable {
     private func firstTable(_ document: Document) -> DocTable? {
         for element in document.body?.content ?? [] where element.table != nil {
             return element.table
+        }
+        return nil
+    }
+
+    /// The first rich-link chip anywhere in the body, for the chip read-back.
+    private func firstRichLink(_ document: Document) -> DocRichLink? {
+        for element in document.body?.content ?? [] {
+            for inline in element.paragraph?.elements ?? [] where inline.richLink != nil {
+                return inline.richLink
+            }
         }
         return nil
     }

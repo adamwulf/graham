@@ -66,8 +66,13 @@ extension DocsClient {
             requiredRevisionId: requiredRevisionId)
     }
 
-    /// Inserts a rich-link smart chip (a Drive/YouTube/Calendar `uri`, with an
-    /// optional `title` and `mimeType`) at an index or the end of a segment.
+    /// Inserts a rich-link smart chip (a Google Drive / Workspace file `uri`,
+    /// with an optional `title` and `mimeType`) at an index or the end of a
+    /// segment. The `uri` is forwarded to the API unchanged; the API alone
+    /// decides which URLs it accepts, and it accepts ONLY a Drive file URL — a
+    /// YouTube or plain web URL is rejected with `400 INVALID_ARGUMENT` "The URL
+    /// is invalid" (verified live 2026-09-13). When `title`/`mimeType` are
+    /// omitted the API fetches them from the linked file.
     public func insertRichLink(
         documentId: String,
         uri: String,
