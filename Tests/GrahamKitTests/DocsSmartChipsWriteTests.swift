@@ -120,6 +120,92 @@ final class DocsSmartChipsWriteTests: GrahamTestCase {
         XCTAssertTrue(transport.requests(urlContains: ":batchUpdate").isEmpty)
     }
 
+    // graham forwards the `--uri` unchanged; the Docs API alone decides which
+    // URLs it accepts. A live experiment (2026-09-13) confirmed the
+    // `insertRichLink` operation accepts ONLY Google Drive / Workspace file
+    // URLs: a Drive file URL succeeds (the API fetches the file's title and MIME
+    // type), while a YouTube watch URL, a youtu.be short URL, and a plain web
+    // URL are each rejected with `400 INVALID_ARGUMENT` "The URL is invalid."
+    // These cases lock the encoding — every form is forwarded verbatim — so the
+    // accept/reject decision stays the API's, never graham's.
+    func testInsertRichLinkForwardsEveryURLFormVerbatim() async throws {
+        let cases: [(uri: String, encoded: String)] = [
+            // Accepted live: a Drive file URL.
+            (
+                "https://docs.google.com/spreadsheets/d/SHEET_ID/edit",
+                #"https:\/\/docs.google.com\/spreadsheets\/d\/SHEET_ID\/edit"#
+            ),
+            // Accepted live: the drive.google.com/open?id= form.
+            (
+                "https://drive.google.com/open?id=SHEET_ID",
+                #"https:\/\/drive.google.com\/open?id=SHEET_ID"#
+            ),
+            // Rejected live (400 "The URL is invalid"): a YouTube watch URL.
+            (
+                "https://www.youtube.com/watch?v=b5v43xfIqO0",
+                #"https:\/\/www.youtube.com\/watch?v=b5v43xfIqO0"#
+            ),
+            // Rejected live: a youtu.be short URL.
+            ("https://youtu.be/b5v43xfIqO0", #"https:\/\/youtu.be\/b5v43xfIqO0"#),
+            // Rejected live: a plain web URL.
+            ("https://example.com/", #"https:\/\/example.com\/"#),
+        ]
+        for (uri, encoded) in cases {
+            let transport = StubTransport()
+            let client = TestSupport.docsClient(transport)
+            transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+            _ = try await client.insertRichLink(
+                documentId: "doc-1", uri: uri, endOfSegment: true)
+
+            let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+            XCTAssertEqual(
+                TestSupport.bodyString(request),
+                #"{"requests":[{"insertRichLink":{"endOfSegmentLocation":{},"richLinkProperties":{"uri":""#
+                    + encoded + #""}}}]}"#,
+                "unexpected encoded body for \(uri)")
+        }
+    }
+
+    // The omitted-key cases: a nil `title` or `mimeType` drops out of the body
+    // entirely (it is never sent as null), so a caller can send only the URI and
+    // let the API fetch the rest, or hint just one of the two.
+    func testInsertRichLinkWithTitleOmitsMimeType() async throws {
+        let transport = StubTransport()
+        let client = TestSupport.docsClient(transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.insertRichLink(
+            documentId: "doc-1",
+            uri: "https://docs.google.com/document/d/DOC_ID/edit",
+            title: "Report",
+            index: 1)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            TestSupport.bodyString(request),
+            #"{"requests":[{"insertRichLink":{"location":{"index":1},"richLinkProperties":{"title":"Report","uri":"https:\/\/docs.google.com\/document\/d\/DOC_ID\/edit"}}}]}"#
+        )
+    }
+
+    func testInsertRichLinkWithMimeTypeOmitsTitle() async throws {
+        let transport = StubTransport()
+        let client = TestSupport.docsClient(transport)
+        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
+
+        _ = try await client.insertRichLink(
+            documentId: "doc-1",
+            uri: "https://docs.google.com/document/d/DOC_ID/edit",
+            mimeType: "application/vnd.google-apps.document",
+            index: 1)
+
+        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
+        XCTAssertEqual(
+            TestSupport.bodyString(request),
+            #"{"requests":[{"insertRichLink":{"location":{"index":1},"richLinkProperties":{"mimeType":"application\/vnd.google-apps.document","uri":"https:\/\/docs.google.com\/document\/d\/DOC_ID\/edit"}}}]}"#
+        )
+    }
+
     // MARK: - insertDate
 
     func testInsertDateAtIndexEncodesEveryPropertyAndLocation() async throws {
