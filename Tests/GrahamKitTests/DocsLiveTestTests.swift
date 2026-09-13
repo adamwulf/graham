@@ -228,7 +228,10 @@ final class DocsLiveTestTests: XCTestCase {
                     documentId: "doc-1", uri: uri, endOfSegment: true)
                 XCTFail("a non-Drive rich-link URL should be rejected: \(uri)")
             } catch {
-                // Expected: the simulator rejects the non-Drive URL.
+                // Expected: the "URL is invalid" 400, not some unrelated error.
+                XCTAssertTrue(
+                    "\(error)".lowercased().contains("invalid"),
+                    "expected an 'invalid URL' rejection for \(uri), got: \(error)")
             }
         }
         // A Drive URL is accepted and reads back with its resolved title.

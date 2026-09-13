@@ -95,20 +95,9 @@ final class DocsSmartChipsWriteTests: GrahamTestCase {
         )
     }
 
-    func testInsertRichLinkAtEndUriOnly() async throws {
-        let transport = StubTransport()
-        let client = TestSupport.docsClient(transport)
-        transport.stub(urlContains: ":batchUpdate", json: #"{"replies":[{}]}"#)
-
-        _ = try await client.insertRichLink(
-            documentId: "doc-1", uri: "https://youtu.be/x", endOfSegment: true)
-
-        let request = try XCTUnwrap(transport.requests(urlContains: ":batchUpdate").first)
-        XCTAssertEqual(
-            TestSupport.bodyString(request),
-            #"{"requests":[{"insertRichLink":{"endOfSegmentLocation":{},"richLinkProperties":{"uri":"https:\/\/youtu.be\/x"}}}]}"#
-        )
-    }
+    // The uri-only, end-of-segment shape is covered by every case in
+    // `testInsertRichLinkForwardsEveryURLFormVerbatim` below (each sends only a
+    // uri at the end of the segment), so no separate uri-only test is kept here.
 
     func testInsertRichLinkRejectsEmptyUriWithoutSendingARequest() async {
         let transport = StubTransport()

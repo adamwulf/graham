@@ -106,7 +106,8 @@ public enum DocsBatchUpdateRequest: Encodable, Sendable, Equatable {
     case updateNamedStyle(DocsUpdateNamedStyleRequest)
     /// Inserts a person smart chip (an email, with an optional display name).
     case insertPerson(DocsInsertPersonRequest)
-    /// Inserts a rich-link smart chip (a Drive/YouTube/Calendar URI).
+    /// Inserts a rich-link smart chip. The API accepts ONLY a Google Drive /
+    /// Workspace file URL here; see ``DocsRichLinkProperties``.
     case insertRichLink(DocsInsertRichLinkRequest)
     /// Inserts a date smart chip (a timestamp with optional format).
     case insertDate(DocsInsertDateRequest)
