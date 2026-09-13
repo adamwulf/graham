@@ -416,12 +416,16 @@ graham docs section-style <document-id> --from 1 --to 20 --column-separator betw
 # is required. --tab-id scopes the change to one tab.
 graham docs named-style <document-id> --style heading-2 --bold --color "#1155CC" --size 18 --font Arial
 graham docs named-style <document-id> --style normal-text --line-spacing 150 --align justified
-# Insert a smart chip: a person (email + optional name), a rich link (a
-# Drive/YouTube/Calendar URI), or a date (an RFC 3339 timestamp). Each inserts at
+# Insert a smart chip: a person (email + optional name), a rich link (a Google
+# Drive / Workspace file URL), or a date (an RFC 3339 timestamp). Each inserts at
 # a zero-based --at index or the end of the segment (--end); --segment and --tab-id
-# scope the target.
+# scope the target. A rich link accepts ONLY a Drive file URL (a Doc, Sheet,
+# Slides, or any Drive file, in either the docs.google.com/.../edit or
+# drive.google.com/open?id= form); the API fetches its title and MIME type. A
+# YouTube URL (watch or youtu.be) or a plain web URL is rejected by Google with
+# 400 "The URL is invalid".
 graham docs chip person <document-id> --email person@example.com --name "A. Person" --at 1
-graham docs chip rich-link <document-id> --uri https://drive.google.com/file/d/ID --end
+graham docs chip rich-link <document-id> --uri "https://docs.google.com/spreadsheets/d/ID/edit" --end
 graham docs chip date <document-id> --timestamp 2026-08-27T00:00:00Z --date-format month-day-year-abbrev --at 1
 # Manage document tabs: list them (id, title, one-based position, parent), add
 # one (printing its new id), delete one and its child tabs, or rename/move one.

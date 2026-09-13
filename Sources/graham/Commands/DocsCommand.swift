@@ -2799,16 +2799,23 @@ struct Docs: AsyncParsableCommand {
         struct RichLink: AsyncParsableCommand {
             static let configuration = CommandConfiguration(
                 commandName: "rich-link",
-                abstract: "Insert a rich-link smart chip from a Drive/YouTube/Calendar URI."
+                abstract: "Insert a rich-link smart chip from a Google Drive file URL.",
+                discussion: """
+                    The Docs API accepts ONLY a Google Drive / Workspace file URL here \
+                    (a Doc, Sheet, Slides, or any Drive file, in either the \
+                    docs.google.com/.../edit or drive.google.com/open?id= form). A \
+                    YouTube URL (watch or youtu.be) or a plain web URL is rejected by \
+                    Google with 400 "The URL is invalid".
+                    """
             )
 
             @Argument(help: "The document ID.")
             var documentID: String
 
-            @Option(help: "The link URI (required).")
+            @Option(help: "The Google Drive file URL to link (required). YouTube and plain web URLs are rejected by the API.")
             var uri: String
 
-            @Option(help: "An optional title (the API otherwise fetches it).")
+            @Option(help: "An optional title (the API otherwise fetches the file's).")
             var title: String?
 
             @Option(help: "An optional MIME type hint.")
