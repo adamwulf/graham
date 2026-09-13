@@ -204,20 +204,26 @@ public struct DriveClient: Sendable {
 
     /// Copies a file via `files.copy`. With a `name`, the copy takes that name;
     /// without one, Drive names it "Copy of <original>". An optional `parent`
-    /// places the copy in that folder. Returns the new file, whose `id` is the
-    /// value the `copy` command prints.
+    /// places the copy in that folder. An optional `mimeType` makes it an
+    /// import-converting copy: Drive creates a new Google Workspace file of that
+    /// type from the source's bytes (for example a `.pptx` to Google Slides),
+    /// server-side, with no bytes transferred through the client. Without a
+    /// `mimeType` the copy keeps the source's type. Returns the new file, whose
+    /// `id` is the value the `copy` and `convert` commands print.
     ///
-    /// The optional name travels in a JSON request body, not in the URL, so it
-    /// is encoded safely no matter what characters it holds. The request spans
-    /// shared drives.
+    /// The optional name and MIME type travel in a JSON request body, not in the
+    /// URL, so they are encoded safely no matter what characters they hold. The
+    /// request spans shared drives.
     public func copy(
         fileId: String,
         name: String? = nil,
-        parent: String? = nil
+        parent: String? = nil,
+        mimeType: String? = nil
     ) async throws -> DriveFile {
         let url = try Self.fileURL(
             fileId, suffix: "/copy", extra: [("fields", Self.fileFields)])
-        let body = DriveFileCopyRequest(name: name, parents: parent.map { [$0] })
+        let body = DriveFileCopyRequest(
+            name: name, parents: parent.map { [$0] }, mimeType: mimeType)
         return try await api.sendJSON(DriveFile.self, method: "POST", url: url, body: body)
     }
 

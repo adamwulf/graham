@@ -70,6 +70,52 @@ public enum DriveCreateType: String, CaseIterable, Sendable {
     }
 }
 
+/// The Google Workspace types a foreign file can be converted to.
+///
+/// This is the inverse of ``DriveExportFormat``: export sends a Google
+/// Workspace file *out* to a foreign format; convert imports a foreign file (a
+/// `.pptx`, `.docx`, `.xlsx`, `.csv`, ...) already in Drive *into* one of these
+/// Google editor types, through an import-converting `files.copy`. Google's
+/// import conversion targets only a small set of editor types; this enum lists
+/// the three graham can read and edit afterward — a Doc, a Sheet, or a Slides
+/// deck. (Drive can also import to a Drawing or an Apps Script, but graham has
+/// no command for those, so a converted result would be a dead end.)
+///
+/// The MIME strings live once, on ``DriveCreateType``; this enum only supplies
+/// the singular command-line names that mirror the `drive create` subcommands
+/// (`doc`, `sheet`, `slides`). Not every source converts to every target:
+/// Google fixes the allowed pairs (`.pptx` → slides, `.docx` → doc,
+/// `.xlsx`/`.csv` → sheet, ...) and rejects a bad pairing with a `400`, which
+/// the client surfaces. This enum only names the target; it does not check the
+/// source file.
+public enum DriveConvertType: String, CaseIterable, Sendable {
+    case doc
+    case sheet
+    case slides
+
+    /// The Google Workspace MIME type this file is converted to. Routes through
+    /// ``DriveCreateType`` so the MIME strings stay in one place.
+    public var mimeType: String {
+        switch self {
+        case .doc: return DriveCreateType.docs.mimeType
+        case .sheet: return DriveCreateType.sheets.mimeType
+        case .slides: return DriveCreateType.slides.mimeType
+        }
+    }
+
+    /// The short name used on the command line.
+    public var shortName: String {
+        rawValue
+    }
+
+    public init?(shortName: String) {
+        guard let match = DriveConvertType.allCases.first(where: { $0.shortName == shortName }) else {
+            return nil
+        }
+        self = match
+    }
+}
+
 /// A short name for a common `files.export` target format.
 ///
 /// `graham drive export` maps each case to the MIME type Google's Drive

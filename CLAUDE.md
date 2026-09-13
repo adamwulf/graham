@@ -321,6 +321,24 @@ write. Tests remain offline and exercise the real encoding path.
   `ExpressibleByArgument` conformance lives in the CLI. The enum only names the
   format — it does not check that the format fits the file (`docx` on a Sheet,
   say); Google returns a `400` for a bad pairing and the client surfaces it.
+- `drive convert` is the inverse of `drive export`: export sends a Workspace
+  file *out* to a foreign format; convert imports a foreign file already in
+  Drive (`.pptx`, `.docx`, `.xlsx`, `.csv`, ...) *into* an editable Google file.
+  It is a byte-free, server-side `files.copy` with a target `mimeType` in the
+  body — the same primitive as `drive copy`, which now takes an optional
+  `mimeType` (omitted when nil, so a plain copy keeps the source type). A
+  metadata-only `files.update` CANNOT change a file's type, so convert always
+  makes a NEW file and leaves the source unchanged; the CLI prints the new id.
+  `--to` is a `DriveConvertType` (`doc`/`sheet`/`slides`), the three types
+  graham can read and edit afterward — Drive also imports to a Drawing or an
+  Apps Script, but graham has no command for those, so they are deliberately
+  omitted. `DriveConvertType` lives in `GrahamKit` beside `DriveCreateType` and
+  routes to it for the MIME strings (single source), keeps the singular
+  command-line names that mirror the `drive create` subcommands, and has its
+  `ExpressibleByArgument` conformance in the CLI. Like export, the enum only
+  names the target; Google fixes the allowed source→target pairings (`.pptx` →
+  slides, `.docx` → doc, `.xlsx`/`.csv` → sheet) and returns a `400` for a bad
+  pairing, which the client surfaces.
 - Slides batch updates use zero-based insertion indices based on the slide order
   before a move, while graham displays and accepts final slide positions as
   one-based. Resolve the source index and translate at the high-level client

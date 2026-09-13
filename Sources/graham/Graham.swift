@@ -35,6 +35,7 @@ struct Graham: AsyncParsableCommand {
 
 extension OutputFormat: ExpressibleByArgument {}
 extension DriveFileType: ExpressibleByArgument {}
+extension DriveConvertType: ExpressibleByArgument {}
 extension DriveExportFormat: ExpressibleByArgument {}
 
 extension VideoSource: UppercasedRawArgument {}
