@@ -6,7 +6,7 @@ struct Drive: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Work with Google Drive files.",
         subcommands: [
-            List.self, Get.self, Create.self, Copy.self, Move.self, Rename.self,
+            List.self, Get.self, Create.self, Copy.self, Convert.self, Move.self, Rename.self,
             Star.self, Trash.self, Untrash.self, Delete.self, Download.self, Export.self,
             Test.self,
         ]
@@ -198,6 +198,47 @@ struct Drive: AsyncParsableCommand {
         func run() async throws {
             let client = DriveClient(api: try CLI.makeAPI())
             let file = try await client.copy(fileId: fileID, name: name)
+            print(file.id)
+        }
+    }
+
+    struct Convert: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Convert a foreign file to a Google Doc, Sheet, or Slides.",
+            discussion: """
+                Converts a file already in Drive (a .pptx, .docx, .xlsx, .csv, \
+                and so on) into an editable Google Workspace file, server-side, \
+                with no download or upload. This is the inverse of \
+                `graham drive export`: export sends a Google file out to another \
+                format; convert brings a foreign file in.
+
+                It always makes a NEW file and leaves the source unchanged — a \
+                file's type cannot be changed in place. After converting, edit \
+                the new file with the docs, sheets, or slides commands, and use \
+                `graham drive export` to get a converted copy back out.
+
+                Google fixes the allowed pairings (a .pptx converts to slides, a \
+                .docx to a doc, a .xlsx or .csv to a sheet) and rejects a bad \
+                pairing with an error. Prints the new file's ID.
+                """
+        )
+
+        @Argument(help: "The Drive file ID to convert.")
+        var fileID: String
+
+        @Option(help: "The Google Workspace type to convert to: doc, sheet, or slides.")
+        var to: DriveConvertType
+
+        @Option(help: "A name for the new file. Without it, Drive names it \"Copy of <original>\".")
+        var name: String?
+
+        @Option(help: "The ID of the folder to place the new file in. Without it, it lands in My Drive.")
+        var parent: String?
+
+        func run() async throws {
+            let client = DriveClient(api: try CLI.makeAPI())
+            let file = try await client.copy(
+                fileId: fileID, name: name, parent: parent, mimeType: to.mimeType)
             print(file.id)
         }
     }

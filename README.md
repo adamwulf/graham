@@ -146,6 +146,10 @@ graham drive create folder "Project Files"
 graham drive create shortcut <target-file-id> --name "Report shortcut"
 # Copy a file, optionally renaming the copy, and print its new id.
 graham drive copy <file-id> --name "Quarterly Report Copy"
+# Convert a foreign file already in Drive (.pptx/.docx/.xlsx/.csv/...) into an
+# editable Google file, server-side (no download/upload). The inverse of export.
+# --to is doc, sheet, or slides; it always makes a new file and prints its id.
+graham drive convert <pptx-file-id> --to slides --name "Deck"
 # Move a file into a folder, or rename it.
 graham drive move <file-id> --to <folder-id>
 graham drive rename <file-id> "New Name"

@@ -76,18 +76,26 @@ public struct DriveFileCreateRequest: Codable, Sendable, Equatable {
     }
 }
 
-/// The request body for `files.copy`: an optional new name and destination.
+/// The request body for `files.copy`: an optional new name, destination, and
+/// target MIME type.
 ///
 /// When `name` is nil the key is omitted entirely, so Drive keeps its default
 /// naming ("Copy of <original>"). A one-item `parents` array keeps a copy in a
-/// caller-selected folder. Both are carried in the body, never in the URL.
+/// caller-selected folder. A `mimeType` turns a plain copy into an
+/// import-converting copy: Drive reads the source file's bytes on its own
+/// servers and creates a new Google Workspace file of that type (a `.pptx` to
+/// Google Slides, say), with no byte transfer through the client. When
+/// `mimeType` is nil the key is omitted, so the copy keeps the source's type.
+/// All three fields are carried in the body, never in the URL.
 public struct DriveFileCopyRequest: Codable, Sendable, Equatable {
     public let name: String?
     public let parents: [String]?
+    public let mimeType: String?
 
-    public init(name: String? = nil, parents: [String]? = nil) {
+    public init(name: String? = nil, parents: [String]? = nil, mimeType: String? = nil) {
         self.name = name
         self.parents = parents
+        self.mimeType = mimeType
     }
 }
 
