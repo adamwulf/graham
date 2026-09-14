@@ -98,6 +98,9 @@ final class DriveClientTests: XCTestCase {
         XCTAssertEqual(
             fields,
             DriveClient.fileFields)
+        XCTAssertTrue(
+            DriveClient.fileFields.contains(
+                "shortcutDetails(targetId,targetMimeType,targetResourceKey)"))
     }
 
     func testExportRequestsTheMimeType() async throws {
