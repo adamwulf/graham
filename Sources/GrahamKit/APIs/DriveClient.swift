@@ -6,7 +6,7 @@ import Foundation
 /// side guard, so a broad query does not pull a full Drive by accident.
 public struct DriveClient: Sendable {
     public static let baseURL = "https://www.googleapis.com/drive/v3"
-    static let fileFields = "id,name,mimeType,modifiedTime,size,webViewLink,parents,starred,trashed"
+    static let fileFields = "id,name,mimeType,modifiedTime,size,webViewLink,parents,starred,trashed,shortcutDetails(targetId,targetMimeType,targetResourceKey)"
 
     private let api: GoogleAPI
 

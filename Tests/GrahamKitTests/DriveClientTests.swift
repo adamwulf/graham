@@ -73,6 +73,33 @@ final class DriveClientTests: XCTestCase {
         XCTAssertTrue(url.contains("supportsAllDrives=true"))
     }
 
+    func testGetFetchesShortcutTargetDetails() async throws {
+        let transport = StubTransport()
+        let client = TestSupport.driveClient(transport)
+        transport.stub(
+            urlContains: "/drive/v3/files/shortcut-1",
+            json: #"{"id":"shortcut-1","name":"Report shortcut","mimeType":"application/vnd.google-apps.shortcut","shortcutDetails":{"targetId":"target-1","targetMimeType":"application/vnd.google-apps.document","targetResourceKey":"resource-key-1"}}"#
+        )
+
+        let file = try await client.file(id: "shortcut-1")
+
+        XCTAssertEqual(file.shortcutDetails?.targetId, "target-1")
+        XCTAssertEqual(
+            file.shortcutDetails?.targetMimeType,
+            "application/vnd.google-apps.document")
+        XCTAssertEqual(file.shortcutDetails?.targetResourceKey, "resource-key-1")
+        let output = try OutputFormatter.render([file], format: .json)
+        XCTAssertTrue(output.contains(#""targetId" : "target-1""#))
+        let request = try XCTUnwrap(
+            transport.requests(urlContains: "/drive/v3/files/shortcut-1").first)
+        let fields = URLComponents(
+            url: request.url, resolvingAgainstBaseURL: false
+        )?.queryItems?.first { $0.name == "fields" }?.value
+        XCTAssertEqual(
+            fields,
+            DriveClient.fileFields)
+    }
+
     func testExportRequestsTheMimeType() async throws {
         let transport = StubTransport()
         let client = TestSupport.driveClient(transport)

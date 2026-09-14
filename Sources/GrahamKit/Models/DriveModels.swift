@@ -14,6 +14,7 @@ public struct DriveFile: Codable, Sendable, Equatable {
     public let parents: [String]?
     public let starred: Bool?
     public let trashed: Bool?
+    public let shortcutDetails: DriveShortcutDetails?
 
     public init(
         id: String,
@@ -24,7 +25,8 @@ public struct DriveFile: Codable, Sendable, Equatable {
         webViewLink: String? = nil,
         parents: [String]? = nil,
         starred: Bool? = nil,
-        trashed: Bool? = nil
+        trashed: Bool? = nil,
+        shortcutDetails: DriveShortcutDetails? = nil
     ) {
         self.id = id
         self.name = name
@@ -35,6 +37,7 @@ public struct DriveFile: Codable, Sendable, Equatable {
         self.parents = parents
         self.starred = starred
         self.trashed = trashed
+        self.shortcutDetails = shortcutDetails
     }
 
     /// A short type label for tables, for example "doc" or "sheet".
@@ -130,12 +133,23 @@ public struct DriveUpdateRequest: Codable, Sendable, Equatable {
     }
 }
 
-/// The `shortcutDetails` of a shortcut file: the id of the file it points to.
+/// The `shortcutDetails` of a shortcut file: the target file and its type.
+///
+/// Only `targetId` is sent when creating a shortcut. Drive fills the optional
+/// target MIME type and resource key when shortcut metadata is read.
 public struct DriveShortcutDetails: Codable, Sendable, Equatable {
     public let targetId: String
+    public let targetMimeType: String?
+    public let targetResourceKey: String?
 
-    public init(targetId: String) {
+    public init(
+        targetId: String,
+        targetMimeType: String? = nil,
+        targetResourceKey: String? = nil
+    ) {
         self.targetId = targetId
+        self.targetMimeType = targetMimeType
+        self.targetResourceKey = targetResourceKey
     }
 }
 

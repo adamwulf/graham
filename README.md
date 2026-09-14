@@ -127,6 +127,8 @@ graham drive list <folder-id> --type docs
 # Search across all drives (a query, or a docs/sheets/slides type, triggers a global search).
 graham drive list --query "name contains 'report'" --limit 20
 
+# Shortcut metadata includes shortcutDetails.targetId, which can be passed to
+# `drive copy` to copy the shortcut's target instead of the shortcut itself.
 graham drive get <file-id> --format json
 # Export a Google Workspace file to another format, or download a binary file's
 # raw bytes (Docs/Sheets/Slides have no bytes to download — export them).
