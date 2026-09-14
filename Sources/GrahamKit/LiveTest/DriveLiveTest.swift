@@ -225,6 +225,18 @@ public struct DriveLiveTest: Sendable {
             }
             return file
         }
+        _ = await actionStep(
+            "get-shortcut", recorder: recorder,
+            skipReason: firstFailed([
+                ("create-document", document != nil),
+                ("create-shortcut", shortcut != nil),
+            ])
+        ) {
+            let file = try await drive.file(id: shortcut!.id)
+            guard file.shortcutDetails?.targetId == document!.id else {
+                throw GrahamError.invalidResponse("the shortcut target did not round-trip")
+            }
+        }
 
         let copy = await valueStep(
             "copy-document", recorder: recorder,

@@ -21,6 +21,9 @@ final class DriveLiveTestTests: XCTestCase {
             summary.steps.first(where: { $0.name == "create-shortcut" })?.createdIDs,
             ["shortcut-1"])
         XCTAssertEqual(
+            summary.steps.first(where: { $0.name == "get-shortcut" })?.outcome,
+            .pass)
+        XCTAssertEqual(
             summary.steps.first(where: { $0.name == "copy-document" })?.createdIDs,
             ["copy-1"])
 
@@ -231,7 +234,7 @@ final class DriveLiveTestTests: XCTestCase {
             .fail(reason: "Google API error 400 (INVALID_ARGUMENT): document-1 create rejected"))
         for name in [
             "get-document", "rename-document", "star-document", "move-document",
-            "create-shortcut", "copy-document", "export-document",
+            "create-shortcut", "get-shortcut", "copy-document", "export-document",
         ] {
             XCTAssertEqual(
                 summary.steps.first(where: { $0.name == name })?.outcome,
@@ -263,7 +266,7 @@ final class DriveLiveTestTests: XCTestCase {
         "folder", "roots", "create-source-folder", "create-destination-folder",
         "create-document", "get-document", "list-source", "global-search",
         "rename-document", "star-document", "unstar-document", "move-document",
-        "list-destination", "create-shortcut", "copy-document", "export-document",
+        "list-destination", "create-shortcut", "get-shortcut", "copy-document", "export-document",
         "trash-copy", "untrash-copy", "delete-copy", "drive-trash-shortcut",
         "drive-trash-document", "drive-trash-source-folder", "drive-trash-destination-folder",
     ]
@@ -297,6 +300,25 @@ private final class DriveLiveFixture: @unchecked Sendable {
         var parents: [String]
         var trashed: Bool
         var starred: Bool
+        let shortcutTargetId: String?
+
+        init(
+            id: String,
+            name: String,
+            mimeType: String,
+            parents: [String],
+            trashed: Bool,
+            starred: Bool,
+            shortcutTargetId: String? = nil
+        ) {
+            self.id = id
+            self.name = name
+            self.mimeType = mimeType
+            self.parents = parents
+            self.trashed = trashed
+            self.starred = starred
+            self.shortcutTargetId = shortcutTargetId
+        }
     }
 
     let transport = StubTransport()
@@ -497,6 +519,7 @@ private final class DriveLiveFixture: @unchecked Sendable {
             return googleError(message: "malformed create")
         }
         let parents = body["parents"] as? [String] ?? []
+        let shortcutTargetId = (body["shortcutDetails"] as? [String: Any])?["targetId"] as? String
         let id: String
         if mime == DriveShortcutCreateRequest.mimeType {
             id = "shortcut-1"
@@ -514,7 +537,7 @@ private final class DriveLiveFixture: @unchecked Sendable {
         }
         let file = StoredFile(
             id: id, name: name, mimeType: mime, parents: parents,
-            trashed: false, starred: false)
+            trashed: false, starred: false, shortcutTargetId: shortcutTargetId)
         files[id] = file
         return driveFile(file)
     }
@@ -567,7 +590,7 @@ private final class DriveLiveFixture: @unchecked Sendable {
     }
 
     private func fileObject(_ file: StoredFile) -> [String: Any] {
-        [
+        var object: [String: Any] = [
             "id": file.id,
             "name": file.name,
             "mimeType": file.mimeType,
@@ -575,6 +598,10 @@ private final class DriveLiveFixture: @unchecked Sendable {
             "starred": file.starred,
             "trashed": file.trashed,
         ]
+        if let shortcutTargetId = file.shortcutTargetId {
+            object["shortcutDetails"] = ["targetId": shortcutTargetId]
+        }
+        return object
     }
 
     private func googleError(message: String, status: Int = 400) -> HTTPResponse {
