@@ -404,6 +404,23 @@ final class SlidesParsingTests: XCTestCase {
         XCTAssertNil(command.skip)
     }
 
+    func testSlidesSlideSetResolvesEachBackgroundFlag() throws {
+        func resolved(_ flags: [String]) throws -> SlideBackground? {
+            try Slides.Slide.Set.parse(["deck-id", "slide-1"] + flags).resolvedBackground()
+        }
+        XCTAssertEqual(
+            try resolved(["--background-image", "https://example.com/bg.png"]),
+            .image(url: "https://example.com/bg.png"))
+        XCTAssertEqual(
+            try resolved(["--background", "#F00"]),
+            .color(OpaqueColor(red: 1, green: 0, blue: 0)))
+        XCTAssertEqual(try resolved(["--background", "none"]), .noFill)
+        XCTAssertEqual(try resolved(["--background", "inherit"]), .inherit)
+        // --skip alone leaves the background unchanged.
+        XCTAssertNil(try resolved(["--skip"]))
+        XCTAssertThrowsError(try resolved(["--background", "blurple"]))
+    }
+
     func testSlidesSlideSetRequiresAtLeastOneFlag() {
         XCTAssertThrowsError(try Slides.Slide.Set.parse(["deck-id", "slide-1"])) { error in
             let message = Slides.Slide.Set.message(for: error)

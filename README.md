@@ -488,10 +488,8 @@ graham slides alt-text <presentation-id> <object-id> --clear-title --clear-descr
 graham slides notes get <presentation-id>
 graham slides notes set <presentation-id> <slide-id> --text "Discuss the forecast"
 graham slides notes clear <presentation-id> <slide-id>
-# Read or set whether each slide is skipped (hidden in presentation mode) and
-# its background. --background is a hex or theme color, none, or inherit (the
-# layout's background); get prints the background in that same spelling, or
-# image for a picture (set one with --background-image).
+# Read or set each slide's skipped (hidden) flag and background. --background takes
+# a hex or theme color, none, or inherit (the layout's); get prints those, or image.
 graham slides slide get <presentation-id>
 graham slides slide set <presentation-id> <slide-id> --skip --background "#1A73E8"
 graham slides slide set <presentation-id> <slide-id> --background-image https://example.com/bg.png

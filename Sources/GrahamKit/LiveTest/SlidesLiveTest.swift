@@ -581,7 +581,7 @@ public struct SlidesLiveTest: Sendable {
         ) {
             let rows = try await slides.slideProperties(presentationId: presentationID)
             guard let row = rows.first(where: { $0.slideId == primarySlide! }),
-                  row.skipped, row.background == "#FF0000", row.backgroundImageUrl == nil
+                  row.skipped, row.background == "#FF0000"
             else {
                 throw GrahamError.invalidResponse("slide skip and background did not round-trip")
             }

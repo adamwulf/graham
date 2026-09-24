@@ -1170,13 +1170,18 @@ struct Slides: AsyncParsableCommand {
                 }
             }
 
-            func run() async throws {
-                let slideBackground: SlideBackground?
+            /// The background to write: a `--background-image` picture, else the
+            /// parsed `--background`, else `nil` (leave it unchanged).
+            /// `validate()` rejects both at once, so at most one is set here.
+            func resolvedBackground() throws -> SlideBackground? {
                 if let backgroundImage {
-                    slideBackground = .image(url: backgroundImage)
-                } else {
-                    slideBackground = try background.map { try SlideBackground.parse($0) }
+                    return .image(url: backgroundImage)
                 }
+                return try background.map { try SlideBackground.parse($0) }
+            }
+
+            func run() async throws {
+                let slideBackground = try resolvedBackground()
                 let client = SlidesClient(api: try CLI.makeAPI())
                 try await client.setSlideProperties(
                     presentationId: presentationID,

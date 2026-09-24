@@ -970,35 +970,35 @@ extension Presentation {
     /// and its background. See ``SlidePropertiesRow``.
     public var slidePropertiesRows: [SlidePropertiesRow] {
         (slides ?? []).enumerated().map { index, slide in
-            let fill = slide.pageProperties?.pageBackgroundFill
-            let background = Self.backgroundValue(fill)
+            let background = Self.background(slide.pageProperties?.pageBackgroundFill)
             return SlidePropertiesRow(
                 slideNumber: index + 1,
                 slideId: slide.objectId,
                 skipped: slide.slideProperties?.isSkipped ?? false,
-                background: background,
-                // A picture left behind under NOT_RENDERED or INHERIT is not
-                // shown, so only a rendered picture reports its URL.
-                backgroundImageUrl: background == "image"
-                    ? fill?.stretchedPictureFill?.contentUrl : nil
+                background: background.value,
+                backgroundImageUrl: background.imageUrl
             )
         }
     }
 
     /// A background fill in the spelling `slides slide set --background`
-    /// takes. An absent fill, or one whose state is `INHERIT`, is the layout's
-    /// background (`inherit`); `NOT_RENDERED` is `none`. A rendered fill
-    /// arrives with its state omitted (`RENDERED` is the enum default) and is
-    /// a picture (`image`) or a solid color. Any other form is empty.
-    private static func backgroundValue(_ fill: SlidePageBackgroundFill?) -> String {
-        guard let fill else { return "inherit" }
+    /// takes, plus the picture URL when a picture shows. An absent fill, or one
+    /// whose state is `INHERIT`, is the layout's background (`inherit`);
+    /// `NOT_RENDERED` is `none`. A fill left behind under either state is not
+    /// shown, so it reports no URL. A rendered fill arrives with its state
+    /// omitted (`RENDERED` is the enum default) and is a picture (`image`) or a
+    /// solid color. Any other form is empty.
+    private static func background(
+        _ fill: SlidePageBackgroundFill?
+    ) -> (value: String, imageUrl: String?) {
+        guard let fill else { return ("inherit", nil) }
         switch fill.propertyState {
-        case "NOT_RENDERED": return "none"
-        case "INHERIT": return "inherit"
+        case "NOT_RENDERED": return ("none", nil)
+        case "INHERIT": return ("inherit", nil)
         default: break
         }
-        if fill.stretchedPictureFill != nil { return "image" }
-        return fill.solidFill?.color?.argumentValue ?? ""
+        if let picture = fill.stretchedPictureFill { return ("image", picture.contentUrl) }
+        return (fill.solidFill?.color?.argumentValue ?? "", nil)
     }
 
     /// Every slide layout, in the order the API returns them. See

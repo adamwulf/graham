@@ -72,15 +72,18 @@ extension SlidesClient {
     /// `skipped` sends an `updateSlideProperties` masked to `isSkipped`;
     /// `background` sends an `updatePageProperties` on the slide. When both
     /// are given they go in one atomic batch. `nil` leaves that setting
-    /// unchanged; passing neither throws ``GrahamError/invalidArgument(_:)``
-    /// before any request. The slide id is sent as given, and Google rejects
-    /// an id that does not exist.
+    /// unchanged; passing neither, or an empty picture URL, throws
+    /// ``GrahamError/invalidArgument(_:)`` before any request. The slide id is
+    /// sent as given, and Google rejects an id that does not exist.
     public func setSlideProperties(
         presentationId: String,
         slideId: String,
         skipped: Bool? = nil,
         background: SlideBackground? = nil
     ) async throws {
+        if case .image(let url) = background, url.isEmpty {
+            throw GrahamError.invalidArgument("the background image URL is empty")
+        }
         var requests: [SlidesBatchUpdateRequest] = []
         if let skipped {
             requests.append(.updateSlideProperties(UpdateSlidePropertiesRequest(

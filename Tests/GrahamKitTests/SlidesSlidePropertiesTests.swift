@@ -103,6 +103,20 @@ final class SlidesSlidePropertiesTests: GrahamTestCase {
         XCTAssertEqual(rows.map(\.backgroundImageUrl), [nil, nil, nil, nil])
     }
 
+    func testSlidePropertiesRowsReportAPictureBeforeAColor() throws {
+        // The live test's slide-verify relies on this order: if a color write
+        // ever left the old picture rendered, the read would say `image`.
+        let json = #"""
+        {"slides":[{"objectId":"s1","pageProperties":{"pageBackgroundFill":{
+          "solidFill":{"color":{"rgbColor":{"red":1}}},
+          "stretchedPictureFill":{"contentUrl":"https://lh7-rt.googleusercontent.com/old"}}}}]}
+        """#
+        let row = try XCTUnwrap(GoogleJSON.decoder.decode(
+            Presentation.self, from: Data(json.utf8)).slidePropertiesRows.first)
+        XCTAssertEqual(row.background, "image")
+        XCTAssertEqual(row.backgroundImageUrl, "https://lh7-rt.googleusercontent.com/old")
+    }
+
     func testSlidePropertiesRowsReadAnUnrecognizedFillAsEmpty() throws {
         // A rendered fill with neither a solid color nor a picture, and a theme
         // color outside ThemeColorName, are not forms `--background` can
@@ -242,6 +256,18 @@ final class SlidesSlidePropertiesTests: GrahamTestCase {
 
         await assertInvalidArgument {
             try await client.setSlideProperties(presentationId: "p-props", slideId: "slide-1")
+        }
+        XCTAssertTrue(transport.requests.isEmpty)
+    }
+
+    func testSetSlidePropertiesRejectsAnEmptyImageUrlAndSendsNothing() async throws {
+        let transport = StubTransport()
+        let client = TestSupport.slidesClient(transport)
+
+        await assertInvalidArgument {
+            try await client.setSlideProperties(
+                presentationId: "p-props", slideId: "slide-1", skipped: true,
+                background: .image(url: ""))
         }
         XCTAssertTrue(transport.requests.isEmpty)
     }
