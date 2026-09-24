@@ -74,7 +74,9 @@ extension SlidesClient {
     /// are given they go in one atomic batch. `nil` leaves that setting
     /// unchanged; passing neither, or an empty picture URL, throws
     /// ``GrahamError/invalidArgument(_:)`` before any request. The slide id is
-    /// sent as given, and Google rejects an id that does not exist.
+    /// sent as given, and Google rejects an id that does not exist. A layout
+    /// or master is also a page, so a background sent to its id restyles every
+    /// slide that inherits from it.
     public func setSlideProperties(
         presentationId: String,
         slideId: String,

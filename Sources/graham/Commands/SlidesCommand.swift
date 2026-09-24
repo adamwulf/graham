@@ -1107,10 +1107,12 @@ struct Slides: AsyncParsableCommand {
                 discussion: """
                     Lists one row per slide: its one-based number, slide id, \
                     whether presentation mode skips (hides) it, and its \
-                    background. The background is a hex or theme color, image, \
-                    none, or inherit (the layout's background), spelled the way \
-                    `slides slide set --background` takes it. Use --format json \
-                    for a picture background's URL.
+                    background. The background is a hex or theme color, none, \
+                    or inherit (the layout's background), spelled the way \
+                    `slides slide set --background` takes it, or image for a \
+                    picture, which --background-image sets. It is empty for a \
+                    fill in any other form. Use --format json for a picture \
+                    background's URL.
                     """
             )
 
@@ -1139,7 +1141,8 @@ struct Slides: AsyncParsableCommand {
                     --background-image stretches a public PNG, JPEG, or GIF \
                     over the slide. At least one flag is required; the two \
                     background flags are mutually exclusive. Get slide ids from \
-                    `slides slide get`.
+                    `slides slide get`; a layout id instead restyles every \
+                    slide that inherits that layout's background.
                     """
             )
 

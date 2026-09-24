@@ -151,7 +151,7 @@ final class SlidesLiveTestTests: XCTestCase {
         "text-unbullet", "text-delete", "text-insert-cell",
         "alt-text-set", "alt-text-verify", "alt-text-clear",
         "notes-set", "notes-verify", "notes-clear",
-        "slide-background-image", "slide-set", "slide-verify", "slide-background-none",
+        "slide-background-image", "slide-background-none", "slide-set", "slide-verify",
         "slide-reset",
         "element-delete",
         "chart-sheet-create", "chart-sheet-values", "chart-sheet-add",
@@ -376,10 +376,11 @@ private final class LiveTestFixture: @unchecked Sendable {
         if body.contains("notes-1"), body.contains("\"deleteText\"") {
             notes = ""
         }
-        if body.contains("\"updateSlideProperties\"") {
+        // Slide-property writes change the primary slide only when they name it.
+        if body.contains("\"updateSlideProperties\""), body.contains("slide-primary") {
             slideSkipped = body.contains("\"isSkipped\":true")
         }
-        if body.contains("\"updatePageProperties\"") {
+        if body.contains("\"updatePageProperties\""), body.contains("slide-primary") {
             // Mirror the live API: a rendered fill omits its property state,
             // and a reset (the whole fill masked, left unset) inherits again.
             if body.contains("\"solidFill\"") {
