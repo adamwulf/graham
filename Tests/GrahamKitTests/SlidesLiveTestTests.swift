@@ -150,7 +150,10 @@ final class SlidesLiveTestTests: XCTestCase {
         "text-insert", "text-style", "text-link", "text-paragraph", "text-bullets",
         "text-unbullet", "text-delete", "text-insert-cell",
         "alt-text-set", "alt-text-verify", "alt-text-clear",
-        "notes-set", "notes-verify", "notes-clear", "element-delete",
+        "notes-set", "notes-verify", "notes-clear",
+        "slide-background-image", "slide-background-none", "slide-set", "slide-verify",
+        "slide-reset",
+        "element-delete",
         "chart-sheet-create", "chart-sheet-values", "chart-sheet-add",
         "create-chart", "chart-refresh", "chart-verify",
         "drive-copy", "drive-delete-copy",
@@ -189,6 +192,10 @@ private final class LiveTestFixture: @unchecked Sendable {
     private var altTitle: String?
     private var altDescription: String?
     private var notes = ""
+    private var slideSkipped = false
+    /// The primary slide's `pageBackgroundFill`, as the live API reports it:
+    /// an untouched slide inherits.
+    private var slideBackground: [String: Any] = ["propertyState": "INHERIT"]
     private var chartCreated = false
 
     init(
@@ -369,6 +376,25 @@ private final class LiveTestFixture: @unchecked Sendable {
         if body.contains("notes-1"), body.contains("\"deleteText\"") {
             notes = ""
         }
+        // Slide-property writes change the primary slide only when they name it.
+        if body.contains("\"updateSlideProperties\""), body.contains("slide-primary") {
+            slideSkipped = body.contains("\"isSkipped\":true")
+        }
+        if body.contains("\"updatePageProperties\""), body.contains("slide-primary") {
+            // Mirror the live API: a rendered fill omits its property state,
+            // and a reset (the whole fill masked, left unset) inherits again.
+            if body.contains("\"solidFill\"") {
+                slideBackground = ["solidFill": ["alpha": 1, "color": ["rgbColor": ["red": 1]]]]
+            } else if body.contains("\"stretchedPictureFill\"") {
+                slideBackground = ["stretchedPictureFill": [
+                    "contentUrl": "https://usercontent.example/background",
+                ]]
+            } else if body.contains("\"NOT_RENDERED\"") {
+                slideBackground = ["propertyState": "NOT_RENDERED"]
+            } else if body.contains("\"fields\":\"pageBackgroundFill\"") {
+                slideBackground = ["propertyState": "INHERIT"]
+            }
+        }
         if body.contains("\"createSheetsChart\"") {
             chartCreated = true
             return json(["replies": [["createSheetsChart": ["objectId": "chart-1"]]]])
@@ -450,16 +476,20 @@ private final class LiveTestFixture: @unchecked Sendable {
             "objectId": "notes-1",
             "shape": ["text": text(notes)],
         ]
+        var slideProperties: [String: Any] = [
+            "notesPage": [
+                "objectId": "notes-page-1",
+                "notesProperties": ["speakerNotesObjectId": "notes-1"],
+                "pageElements": [notesElement],
+            ],
+        ]
+        // The live API omits isSkipped when false.
+        if slideSkipped { slideProperties["isSkipped"] = true }
         let primary: [String: Any] = [
             "objectId": "slide-primary",
             "pageElements": elements,
-            "slideProperties": [
-                "notesPage": [
-                    "objectId": "notes-page-1",
-                    "notesProperties": ["speakerNotesObjectId": "notes-1"],
-                    "pageElements": [notesElement],
-                ],
-            ],
+            "slideProperties": slideProperties,
+            "pageProperties": ["pageBackgroundFill": slideBackground],
         ]
         let exact: [String: Any] = ["objectId": "slide-exact", "pageElements": []]
         let layout: [String: Any] = ["objectId": "slide-layout", "pageElements": []]

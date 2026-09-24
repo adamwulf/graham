@@ -118,13 +118,13 @@ range touches, carrying `explicit` and `effective` values in the setters' units
 (points, a line-spacing percent, `#RRGGBB`, the API enum spellings). The
 commands follow one shape: **a formatting noun is a group with `get` (read) and
 `set` (write)**, both taking the same range options — `docs paragraph get|set`
-and `docs style get|set` today; `slides notes get|set|clear` uses the same
-verbs. A new formatting setter is a `set` under its noun with a `get` beside
-it, never a bare verb or a `--read` mode. `get`'s table shows effective values,
-its JSON shows both. `docs structure` JSON rows also carry the
-paragraph's explicit alignment / spacing / indents; its table columns are
-unchanged. The Docs live test writes a paragraph style and reads it back
-through the facade, so the units are checked end to end.
+and `docs style get|set` today; `slides notes get|set|clear` and
+`slides slide get|set` use the same verbs. A new formatting setter is a `set`
+under its noun with a `get` beside it, never a bare verb or a `--read` mode.
+`get`'s table shows effective values, its JSON shows both. `docs structure`
+JSON rows also carry the paragraph's explicit alignment / spacing / indents;
+its table columns are unchanged. The Docs live test writes a paragraph style
+and reads it back through the facade, so the units are checked end to end.
 
 ### The transport seam
 
@@ -351,6 +351,19 @@ write. Tests remain offline and exercise the real encoding path.
   string. Updating a fill/outline/shadow implicitly sets its `propertyState`
   to `RENDERED`; clearing one means masking `propertyState` with
   `NOT_RENDERED`.
+- `slides slide get|set` covers two slide-level settings:
+  `SlideProperties.isSkipped` (via `updateSlideProperties`; the editor's "Skip
+  slide", a hidden slide) and `PageProperties.pageBackgroundFill` (via
+  `updatePageProperties`). Live wire shapes (verified 2026-09-23): the API
+  omits `isSkipped` when false; an untouched slide reports
+  `{"propertyState": "INHERIT"}`; a rendered fill omits `propertyState`
+  (`RENDERED` is the enum default) and carries `solidFill` or
+  `stretchedPictureFill`, and setting one replaces the other. Masking the
+  whole `pageBackgroundFill` with it left unset resets the slide to `INHERIT`
+  (the `--background inherit` path); `NOT_RENDERED` is `--background none`.
+  The page `colorScheme` (writable only on masters) and the slide's read-only
+  `SlideProperties.layoutObjectId` / `masterObjectId` are deliberately not
+  modeled.
 - `ImageProperties` is almost entirely read-only in the Slides API:
   brightness, contrast, transparency, crop, recolor, and shadow CANNOT be
   written; only the image outline and link can. Do not plan or model writes

@@ -38,6 +38,10 @@ public enum SlidesBatchUpdateRequest: Encodable, Sendable, Equatable {
     case insertText(InsertTextRequest)
     /// Moves slides to a new position.
     case updateSlidesPosition(UpdateSlidesPositionRequest)
+    /// Sets whether presentation mode skips a slide.
+    case updateSlideProperties(UpdateSlidePropertiesRequest)
+    /// Sets or clears a slide's background fill.
+    case updatePageProperties(UpdatePagePropertiesRequest)
     /// Moves, scales, and rotates a page element by setting its transform.
     case updatePageElementTransform(UpdatePageElementTransformRequest)
     /// Reorders page elements front-to-back on their slide.
@@ -99,6 +103,8 @@ public enum SlidesBatchUpdateRequest: Encodable, Sendable, Equatable {
         case ungroupObjects
         case insertText
         case updateSlidesPosition
+        case updateSlideProperties
+        case updatePageProperties
         case updatePageElementTransform
         case updatePageElementsZOrder
         case updatePageElementAltText
@@ -150,6 +156,10 @@ public enum SlidesBatchUpdateRequest: Encodable, Sendable, Equatable {
             try container.encode(request, forKey: .insertText)
         case .updateSlidesPosition(let request):
             try container.encode(request, forKey: .updateSlidesPosition)
+        case .updateSlideProperties(let request):
+            try container.encode(request, forKey: .updateSlideProperties)
+        case .updatePageProperties(let request):
+            try container.encode(request, forKey: .updatePageProperties)
         case .updatePageElementTransform(let request):
             try container.encode(request, forKey: .updatePageElementTransform)
         case .updatePageElementsZOrder(let request):
@@ -683,6 +693,58 @@ public struct UpdateSlidesPositionRequest: Codable, Sendable, Equatable {
     }
 }
 
+/// The writable subset of a slide's `SlideProperties`: whether presentation
+/// mode skips the slide. The layout, master, and notes page are read-only or
+/// edited elsewhere, so they are not modeled on the write side.
+public struct SlidePropertiesValue: Codable, Sendable, Equatable {
+    public let isSkipped: Bool?
+
+    public init(isSkipped: Bool? = nil) {
+        self.isSkipped = isSkipped
+    }
+}
+
+/// The `updateSlideProperties` operation. `fields` is a field mask of the
+/// ``SlidePropertiesValue`` paths to apply.
+public struct UpdateSlidePropertiesRequest: Codable, Sendable, Equatable {
+    /// The object id of the slide.
+    public let objectId: String
+    public let slideProperties: SlidePropertiesValue
+    public let fields: String
+
+    public init(objectId: String, slideProperties: SlidePropertiesValue, fields: String) {
+        self.objectId = objectId
+        self.slideProperties = slideProperties
+        self.fields = fields
+    }
+}
+
+/// The writable subset of a page's `PageProperties`: the background fill.
+/// The color scheme is deliberately not modeled.
+public struct PagePropertiesValue: Codable, Sendable, Equatable {
+    public let pageBackgroundFill: PageBackgroundFill?
+
+    public init(pageBackgroundFill: PageBackgroundFill? = nil) {
+        self.pageBackgroundFill = pageBackgroundFill
+    }
+}
+
+/// The `updatePageProperties` operation. `fields` is a field mask of the
+/// ``PagePropertiesValue`` paths to apply. A path in the mask whose value is
+/// left unset resets that property, so the page inherits it again.
+public struct UpdatePagePropertiesRequest: Codable, Sendable, Equatable {
+    /// The object id of the page (here, a slide).
+    public let objectId: String
+    public let pageProperties: PagePropertiesValue
+    public let fields: String
+
+    public init(objectId: String, pageProperties: PagePropertiesValue, fields: String) {
+        self.objectId = objectId
+        self.pageProperties = pageProperties
+        self.fields = fields
+    }
+}
+
 /// How an `updatePageElementTransform` operation applies its matrix.
 ///
 /// `RELATIVE` left-multiplies the update matrix `B` onto the element's existing
@@ -927,6 +989,50 @@ public struct ShapeBackgroundFill: Codable, Sendable, Equatable {
     public init(propertyState: PropertyState? = nil, solidFill: SolidFill? = nil) {
         self.propertyState = propertyState
         self.solidFill = solidFill
+    }
+}
+
+/// A picture stretched to fill a page. On a write, the picture at
+/// `contentUrl` is fetched once and a copy is stored in the presentation.
+public struct StretchedPictureFill: Codable, Sendable, Equatable {
+    public let contentUrl: String
+
+    public init(contentUrl: String) {
+        self.contentUrl = contentUrl
+    }
+}
+
+/// A page's background fill: exactly one of a property state, a solid fill,
+/// or a stretched picture.
+///
+/// The API treats `solidFill` and `stretchedPictureFill` as a one-of, so the
+/// three inits enforce it, following the ``SlideLayoutReference`` precedent.
+/// Setting a fill implicitly renders it; ``PropertyState/notRendered`` means
+/// no fill.
+public struct PageBackgroundFill: Codable, Sendable, Equatable {
+    public let propertyState: PropertyState?
+    public let solidFill: SolidFill?
+    public let stretchedPictureFill: StretchedPictureFill?
+
+    /// A render state with no fill, for example `NOT_RENDERED`.
+    public init(propertyState: PropertyState) {
+        self.propertyState = propertyState
+        self.solidFill = nil
+        self.stretchedPictureFill = nil
+    }
+
+    /// A solid color fill.
+    public init(solidFill: SolidFill) {
+        self.propertyState = nil
+        self.solidFill = solidFill
+        self.stretchedPictureFill = nil
+    }
+
+    /// A picture stretched to fill the page.
+    public init(stretchedPictureFill: StretchedPictureFill) {
+        self.propertyState = nil
+        self.solidFill = nil
+        self.stretchedPictureFill = stretchedPictureFill
     }
 }
 

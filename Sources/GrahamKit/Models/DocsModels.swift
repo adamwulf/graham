@@ -464,11 +464,7 @@ public struct DocOptionalColor: Codable, Sendable, Equatable {
     /// Each channel is a float from 0 to 1; an omitted channel is 0.
     public var hex: String? {
         guard let rgb = color?.rgbColor else { return nil }
-        func channel(_ value: Double?) -> String {
-            let scaled = Int((min(1, max(0, value ?? 0)) * 255).rounded())
-            return String(format: "%02X", scaled)
-        }
-        return "#" + channel(rgb.red) + channel(rgb.green) + channel(rgb.blue)
+        return HexColor.string(red: rgb.red, green: rgb.green, blue: rgb.blue)
     }
 }
 

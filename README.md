@@ -99,8 +99,10 @@ review.
   - Read: presentation text; list every page element with its type, geometry,
     text, links, and alt text; list or download every image, including images
     nested in groups.
-  - Slides: add, move, and delete slides; list layouts; and create a slide from
-    an exact layout id.
+  - Slides: add, move, and delete slides; list layouts; create a slide from an
+    exact layout id; read whether each slide is skipped and its background;
+    skip (hide) or show a slide; and set, clear, or reset a slide's background
+    color or picture.
   - Elements: create text boxes, images, videos, lines, tables, and Sheets
     charts; group and ungroup; move, scale, rotate, transform, and reorder; and
     delete by exact id.
@@ -486,6 +488,12 @@ graham slides alt-text <presentation-id> <object-id> --clear-title --clear-descr
 graham slides notes get <presentation-id>
 graham slides notes set <presentation-id> <slide-id> --text "Discuss the forecast"
 graham slides notes clear <presentation-id> <slide-id>
+# Read or set each slide's skipped (hidden) flag and background. --background takes
+# a hex or theme color, none, or inherit (the layout's); get prints those, or image.
+graham slides slide get <presentation-id>
+graham slides slide set <presentation-id> <slide-id> --skip --background "#1A73E8"
+graham slides slide set <presentation-id> <slide-id> --background-image https://example.com/bg.png
+graham slides slide set <presentation-id> <slide-id> --no-skip --background inherit
 # Style a shape's fill, outline, and drop shadow (colors are hex like #FF0000 or theme names like accent1).
 graham slides style shape <presentation-id> <object-id> --fill "#FFCC00" --outline accent1 --outline-weight 2
 graham slides style shape <presentation-id> <object-id> --no-fill --shadow-color "#000000" --shadow-blur 4 --align middle
