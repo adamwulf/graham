@@ -361,8 +361,9 @@ write. Tests remain offline and exercise the real encoding path.
   `stretchedPictureFill`, and setting one replaces the other. Masking the
   whole `pageBackgroundFill` with it left unset resets the slide to `INHERIT`
   (the `--background inherit` path); `NOT_RENDERED` is `--background none`.
-  The page `colorScheme` (writable only on masters) and the read-only
-  `layoutObjectId` / `masterObjectId` are deliberately not modeled.
+  The page `colorScheme` (writable only on masters) and the slide's read-only
+  `SlideProperties.layoutObjectId` / `masterObjectId` are deliberately not
+  modeled.
 - `ImageProperties` is almost entirely read-only in the Slides API:
   brightness, contrast, transparency, crop, recolor, and shadow CANNOT be
   written; only the image outline and link can. Do not plan or model writes
