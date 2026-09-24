@@ -8,7 +8,7 @@ struct Slides: AsyncParsableCommand {
         subcommands: [
             Cat.self, List.self, Layouts.self, Images.self, Add.self, Create.self,
             Element.self, Group.self, Ungroup.self, Move.self, Delete.self,
-            AltText.self, Notes.self, Style.self, Table.self, Text.self, Chart.self,
+            AltText.self, Notes.self, Slide.self, Style.self, Table.self, Text.self, Chart.self,
             Test.self,
         ]
     )
@@ -1088,6 +1088,102 @@ struct Slides: AsyncParsableCommand {
                 let client = SlidesClient(api: try CLI.makeAPI())
                 try await client.clearSpeakerNotes(
                     presentationId: presentationID, slideId: slideID)
+                print(slideID)
+            }
+        }
+    }
+
+    struct Slide: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "slide",
+            abstract: "Read or set whether slides are skipped and their backgrounds.",
+            subcommands: [Get.self, Set.self]
+        )
+
+        struct Get: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "get",
+                abstract: "Show whether each slide is skipped and its background.",
+                discussion: """
+                    Lists one row per slide: its one-based number, slide id, \
+                    whether presentation mode skips (hides) it, and its \
+                    background. The background is a hex or theme color, image, \
+                    none, or inherit (the layout's background), spelled the way \
+                    `slides slide set --background` takes it. Use --format json \
+                    for a picture background's URL.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Option(help: "The output format: table, json, jsonl, or id.")
+            var format: OutputFormat = .table
+
+            func run() async throws {
+                let client = SlidesClient(api: try CLI.makeAPI())
+                let rows = try await client.slideProperties(presentationId: presentationID)
+                print(try OutputFormatter.render(rows, format: format))
+            }
+        }
+
+        struct Set: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "set",
+                abstract: "Skip a slide or set its background, and print the slide id.",
+                discussion: """
+                    --skip hides the slide in presentation mode and --no-skip \
+                    shows it again. --background takes a hex color like #FF0000 \
+                    (or #F00), a theme color like accent1, none for no fill, or \
+                    inherit to reset to the layout's background. \
+                    --background-image stretches a public PNG, JPEG, or GIF \
+                    over the slide. At least one flag is required; the two \
+                    background flags are mutually exclusive. Get slide ids from \
+                    `slides slide get`.
+                    """
+            )
+
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Argument(help: "The object id of the slide.")
+            var slideID: String
+
+            @Flag(inversion: .prefixedNo, help: "Skip (hide) the slide in presentation mode.")
+            var skip: Bool?
+
+            @Option(help: "The background: a hex or theme color, none, or inherit.")
+            var background: String?
+
+            @Option(help: "The public URL of a picture to stretch over the slide.")
+            var backgroundImage: String?
+
+            func validate() throws {
+                guard skip != nil || background != nil || backgroundImage != nil else {
+                    throw ValidationError(
+                        "Provide at least one of --skip, --no-skip, --background, "
+                        + "or --background-image.")
+                }
+                if background != nil && backgroundImage != nil {
+                    throw ValidationError(
+                        "--background cannot be combined with --background-image.")
+                }
+            }
+
+            func run() async throws {
+                let slideBackground: SlideBackground?
+                if let backgroundImage {
+                    slideBackground = .image(url: backgroundImage)
+                } else {
+                    slideBackground = try background.map { try SlideBackground.parse($0) }
+                }
+                let client = SlidesClient(api: try CLI.makeAPI())
+                try await client.setSlideProperties(
+                    presentationId: presentationID,
+                    slideId: slideID,
+                    skipped: skip,
+                    background: slideBackground
+                )
                 print(slideID)
             }
         }

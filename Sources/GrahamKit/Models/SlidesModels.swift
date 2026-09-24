@@ -40,8 +40,11 @@ public struct SlideLayoutProperties: Codable, Sendable {
 public struct SlidePage: Codable, Sendable {
     public let objectId: String?
     public let pageElements: [PageElement]?
-    /// The slide-level properties graham reads: its notes page.
+    /// The slide-level properties graham reads: its notes page and whether
+    /// presentation mode skips it.
     public let slideProperties: SlideSlideProperties?
+    /// The page-level properties graham reads: the background fill.
+    public let pageProperties: SlidePageProperties?
 
     /// All visible text on the slide, one text block per line.
     ///
@@ -66,9 +69,13 @@ public struct SlidePage: Codable, Sendable {
 // notes are edited through the normal text operations against the speaker-notes
 // shape id, in the same batch update as any other write.
 
-/// The reduced slide-level properties graham reads: a slide's notes page.
+/// The reduced slide-level properties graham reads: a slide's notes page and
+/// whether it is skipped.
 public struct SlideSlideProperties: Codable, Sendable {
     public let notesPage: SlideNotesPage?
+    /// Whether presentation mode skips the slide (the editor's "Skip slide",
+    /// often called a hidden slide). The API omits it when false.
+    public let isSkipped: Bool?
 }
 
 /// A slide's notes page, holding the speaker-notes shape.
@@ -87,6 +94,31 @@ public struct SlideNotesPage: Codable, Sendable {
 /// The notes-page properties: the object id of the speaker-notes shape.
 public struct SlideNotesProperties: Codable, Sendable {
     public let speakerNotesObjectId: String?
+}
+
+// MARK: - Page background
+
+/// The page-level properties graham reads: the background fill. The page's
+/// color scheme is not modeled.
+public struct SlidePageProperties: Codable, Sendable {
+    public let pageBackgroundFill: SlidePageBackgroundFill?
+}
+
+/// A page's background fill: a solid color or a stretched picture.
+public struct SlidePageBackgroundFill: Codable, Sendable {
+    /// `RENDERED`, `NOT_RENDERED` (no fill), or `INHERIT` (the fill of the
+    /// layout or master the slide is based on).
+    public let propertyState: String?
+    public let solidFill: SlideSolidFill?
+    public let stretchedPictureFill: SlideStretchedPictureFill?
+}
+
+/// A picture stretched to fill the page.
+public struct SlideStretchedPictureFill: Codable, Sendable {
+    /// A URL to the picture. The URL is short-lived (about 30 minutes).
+    public let contentUrl: String?
+    /// The original size of the picture.
+    public let size: SlideSize?
 }
 
 // MARK: - Page element
@@ -455,9 +487,23 @@ public struct SlideOpaqueColor: Codable, Sendable {
     /// A theme color name, for example `DARK1` or `ACCENT1`.
     public let themeColor: String?
     public let rgbColor: SlideRgbColor?
+
+    /// The color in the spelling ``OpaqueColor/parse(_:)`` accepts: a
+    /// lowercase theme name like `accent1`, or `#RRGGBB`. An omitted RGB
+    /// channel is 0. `nil` when neither form is set.
+    public var value: String? {
+        if let themeColor { return themeColor.lowercased() }
+        guard let rgb = rgbColor else { return nil }
+        func channel(_ value: Double?) -> String {
+            let scaled = Int((min(1, max(0, value ?? 0)) * 255).rounded())
+            return String(format: "%02X", scaled)
+        }
+        return "#" + channel(rgb.red) + channel(rgb.green) + channel(rgb.blue)
+    }
 }
 
-/// An RGB color. Each channel is from 0 to 1.
+/// An RGB color. Each channel is from 0 to 1; the API omits a channel whose
+/// value is 0.
 public struct SlideRgbColor: Codable, Sendable {
     public let red: Double?
     public let green: Double?
@@ -733,6 +779,43 @@ public struct SlideSpeakerNotesRow: Codable, Sendable, Equatable {
     }
 }
 
+/// One slide's own settings, flattened out of the presentation tree: whether
+/// presentation mode skips it, and its background.
+///
+/// One row per slide, in slide order. ``background`` uses the spelling that
+/// `slides slide set --background` takes, so a value read can be written
+/// straight back; a picture is the one exception, since it is written with
+/// `--background-image <url>`.
+public struct SlidePropertiesRow: Codable, Sendable, Equatable {
+    /// The one-based slide number, matching `slides cat` and `slides list`.
+    public let slideNumber: Int
+    /// The object id of the slide.
+    public let slideId: String?
+    /// Whether presentation mode skips (hides) the slide.
+    public let skipped: Bool
+    /// The slide's background: a `#RRGGBB` hex or a lowercase theme color name
+    /// for a solid color, `image` for a stretched picture, `none` for no fill,
+    /// or `inherit` when the slide shows its layout's background. Empty for a
+    /// fill in any other form.
+    public let background: String
+    /// For an `image` background, the picture's short-lived content URL.
+    public let backgroundImageUrl: String?
+
+    public init(
+        slideNumber: Int,
+        slideId: String?,
+        skipped: Bool,
+        background: String,
+        backgroundImageUrl: String? = nil
+    ) {
+        self.slideNumber = slideNumber
+        self.slideId = slideId
+        self.skipped = skipped
+        self.background = background
+        self.backgroundImageUrl = backgroundImageUrl
+    }
+}
+
 /// One slide layout, flattened for the CLI: its object id, API name, and
 /// display name. A layout id feeds `slides add --layout-id`.
 public struct SlideLayoutRow: Codable, Sendable, Equatable {
@@ -884,6 +967,37 @@ extension Presentation {
             return element.shape?.text?.plainText ?? ""
         }
         return ""
+    }
+
+    /// One row per slide, in slide order: whether presentation mode skips it
+    /// and its background. See ``SlidePropertiesRow``.
+    public var slidePropertiesRows: [SlidePropertiesRow] {
+        (slides ?? []).enumerated().map { index, slide in
+            let fill = slide.pageProperties?.pageBackgroundFill
+            return SlidePropertiesRow(
+                slideNumber: index + 1,
+                slideId: slide.objectId,
+                skipped: slide.slideProperties?.isSkipped ?? false,
+                background: Self.backgroundValue(fill),
+                backgroundImageUrl: fill?.stretchedPictureFill?.contentUrl
+            )
+        }
+    }
+
+    /// A background fill in the spelling `slides slide set --background`
+    /// takes. An absent fill, or one whose state is `INHERIT`, is the layout's
+    /// background (`inherit`); `NOT_RENDERED` is `none`. A rendered fill
+    /// arrives with its state omitted (`RENDERED` is the enum default) and is
+    /// a picture (`image`) or a solid color. Any other form is empty.
+    static func backgroundValue(_ fill: SlidePageBackgroundFill?) -> String {
+        guard let fill else { return "inherit" }
+        switch fill.propertyState {
+        case "NOT_RENDERED": return "none"
+        case "INHERIT": return "inherit"
+        default: break
+        }
+        if fill.stretchedPictureFill != nil { return "image" }
+        return fill.solidFill?.color?.value ?? ""
     }
 
     /// Every slide layout, in the order the API returns them. See
@@ -1063,6 +1177,18 @@ extension SlideSpeakerNotesRow: GrahamRow {
             // line but not padded.
             SlideElementRow.oneLine(notes),
         ]
+    }
+
+    public var idValue: String { slideId ?? "" }
+}
+
+extension SlidePropertiesRow: GrahamRow {
+    public static var tableColumns: [String] {
+        ["SLIDE", "SLIDE_ID", "SKIPPED", "BACKGROUND"]
+    }
+
+    public var tableValues: [String] {
+        [String(slideNumber), slideId ?? "", skipped ? "yes" : "no", background]
     }
 
     public var idValue: String { slideId ?? "" }

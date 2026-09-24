@@ -352,6 +352,74 @@ final class SlidesParsingTests: XCTestCase {
         XCTAssertThrowsError(try Slides.Notes.Clear.parse(["deck-id"]))
     }
 
+    // MARK: - slide
+
+    func testSlidesListsSlide() {
+        let names = Slides.configuration.subcommands.compactMap {
+            $0.configuration.commandName ?? "\($0)".lowercased()
+        }
+        XCTAssertTrue(names.contains("slide"))
+    }
+
+    func testSlidesSlideListsGetAndSet() {
+        let names = Slides.Slide.configuration.subcommands.compactMap {
+            $0.configuration.commandName ?? "\($0)".lowercased()
+        }
+        XCTAssertEqual(names, ["get", "set"])
+    }
+
+    func testSlidesSlideGetParsesDefaultsAndFormat() throws {
+        let command = try Slides.Slide.Get.parse(["deck-id"])
+        XCTAssertEqual(command.presentationID, "deck-id")
+        XCTAssertEqual(command.format, .table)
+        XCTAssertEqual(try Slides.Slide.Get.parse(["deck-id", "--format", "json"]).format, .json)
+        XCTAssertThrowsError(try Slides.Slide.Get.parse([]))
+    }
+
+    func testSlidesSlideSetParsesSkipAndNoSkip() throws {
+        let skip = try Slides.Slide.Set.parse(["deck-id", "slide-1", "--skip"])
+        XCTAssertEqual(skip.presentationID, "deck-id")
+        XCTAssertEqual(skip.slideID, "slide-1")
+        XCTAssertEqual(skip.skip, true)
+        XCTAssertNil(skip.background)
+        XCTAssertNil(skip.backgroundImage)
+
+        let noSkip = try Slides.Slide.Set.parse(["deck-id", "slide-1", "--no-skip"])
+        XCTAssertEqual(noSkip.skip, false)
+    }
+
+    func testSlidesSlideSetParsesBackgroundWithSkip() throws {
+        let command = try Slides.Slide.Set.parse([
+            "deck-id", "slide-1", "--background", "#FF0000", "--skip",
+        ])
+        XCTAssertEqual(command.background, "#FF0000")
+        XCTAssertEqual(command.skip, true)
+    }
+
+    func testSlidesSlideSetParsesBackgroundImage() throws {
+        let command = try Slides.Slide.Set.parse([
+            "deck-id", "slide-1", "--background-image", "https://example.com/bg.png",
+        ])
+        XCTAssertEqual(command.backgroundImage, "https://example.com/bg.png")
+        XCTAssertNil(command.skip)
+    }
+
+    func testSlidesSlideSetRequiresAtLeastOneFlag() {
+        XCTAssertThrowsError(try Slides.Slide.Set.parse(["deck-id", "slide-1"]))
+    }
+
+    func testSlidesSlideSetRejectsBothBackgroundFlags() {
+        XCTAssertThrowsError(try Slides.Slide.Set.parse([
+            "deck-id", "slide-1", "--background", "none",
+            "--background-image", "https://example.com/bg.png",
+        ]))
+    }
+
+    func testSlidesSlideSetRequiresBothIds() {
+        XCTAssertThrowsError(try Slides.Slide.Set.parse([]))
+        XCTAssertThrowsError(try Slides.Slide.Set.parse(["deck-id", "--skip"]))
+    }
+
     // MARK: - create subcommand registry
 
     func testSlidesCreateListsEveryElementSubcommand() {
