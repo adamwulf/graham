@@ -107,7 +107,7 @@ extension SlidesClient {
     /// `inherit` masks the whole `pageBackgroundFill` and leaves it unset,
     /// which the API reads as "reset", so the slide shows its layout's
     /// background again.
-    static func backgroundRequest(
+    private static func backgroundRequest(
         slideId: String,
         background: SlideBackground
     ) -> UpdatePagePropertiesRequest {

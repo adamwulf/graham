@@ -729,23 +729,36 @@ public struct StretchedPictureFill: Codable, Sendable, Equatable {
     }
 }
 
-/// A page's background fill.
+/// A page's background fill: exactly one of a property state, a solid fill,
+/// or a stretched picture.
 ///
-/// Setting the `solidFill` or `stretchedPictureFill` implicitly renders the
-/// fill; a caller that wants no fill sets ``propertyState`` to
-/// ``PropertyState/notRendered``.
+/// The API treats `solidFill` and `stretchedPictureFill` as a one-of, so the
+/// three inits enforce it, following the ``SlideLayoutReference`` precedent.
+/// Setting a fill implicitly renders it; ``PropertyState/notRendered`` means
+/// no fill.
 public struct PageBackgroundFill: Codable, Sendable, Equatable {
     public let propertyState: PropertyState?
     public let solidFill: SolidFill?
     public let stretchedPictureFill: StretchedPictureFill?
 
-    public init(
-        propertyState: PropertyState? = nil,
-        solidFill: SolidFill? = nil,
-        stretchedPictureFill: StretchedPictureFill? = nil
-    ) {
+    /// A render state with no fill, for example `NOT_RENDERED`.
+    public init(propertyState: PropertyState) {
         self.propertyState = propertyState
+        self.solidFill = nil
+        self.stretchedPictureFill = nil
+    }
+
+    /// A solid color fill.
+    public init(solidFill: SolidFill) {
+        self.propertyState = nil
         self.solidFill = solidFill
+        self.stretchedPictureFill = nil
+    }
+
+    /// A picture stretched to fill the page.
+    public init(stretchedPictureFill: StretchedPictureFill) {
+        self.propertyState = nil
+        self.solidFill = nil
         self.stretchedPictureFill = stretchedPictureFill
     }
 }

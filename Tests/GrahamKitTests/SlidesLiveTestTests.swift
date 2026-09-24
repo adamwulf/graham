@@ -151,7 +151,7 @@ final class SlidesLiveTestTests: XCTestCase {
         "text-unbullet", "text-delete", "text-insert-cell",
         "alt-text-set", "alt-text-verify", "alt-text-clear",
         "notes-set", "notes-verify", "notes-clear",
-        "slide-set", "slide-verify", "slide-background-image", "slide-background-none",
+        "slide-background-image", "slide-set", "slide-verify", "slide-background-none",
         "slide-reset",
         "element-delete",
         "chart-sheet-create", "chart-sheet-values", "chart-sheet-add",

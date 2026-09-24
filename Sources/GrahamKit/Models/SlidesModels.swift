@@ -490,7 +490,7 @@ public struct SlideOpaqueColor: Codable, Sendable {
     /// lowercase theme name like `accent1`, or `#RRGGBB`. An omitted RGB
     /// channel is 0. `nil` when neither form is set, or when the theme color
     /// is not one ``ThemeColorName`` names (so it could not be written back).
-    public var value: String? {
+    public var argumentValue: String? {
         if let themeColor {
             return ThemeColorName(rawValue: themeColor).map { $0.rawValue.lowercased() }
         }
@@ -986,7 +986,7 @@ extension Presentation {
     /// background (`inherit`); `NOT_RENDERED` is `none`. A rendered fill
     /// arrives with its state omitted (`RENDERED` is the enum default) and is
     /// a picture (`image`) or a solid color. Any other form is empty.
-    static func backgroundValue(_ fill: SlidePageBackgroundFill?) -> String {
+    private static func backgroundValue(_ fill: SlidePageBackgroundFill?) -> String {
         guard let fill else { return "inherit" }
         switch fill.propertyState {
         case "NOT_RENDERED": return "none"
@@ -994,7 +994,7 @@ extension Presentation {
         default: break
         }
         if fill.stretchedPictureFill != nil { return "image" }
-        return fill.solidFill?.color?.value ?? ""
+        return fill.solidFill?.color?.argumentValue ?? ""
     }
 
     /// Every slide layout, in the order the API returns them. See

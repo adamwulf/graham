@@ -553,24 +553,10 @@ public struct SlidesLiveTest: Sendable {
         }
 
         // Slide properties: the skipped flag and the background, read back
-        // through the same facade `slides slide get` prints.
+        // through the same facade `slides slide get` prints. The picture goes
+        // first so slide-verify proves the color replaced it (the read reports
+        // a picture before a color, so a stale picture would show).
         let slideReason = dependencyReason("slides-add", value: primarySlide)
-        let slideSet = await actionStep("slide-set", recorder: recorder, skipReason: slideReason) {
-            try await slides.setSlideProperties(
-                presentationId: presentationID, slideId: primarySlide!,
-                skipped: true, background: .color(try OpaqueColor.parse("#FF0000")))
-        }
-        _ = await actionStep(
-            "slide-verify", recorder: recorder,
-            skipReason: slideSet ? nil : "slide-set failed"
-        ) {
-            let rows = try await slides.slideProperties(presentationId: presentationID)
-            guard let row = rows.first(where: { $0.slideId == primarySlide! }),
-                  row.skipped, row.background == "#FF0000"
-            else {
-                throw GrahamError.invalidResponse("slide skip and background did not round-trip")
-            }
-        }
         _ = await actionStep(
             "slide-background-image", recorder: recorder, skipReason: slideReason
         ) {
@@ -582,6 +568,22 @@ public struct SlidesLiveTest: Sendable {
                   row.background == "image", row.backgroundImageUrl != nil
             else {
                 throw GrahamError.invalidResponse("slide background image did not round-trip")
+            }
+        }
+        let slideSet = await actionStep("slide-set", recorder: recorder, skipReason: slideReason) {
+            try await slides.setSlideProperties(
+                presentationId: presentationID, slideId: primarySlide!,
+                skipped: true, background: .color(try OpaqueColor.parse("#FF0000")))
+        }
+        _ = await actionStep(
+            "slide-verify", recorder: recorder,
+            skipReason: slideSet ? nil : "slide-set failed"
+        ) {
+            let rows = try await slides.slideProperties(presentationId: presentationID)
+            guard let row = rows.first(where: { $0.slideId == primarySlide! }),
+                  row.skipped, row.background == "#FF0000", row.backgroundImageUrl == nil
+            else {
+                throw GrahamError.invalidResponse("slide skip and background did not round-trip")
             }
         }
         _ = await actionStep(

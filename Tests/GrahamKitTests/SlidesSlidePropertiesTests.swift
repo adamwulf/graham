@@ -259,15 +259,33 @@ final class SlidesSlidePropertiesTests: GrahamTestCase {
     }
 
     func testSlideBackgroundRoundTripsTheValuesGetPrints() throws {
-        // Every `background` a read prints (except `image`) parses back to a
+        // Every `background` a read prints (except `image`) parses back to the
         // background that writes the same value.
         let rows = try decodeProperties().slidePropertiesRows
-        for value in rows.map(\.background) where value != "image" {
-            XCTAssertNoThrow(try SlideBackground.parse(value), value)
-        }
+        let parsed = try rows.filter { $0.background != "image" }
+            .map { try SlideBackground.parse($0.background) }
+        XCTAssertEqual(parsed, [
+            .inherit,
+            .color(OpaqueColor(red: 0x12 / 255, green: 0x34 / 255, blue: 0x56 / 255)),
+            .color(OpaqueColor(theme: .accent2)),
+            .noFill,
+            .inherit,
+            .color(OpaqueColor(red: 1, green: 0, blue: 0)),
+        ])
+    }
+
+    func testSlideBackgroundRoundTripsAnUnderscoredThemeColor() throws {
+        // A theme name with an underscore reads lowercased and parses back.
+        let json = #"""
+        {"slides":[{"objectId":"s1","pageProperties":{"pageBackgroundFill":{"solidFill":{
+          "color":{"themeColor":"FOLLOWED_HYPERLINK"}}}}}]}
+        """#
+        let presentation = try GoogleJSON.decoder.decode(
+            Presentation.self, from: Data(json.utf8))
+        let value = try XCTUnwrap(presentation.slidePropertiesRows.first?.background)
+        XCTAssertEqual(value, "followed_hyperlink")
         XCTAssertEqual(
-            try SlideBackground.parse("#123456"),
-            .color(OpaqueColor(red: 0x12 / 255, green: 0x34 / 255, blue: 0x56 / 255)))
+            try SlideBackground.parse(value), .color(OpaqueColor(theme: .followedHyperlink)))
     }
 
     func testSlideBackgroundRejectsAnUnknownValue() {

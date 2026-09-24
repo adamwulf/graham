@@ -100,8 +100,9 @@ review.
     text, links, and alt text; list or download every image, including images
     nested in groups.
   - Slides: add, move, and delete slides; list layouts; create a slide from an
-    exact layout id; skip (hide) or show a slide; and set, clear, or reset a
-    slide's background color or picture.
+    exact layout id; read whether each slide is skipped and its background;
+    skip (hide) or show a slide; and set, clear, or reset a slide's background
+    color or picture.
   - Elements: create text boxes, images, videos, lines, tables, and Sheets
     charts; group and ungroup; move, scale, rotate, transform, and reorder; and
     delete by exact id.
