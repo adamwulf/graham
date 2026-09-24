@@ -44,7 +44,8 @@ expire after 7 days, so `auth login` is needed about weekly. An *Internal* or
 - Formatting nouns are `get`/`set` pairs that take the same range options:
   `docs paragraph get|set`, `docs style get|set`, `slides notes get|set`,
   `slides slide get|set`. `get` prints values in the units `set` takes, so a
-  value read can be written straight back.
+  value read can be written straight back. One exception: a slide background
+  that reads `image` is written with `--background-image <url>`.
 - Write commands print the id of what they made or changed.
 - Positions are one-based: slide positions, table rows and columns, tab
   positions. Docs and Slides text indices are zero-based UTF-16 code units, as

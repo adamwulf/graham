@@ -803,7 +803,7 @@ public struct SlidePropertiesRow: Codable, Sendable, Equatable {
         slideId: String?,
         skipped: Bool,
         background: String,
-        backgroundImageUrl: String? = nil
+        backgroundImageUrl: String?
     ) {
         self.slideNumber = slideNumber
         self.slideId = slideId
@@ -971,12 +971,16 @@ extension Presentation {
     public var slidePropertiesRows: [SlidePropertiesRow] {
         (slides ?? []).enumerated().map { index, slide in
             let fill = slide.pageProperties?.pageBackgroundFill
+            let background = Self.backgroundValue(fill)
             return SlidePropertiesRow(
                 slideNumber: index + 1,
                 slideId: slide.objectId,
                 skipped: slide.slideProperties?.isSkipped ?? false,
-                background: Self.backgroundValue(fill),
-                backgroundImageUrl: fill?.stretchedPictureFill?.contentUrl
+                background: background,
+                // A picture left behind under NOT_RENDERED or INHERIT is not
+                // shown, so only a rendered picture reports its URL.
+                backgroundImageUrl: background == "image"
+                    ? fill?.stretchedPictureFill?.contentUrl : nil
             )
         }
     }

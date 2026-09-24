@@ -81,6 +81,28 @@ final class SlidesSlidePropertiesTests: GrahamTestCase {
         XCTAssertEqual(rows.compactMap(\.backgroundImageUrl).count, 1)
     }
 
+    func testSlidePropertiesRowsLetThePropertyStateWinOverALeftoverFill() throws {
+        // A fill left behind under NOT_RENDERED or INHERIT is not shown, so it
+        // neither changes the background nor reports a picture URL. An explicit
+        // RENDERED state reads like the usual omitted one.
+        let json = #"""
+        {"slides":[
+          {"objectId":"s1","pageProperties":{"pageBackgroundFill":{"propertyState":"NOT_RENDERED",
+            "stretchedPictureFill":{"contentUrl":"https://lh7-rt.googleusercontent.com/old"}}}},
+          {"objectId":"s2","pageProperties":{"pageBackgroundFill":{"propertyState":"INHERIT",
+            "stretchedPictureFill":{"contentUrl":"https://lh7-rt.googleusercontent.com/old"}}}},
+          {"objectId":"s3","pageProperties":{"pageBackgroundFill":{"propertyState":"INHERIT",
+            "solidFill":{"color":{"rgbColor":{"red":1}}}}}},
+          {"objectId":"s4","pageProperties":{"pageBackgroundFill":{"propertyState":"RENDERED",
+            "solidFill":{"color":{"themeColor":"DARK1"}}}}}
+        ]}
+        """#
+        let rows = try GoogleJSON.decoder.decode(
+            Presentation.self, from: Data(json.utf8)).slidePropertiesRows
+        XCTAssertEqual(rows.map(\.background), ["none", "inherit", "inherit", "dark1"])
+        XCTAssertEqual(rows.map(\.backgroundImageUrl), [nil, nil, nil, nil])
+    }
+
     func testSlidePropertiesRowsReadAnUnrecognizedFillAsEmpty() throws {
         // A rendered fill with neither a solid color nor a picture, and a theme
         // color outside ThemeColorName, are not forms `--background` can
