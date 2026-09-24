@@ -405,14 +405,22 @@ final class SlidesParsingTests: XCTestCase {
     }
 
     func testSlidesSlideSetRequiresAtLeastOneFlag() {
-        XCTAssertThrowsError(try Slides.Slide.Set.parse(["deck-id", "slide-1"]))
+        XCTAssertThrowsError(try Slides.Slide.Set.parse(["deck-id", "slide-1"])) { error in
+            let message = Slides.Slide.Set.message(for: error)
+            XCTAssertTrue(message.contains("at least one"), message)
+        }
     }
 
     func testSlidesSlideSetRejectsBothBackgroundFlags() {
         XCTAssertThrowsError(try Slides.Slide.Set.parse([
             "deck-id", "slide-1", "--background", "none",
             "--background-image", "https://example.com/bg.png",
-        ]))
+        ])) { error in
+            let message = Slides.Slide.Set.message(for: error)
+            XCTAssertTrue(
+                message.contains("--background cannot be combined with --background-image"),
+                message)
+        }
     }
 
     func testSlidesSlideSetRequiresBothIds() {

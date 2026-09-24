@@ -584,6 +584,16 @@ public struct SlidesLiveTest: Sendable {
                 throw GrahamError.invalidResponse("slide background image did not round-trip")
             }
         }
+        _ = await actionStep(
+            "slide-background-none", recorder: recorder, skipReason: slideReason
+        ) {
+            try await slides.setSlideProperties(
+                presentationId: presentationID, slideId: primarySlide!, background: .noFill)
+            let rows = try await slides.slideProperties(presentationId: presentationID)
+            guard rows.first(where: { $0.slideId == primarySlide! })?.background == "none" else {
+                throw GrahamError.invalidResponse("slide background none did not round-trip")
+            }
+        }
         _ = await actionStep("slide-reset", recorder: recorder, skipReason: slideReason) {
             try await slides.setSlideProperties(
                 presentationId: presentationID, slideId: primarySlide!,

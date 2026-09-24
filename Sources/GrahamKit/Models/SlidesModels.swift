@@ -117,8 +117,6 @@ public struct SlidePageBackgroundFill: Codable, Sendable {
 public struct SlideStretchedPictureFill: Codable, Sendable {
     /// A URL to the picture. The URL is short-lived (about 30 minutes).
     public let contentUrl: String?
-    /// The original size of the picture.
-    public let size: SlideSize?
 }
 
 // MARK: - Page element
@@ -490,15 +488,14 @@ public struct SlideOpaqueColor: Codable, Sendable {
 
     /// The color in the spelling ``OpaqueColor/parse(_:)`` accepts: a
     /// lowercase theme name like `accent1`, or `#RRGGBB`. An omitted RGB
-    /// channel is 0. `nil` when neither form is set.
+    /// channel is 0. `nil` when neither form is set, or when the theme color
+    /// is not one ``ThemeColorName`` names (so it could not be written back).
     public var value: String? {
-        if let themeColor { return themeColor.lowercased() }
-        guard let rgb = rgbColor else { return nil }
-        func channel(_ value: Double?) -> String {
-            let scaled = Int((min(1, max(0, value ?? 0)) * 255).rounded())
-            return String(format: "%02X", scaled)
+        if let themeColor {
+            return ThemeColorName(rawValue: themeColor).map { $0.rawValue.lowercased() }
         }
-        return "#" + channel(rgb.red) + channel(rgb.green) + channel(rgb.blue)
+        guard let rgb = rgbColor else { return nil }
+        return HexColor.string(red: rgb.red, green: rgb.green, blue: rgb.blue)
     }
 }
 

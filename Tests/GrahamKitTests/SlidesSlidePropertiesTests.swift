@@ -33,8 +33,7 @@ final class SlidesSlidePropertiesTests: GrahamTestCase {
         {
           "objectId": "slide-4",
           "pageProperties": {"pageBackgroundFill": {"stretchedPictureFill": {
-            "contentUrl": "https://lh7-rt.googleusercontent.com/picture",
-            "size": {"width": {"magnitude": 272, "unit": "PT"}, "height": {"magnitude": 92, "unit": "PT"}}}}}
+            "contentUrl": "https://lh7-rt.googleusercontent.com/picture"}}}
         },
         {
           "objectId": "slide-5",
@@ -83,12 +82,19 @@ final class SlidesSlidePropertiesTests: GrahamTestCase {
     }
 
     func testSlidePropertiesRowsReadAnUnrecognizedFillAsEmpty() throws {
-        // A rendered fill with neither a solid color nor a picture is not a
-        // form `--background` can express, so it is empty rather than guessed.
-        let json = #"{"slides":[{"objectId":"s1","pageProperties":{"pageBackgroundFill":{}}}]}"#
+        // A rendered fill with neither a solid color nor a picture, and a theme
+        // color outside ThemeColorName, are not forms `--background` can
+        // express, so each is empty rather than guessed.
+        let json = #"""
+        {"slides":[
+          {"objectId":"s1","pageProperties":{"pageBackgroundFill":{}}},
+          {"objectId":"s2","pageProperties":{"pageBackgroundFill":{"solidFill":{
+            "color":{"themeColor":"THEME_COLOR_TYPE_UNSPECIFIED"}}}}}
+        ]}
+        """#
         let presentation = try GoogleJSON.decoder.decode(
             Presentation.self, from: Data(json.utf8))
-        XCTAssertEqual(presentation.slidePropertiesRows.first?.background, "")
+        XCTAssertEqual(presentation.slidePropertiesRows.map(\.background), ["", ""])
     }
 
     func testSlidePropertiesTableRendersColumns() throws {
@@ -265,8 +271,18 @@ final class SlidesSlidePropertiesTests: GrahamTestCase {
     }
 
     func testSlideBackgroundRejectsAnUnknownValue() {
-        assertInvalidArgumentSync { _ = try SlideBackground.parse("image") }
         assertInvalidArgumentSync { _ = try SlideBackground.parse("blurple") }
+        assertInvalidArgumentSync { _ = try SlideBackground.parse("") }
+    }
+
+    func testSlideBackgroundPointsImageAtThePictureFlag() {
+        // `image` is a value get prints, but a picture is written from its URL.
+        XCTAssertThrowsError(try SlideBackground.parse("Image")) { error in
+            guard case GrahamError.invalidArgument(let message) = error else {
+                return XCTFail("Wrong error: \(error)")
+            }
+            XCTAssertTrue(message.contains("--background-image"), message)
+        }
     }
 
     // MARK: - Helpers

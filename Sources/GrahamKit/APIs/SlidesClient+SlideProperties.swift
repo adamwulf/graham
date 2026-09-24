@@ -26,6 +26,10 @@ public enum SlideBackground: Sendable, Equatable {
         switch input.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "none": return .noFill
         case "inherit": return .inherit
+        case "image":
+            throw GrahamError.invalidArgument(
+                "a picture background is set from its URL, not the word \"image\"; "
+                + "use --background-image <url>")
         default:
             guard let color = try? OpaqueColor.parse(input) else {
                 throw GrahamError.invalidArgument(

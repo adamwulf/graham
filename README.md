@@ -489,7 +489,8 @@ graham slides notes set <presentation-id> <slide-id> --text "Discuss the forecas
 graham slides notes clear <presentation-id> <slide-id>
 # Read or set whether each slide is skipped (hidden in presentation mode) and
 # its background. --background is a hex or theme color, none, or inherit (the
-# layout's background); get prints the background in that same spelling.
+# layout's background); get prints the background in that same spelling, or
+# image for a picture set with --background-image.
 graham slides slide get <presentation-id>
 graham slides slide set <presentation-id> <slide-id> --skip --background "#1A73E8"
 graham slides slide set <presentation-id> <slide-id> --background-image https://example.com/bg.png

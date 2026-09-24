@@ -151,7 +151,8 @@ final class SlidesLiveTestTests: XCTestCase {
         "text-unbullet", "text-delete", "text-insert-cell",
         "alt-text-set", "alt-text-verify", "alt-text-clear",
         "notes-set", "notes-verify", "notes-clear",
-        "slide-set", "slide-verify", "slide-background-image", "slide-reset",
+        "slide-set", "slide-verify", "slide-background-image", "slide-background-none",
+        "slide-reset",
         "element-delete",
         "chart-sheet-create", "chart-sheet-values", "chart-sheet-add",
         "create-chart", "chart-refresh", "chart-verify",
@@ -387,6 +388,8 @@ private final class LiveTestFixture: @unchecked Sendable {
                 slideBackground = ["stretchedPictureFill": [
                     "contentUrl": "https://usercontent.example/background",
                 ]]
+            } else if body.contains("\"NOT_RENDERED\"") {
+                slideBackground = ["propertyState": "NOT_RENDERED"]
             } else if body.contains("\"fields\":\"pageBackgroundFill\"") {
                 slideBackground = ["propertyState": "INHERIT"]
             }

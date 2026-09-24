@@ -119,8 +119,9 @@ range touches, carrying `explicit` and `effective` values in the setters' units
 commands follow one shape: **a formatting noun is a group with `get` (read) and
 `set` (write)**, both taking the same range options — `docs paragraph get|set`
 and `docs style get|set` today; `slides notes get|set|clear` and
-`slides slide get|set` use the same verbs. A new formatting setter is a `set` under its noun with a `get` beside
-it, never a bare verb or a `--read` mode. `get`'s table shows effective values,
+`slides slide get|set` use the same verbs. A new formatting setter is a `set`
+under its noun with a `get` beside it, never a bare verb or a `--read` mode.
+`get`'s table shows effective values,
 its JSON shows both. `docs structure` JSON rows also carry the
 paragraph's explicit alignment / spacing / indents; its table columns are
 unchanged. The Docs live test writes a paragraph style and reads it back
