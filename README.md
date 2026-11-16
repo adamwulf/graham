@@ -127,7 +127,7 @@ but never change them, allow it `Bash(graham ro:*)` and no other `graham`
 command.
 
 ```bash
-graham ro --help                       # every read-only command
+graham ro --help                       # the read-only groups (then: graham ro docs --help)
 graham ro drive list
 graham ro docs cat <document-id> --markdown
 graham ro sheets values <spreadsheet-id> 'Sheet1!A1:C10'
