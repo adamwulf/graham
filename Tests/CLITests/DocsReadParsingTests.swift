@@ -38,9 +38,9 @@ final class DocsReadParsingTests: XCTestCase {
 
     func testDocsImagesDefaultsToListing() throws {
         let command = try Docs.Images.parse(["doc-1"])
-        XCTAssertEqual(command.documentID, "doc-1")
+        XCTAssertEqual(command.options.documentID, "doc-1")
         XCTAssertNil(command.download)
-        XCTAssertEqual(command.format, .table)
+        XCTAssertEqual(command.options.format, .table)
     }
 
     func testDocsImagesParsesDownloadDirectoryLongAndShort() throws {
@@ -53,7 +53,7 @@ final class DocsReadParsingTests: XCTestCase {
 
     func testDocsImagesParsesFormat() throws {
         let command = try Docs.Images.parse(["doc-1", "--format", "id"])
-        XCTAssertEqual(command.format, .id)
+        XCTAssertEqual(command.options.format, .id)
     }
 
     func testDocsImagesRequiresADocumentID() {

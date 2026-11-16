@@ -158,11 +158,16 @@ public final class GoogleAPI: @unchecked Sendable {
     /// no buffer.
     private let boundaryBuffer: TimeInterval = 2
     private let sleep: @Sendable (TimeInterval) async -> Void
+    /// When true, every request that is not a GET is refused before it is
+    /// sent. `graham ro` sets this so a read-only run cannot write to Google
+    /// even if a write command were wrongly placed under `ro`.
+    public let readOnly: Bool
 
     public init(
         tokenProvider: OAuthTokenProvider,
         transport: any HTTPTransport,
         maxRetries: Int = 3,
+        readOnly: Bool = false,
         sleep: @escaping @Sendable (TimeInterval) async -> Void = { seconds in
             try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
         }
@@ -170,6 +175,7 @@ public final class GoogleAPI: @unchecked Sendable {
         self.tokenProvider = tokenProvider
         self.transport = transport
         self.maxRetries = maxRetries
+        self.readOnly = readOnly
         self.sleep = sleep
     }
 
@@ -220,7 +226,10 @@ public final class GoogleAPI: @unchecked Sendable {
     }
 
     private func send(_ request: HTTPRequest) async throws -> HTTPResponse {
-        try await send(request, retryCount: 0, hasRefreshedToken: false)
+        if readOnly, request.method != "GET" {
+            throw GrahamError.readOnlyViolation(method: request.method, url: request.url.absoluteString)
+        }
+        return try await send(request, retryCount: 0, hasRefreshedToken: false)
     }
 
     private func send(

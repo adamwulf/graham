@@ -53,7 +53,7 @@ struct Docs: AsyncParsableCommand {
         }
     }
 
-    struct Cat: AsyncParsableCommand {
+    struct Cat: ReadOnlyCommand {
         static let configuration = CommandConfiguration(
             abstract: "Print the text of a document.",
             discussion: """
@@ -119,7 +119,7 @@ struct Docs: AsyncParsableCommand {
         }
     }
 
-    struct Structure: AsyncParsableCommand {
+    struct Structure: ReadOnlyCommand {
         static let configuration = CommandConfiguration(
             abstract: "List the document's blocks with their index ranges.",
             discussion: """
@@ -372,7 +372,7 @@ struct Docs: AsyncParsableCommand {
             subcommands: [Get.self, Set.self]
         )
 
-        struct Get: AsyncParsableCommand {
+        struct Get: ReadOnlyCommand {
             static let configuration = CommandConfiguration(
                 commandName: "get",
                 abstract: "Show the text style of a range; the read side of `docs style set`.",
@@ -546,7 +546,7 @@ struct Docs: AsyncParsableCommand {
             subcommands: [Get.self, Set.self]
         )
 
-        struct Get: AsyncParsableCommand {
+        struct Get: ReadOnlyCommand {
             static let configuration = CommandConfiguration(
                 commandName: "get",
                 abstract: "Show the paragraph style of a range; the read side of `docs paragraph set`.",
@@ -1626,8 +1626,17 @@ struct Docs: AsyncParsableCommand {
                 """
         )
 
-        @Argument(help: "The document ID.")
-        var documentID: String
+        /// The document and listing format. Shared with `graham ro docs images`,
+        /// which drops `--download` so a read-only run never writes a file.
+        struct Options: ParsableArguments {
+            @Argument(help: "The document ID.")
+            var documentID: String
+
+            @Option(help: "The output format for listing: table, json, jsonl, or id.")
+            var format: OutputFormat = .table
+        }
+
+        @OptionGroup var options: Options
 
         @Option(
             name: [.customShort("d"), .long],
@@ -1635,16 +1644,18 @@ struct Docs: AsyncParsableCommand {
         )
         var download: String?
 
-        @Option(help: "The output format for listing: table, json, jsonl, or id.")
-        var format: OutputFormat = .table
-
         func run() async throws {
+            try await Self.images(options, download: download)
+        }
+
+        /// The one images path for `docs images` and `ro docs images`.
+        static func images(_ options: Options, download: String?) async throws {
             let client = DocsClient(api: try CLI.makeAPI())
-            let document = try await client.document(id: documentID)
+            let document = try await client.document(id: options.documentID)
             let images = document.imageRows
 
             guard let download else {
-                print(try OutputFormatter.render(images, format: format))
+                print(try OutputFormatter.render(images, format: options.format))
                 return
             }
 
@@ -1659,7 +1670,7 @@ struct Docs: AsyncParsableCommand {
 
         /// Prints one line per image and a summary, and returns how many
         /// downloads failed.
-        private func report(_ results: [DocImageDownloadResult], directory: URL) -> Int {
+        private static func report(_ results: [DocImageDownloadResult], directory: URL) -> Int {
             let items = results.map { result in
                 let object = result.objectId ?? "(no id)"
                 let origin = result.origin.rawValue
@@ -2183,7 +2194,7 @@ struct Docs: AsyncParsableCommand {
             }
         }
 
-        struct List: AsyncParsableCommand {
+        struct List: ReadOnlyCommand {
             static let configuration = CommandConfiguration(
                 commandName: "list",
                 abstract: "List the document's named ranges (id, name, spans).",
@@ -2909,7 +2920,7 @@ struct Docs: AsyncParsableCommand {
             subcommands: [List.self, Add.self, Delete.self, Update.self]
         )
 
-        struct List: AsyncParsableCommand {
+        struct List: ReadOnlyCommand {
             static let configuration = CommandConfiguration(
                 abstract: "List the document's tabs (id, title, position, and parent)."
             )

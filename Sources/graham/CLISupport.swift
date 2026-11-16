@@ -12,13 +12,18 @@ enum CLI {
     private static let logger = Logger(label: "graham.api")
 
     /// Builds the API executor: resolve credentials once, then share one
-    /// transport and one token provider.
+    /// transport and one token provider. Under `graham ro` the executor is
+    /// read-only: it refuses any request but a GET before sending it.
     static func makeAPI() throws -> GoogleAPI {
         let credentials = try CredentialsResolver.resolve()
         let transport = URLSessionTransport()
         let tokenProvider = OAuthTokenProvider(credentials: credentials, transport: transport)
         installLogHandler()
-        return GoogleAPI(tokenProvider: tokenProvider, transport: transport)
+        return GoogleAPI(
+            tokenProvider: tokenProvider,
+            transport: transport,
+            readOnly: ReadOnly.isInvoked(by: CommandLine.arguments)
+        )
     }
 
     /// Sends library log lines (retries, token refreshes) to two sinks: stderr,
@@ -28,6 +33,16 @@ enum CLI {
         GrahamLog.handler = { message in
             FileHandle.standardError.write(Data("graham: \(message)\n".utf8))
             logger.notice("\(message)")
+        }
+    }
+
+    /// Writes downloaded or exported bytes to `path`, or to stdout when `path`
+    /// is nil. The read-only (`ro`) commands always pass nil.
+    static func write(_ data: Data, to path: String?) throws {
+        if let path {
+            try data.write(to: URL(fileURLWithPath: path))
+        } else {
+            FileHandle.standardOutput.write(data)
         }
     }
 

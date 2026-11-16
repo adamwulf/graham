@@ -48,6 +48,7 @@ Sources/graham/               the thin CLI
   GrahamFileLog.swift         installs the FellerBuncher file backend
   CLISupport.swift            builds the shared GoogleAPI, log handler
   Commands/                   one file per subcommand group
+    ReadOnlyCommand.swift     `graham ro`: ReadOnlyCommand marker + ro tree
 Tests/GrahamKitTests/         offline tests; StubTransport + inline fixtures
 Tests/CLITests/               argument-parsing tests only
 ```
@@ -157,6 +158,58 @@ Google uses OAuth2, unlike hunch's single static token:
 - `OAuthTokenProvider` (an actor) turns the refresh token into short-lived
   access tokens on demand and caches them until near expiry.
 
+### Read-only and write commands (`graham ro`)
+
+`graham ro <command>` holds only the read-only commands, at the same paths
+they have at the top level, so Adam can allow an agent `Bash(graham ro:*)` and
+nothing else. The rule has two parts: a **read-only** command changes nothing
+in Google **and** writes no local file. `Commands/ReadOnlyCommand.swift`
+enforces it:
+
+- A read-only command is declared `struct X: ReadOnlyCommand` (not
+  `AsyncParsableCommand`) where it is defined, stays in its top-level group,
+  and is also listed in the matching `ro` group. The same type serves both
+  paths (`Docs.Cat` is `docs cat` and `ro docs cat`).
+- Every `ro` group builds its configuration with
+  `CommandConfiguration.readOnlyGroup`, whose `subcommands` are typed
+  `[any ReadOnlyCommand.Type]`, so the compiler keeps a write command out of
+  `ro`. A write command is a plain `AsyncParsableCommand` and is never marked
+  `ReadOnlyCommand`.
+- Every top-level group mixes reads and writes, so each has a second,
+  `ro`-only group type with the same command name (`ReadOnlyDocs`, and nested
+  ones such as `ReadOnlyDocs.Style` holding only `Docs.Style.Get`). A
+  write-only group (`docs table`, `slides element`) has no `ro` form at all.
+- A command that writes a local file only through an option has two types:
+  the full one at the top level and an `ro`-only one with the same command
+  name that drops the option. Today: `drive export` / `drive download`
+  (`-o`/`--output`) and `docs images` / `slides images` (`-d`/`--download`).
+  Both forms share one `Options` `@OptionGroup` and one static run function,
+  so they cannot drift; the `ro` form passes `nil` for the dropped option, so
+  output goes to stdout and any file is written by the caller's shell.
+- Under `ro`, `CLI.makeAPI()` builds `GoogleAPI(readOnly: true)`, which refuses
+  any request but a GET (`GrahamError.readOnlyViolation`) before it is sent,
+  and `GrahamFileLog.bootstrapIfAllowed` opens no log file. Both key off
+  `ReadOnly.isInvoked(by: CommandLine.arguments)` (`ro` is the first argument).
+  The GET guard is a backstop, not the rule: it catches a write command
+  wrongly marked `ReadOnlyCommand`. Every read in the service clients is a GET
+  today; a read that needs another method (say, a POST search) would have to
+  revisit the guard.
+- `ReadOnly` is the LAST root subcommand: a static lookup by type
+  (`helpMessage(for:)`) finds a shared leaf's first parent, which must be its
+  top-level group.
+- Help texts and hints name the top-level form (`docs tab list`); an agent
+  limited to `ro` adds `ro` itself, as `skill/graham/SKILL.md` tells it to.
+
+When you add a command, decide which kind it is. A new read-only command gets
+`ReadOnlyCommand` and a line in its `ro` group; anything else stays out of
+`ro`. `ReadOnlyCommandTests` pins the exact list of `ro` paths, checks that
+every node under `ro` is a `ReadOnlyCommand`, that every read-only top-level
+command is under `ro` at the same path as the same type, that the rest of
+`ro` is exactly the four two-form commands above, that write commands and the
+dropped options fail to parse under `ro`, and pins the full USAGE line of each
+two-form pair (so an option later added to a shared `Options` group forces a
+decision about `ro`).
+
 ## Recipes
 
 ### Add a new endpoint
@@ -169,7 +222,9 @@ Google uses OAuth2, unlike hunch's single static token:
 4. Add a `StubTransport` test with a realistic JSON fixture, including one
    pagination case if the endpoint paginates.
 5. If the CLI needs it, add a subcommand that calls the facade and renders
-   with `OutputFormatter` (or a `--json` flag for single documents).
+   with `OutputFormatter` (or a `--json` flag for single documents). If it
+   only reads, make it a `ReadOnlyCommand` and add it to its `ro` group (see
+   "Read-only and write commands").
 
 ### Add a new list output
 

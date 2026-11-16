@@ -101,12 +101,14 @@ enum TestSupport {
     static func makeAPI(
         transport: StubTransport,
         credentials: GoogleCredentials = credentials,
+        readOnly: Bool = false,
         onSleep: (@Sendable (TimeInterval) -> Void)? = nil
     ) -> GoogleAPI {
         let provider = OAuthTokenProvider(credentials: credentials, transport: transport)
         return GoogleAPI(
             tokenProvider: provider,
             transport: transport,
+            readOnly: readOnly,
             sleep: { seconds in onSleep?(seconds) }
         )
     }

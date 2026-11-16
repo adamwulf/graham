@@ -22,6 +22,9 @@ public enum GrahamError: Error, LocalizedError {
     /// An argument to a high-level operation is invalid, for example a slide
     /// position that is out of range, or a slide id that does not exist.
     case invalidArgument(String)
+    /// A read-only `GoogleAPI` (the one `graham ro` builds) was asked to send a
+    /// request that is not a GET. The request was not sent.
+    case readOnlyViolation(method: String, url: String)
 
     public var errorDescription: String? {
         switch self {
@@ -47,6 +50,9 @@ public enum GrahamError: Error, LocalizedError {
             return "OAuth error: \(detail)"
         case .invalidArgument(let detail):
             return "Invalid argument: \(detail)"
+        case .readOnlyViolation(let method, let url):
+            return "Refused to send \(method) \(url): this is a read-only run, "
+                + "which sends only GET requests."
         }
     }
 
