@@ -1,13 +1,13 @@
+import ArgumentParser
 import XCTest
 import GrahamKit
 @testable import graham
 
 final class ParsingTests: XCTestCase {
     func testRootListsAllSubcommands() {
-        let names = Graham.configuration.subcommands.map { $0.configuration.commandName ?? "\($0)" }
-        XCTAssertEqual(Graham.configuration.subcommands.count, 5)
+        let names = Graham.configuration.subcommands.map { $0._commandName }
+        XCTAssertEqual(names, ["auth", "drive", "sheets", "docs", "slides", "ro"])
         XCTAssertEqual(Graham.configuration.commandName, "graham")
-        XCTAssertFalse(names.isEmpty)
     }
 
     func testDriveListDefaults() throws {
@@ -51,32 +51,33 @@ final class ParsingTests: XCTestCase {
 
     func testDriveExportDefaultsToPlainText() throws {
         let command = try Drive.Export.parse(["file-id-123"])
-        XCTAssertNil(command.type)
-        XCTAssertNil(command.mime)
-        XCTAssertEqual(command.resolvedMimeType, "text/plain")
+        XCTAssertEqual(command.options.fileID, "file-id-123")
+        XCTAssertNil(command.options.type)
+        XCTAssertNil(command.options.mime)
+        XCTAssertEqual(command.options.resolvedMimeType, "text/plain")
         XCTAssertNil(command.output)
     }
 
     func testDriveExportTypeMapsToMimeType() throws {
         let pdf = try Drive.Export.parse(["file-id-123", "--type", "pdf"])
-        XCTAssertEqual(pdf.resolvedMimeType, "application/pdf")
+        XCTAssertEqual(pdf.options.resolvedMimeType, "application/pdf")
 
         let docx = try Drive.Export.parse(["file-id-123", "--type", "docx"])
         XCTAssertEqual(
-            docx.resolvedMimeType,
+            docx.options.resolvedMimeType,
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         )
 
         let md = try Drive.Export.parse(["file-id-123", "--type", "md"])
-        XCTAssertEqual(md.resolvedMimeType, "text/markdown")
+        XCTAssertEqual(md.options.resolvedMimeType, "text/markdown")
 
         let csv = try Drive.Export.parse(["file-id-123", "--type", "csv"])
-        XCTAssertEqual(csv.resolvedMimeType, "text/csv")
+        XCTAssertEqual(csv.options.resolvedMimeType, "text/csv")
     }
 
     func testDriveExportRawMimeStillWorks() throws {
         let command = try Drive.Export.parse(["file-id-123", "--mime", "application/rtf"])
-        XCTAssertEqual(command.resolvedMimeType, "application/rtf")
+        XCTAssertEqual(command.options.resolvedMimeType, "application/rtf")
     }
 
     func testDriveExportRejectsBothTypeAndMime() {

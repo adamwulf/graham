@@ -87,7 +87,7 @@ struct Sheets: AsyncParsableCommand {
         }
     }
 
-    struct Get: AsyncParsableCommand {
+    struct Get: ReadOnlyCommand {
         static let configuration = CommandConfiguration(
             abstract: "Show a spreadsheet's title, its sheets, and any charts."
         )
@@ -120,7 +120,7 @@ struct Sheets: AsyncParsableCommand {
         }
     }
 
-    struct Values: AsyncParsableCommand {
+    struct Values: ReadOnlyCommand {
         static let configuration = CommandConfiguration(
             abstract: "Read cell values from one or more ranges, as tab-separated lines.",
             discussion: """
@@ -1480,7 +1480,7 @@ struct Sheets: AsyncParsableCommand {
             }
         }
 
-        struct List: AsyncParsableCommand {
+        struct List: ReadOnlyCommand {
             static let configuration = CommandConfiguration(
                 abstract: "List the named ranges defined on a spreadsheet."
             )

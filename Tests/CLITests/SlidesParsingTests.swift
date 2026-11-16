@@ -65,9 +65,9 @@ final class SlidesParsingTests: XCTestCase {
 
     func testSlidesImagesDefaultsToListing() throws {
         let command = try Slides.Images.parse(["deck-id"])
-        XCTAssertEqual(command.presentationID, "deck-id")
+        XCTAssertEqual(command.options.presentationID, "deck-id")
         XCTAssertNil(command.download)
-        XCTAssertEqual(command.format, .table)
+        XCTAssertEqual(command.options.format, .table)
     }
 
     func testSlidesImagesParsesDownloadDirectoryLongAndShort() throws {
@@ -80,7 +80,7 @@ final class SlidesParsingTests: XCTestCase {
 
     func testSlidesImagesParsesFormat() throws {
         let command = try Slides.Images.parse(["deck-id", "--format", "id"])
-        XCTAssertEqual(command.format, .id)
+        XCTAssertEqual(command.options.format, .id)
     }
 
     func testSlidesImagesRequiresAPresentationID() {

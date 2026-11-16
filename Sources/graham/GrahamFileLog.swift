@@ -12,6 +12,19 @@ import Logging
 /// backend, and `CLI.installLogHandler` forwards each seam line into a
 /// swift-log `Logger` that FellerBuncher writes to the file.
 enum GrahamFileLog {
+    /// Starts file logging, except for a `graham ro` run, which writes no file
+    /// at all: it never opens the log directory, not even to prune it. Its log
+    /// lines still reach stderr through `CLI.installLogHandler`.
+    static func bootstrapIfAllowed(arguments: [String]) -> LoggingHandle? {
+        guard !ReadOnly.isInvoked(by: arguments) else {
+            // With no backend installed, swift-log's default handler would
+            // print every line a second time; route the logger to nothing.
+            LoggingSystem.bootstrap { _ in SwiftLogNoOpLogHandler() }
+            return nil
+        }
+        return bootstrapIfPossible()
+    }
+
     static func bootstrapIfPossible() -> LoggingHandle? {
         do {
             let logDir = FileManager.default.homeDirectoryForCurrentUser

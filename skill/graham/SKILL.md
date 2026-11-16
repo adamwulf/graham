@@ -52,6 +52,18 @@ expire after 7 days, so `auth login` is needed about weekly. An *Internal* or
   the APIs define them. Read the current indices with `graham docs structure`
   before a text edit; every edit shifts the indices after it.
 
+## Read-only mode
+
+`graham ro <service> <command>` is the read-only form of the same command:
+`graham ro docs cat <id>` runs `graham docs cat <id>`. If you are allowed only
+`graham ro`, put `ro` before every command, including the ones this skill and
+`--help` texts name without it (`docs tab list` becomes `graham ro docs tab
+list`). `graham ro --help` lists what is available; use `--help` on any `ro`
+command, since `graham help ...` (which help footers suggest) is outside `ro`.
+Under `ro`, `drive export` and `drive download` have no `-o` and always write
+to stdout (redirect it to save a file), and `docs images` and `slides images`
+only list.
+
 ## Finding files
 
 `graham drive list` spans My Drive and every shared drive.

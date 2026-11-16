@@ -113,8 +113,30 @@ review.
   - Other: refresh linked charts; set or clear alt text; and read, set, and
     clear speaker notes.
   - A live end-to-end smoke test of the Slides command surface.
+- **Read-only mode** — `graham ro` holds every command that only reads, at the
+  same path, and nothing that writes to Google or to a local file.
 
 See `ROADMAP.md` for future work.
+
+## Read-only mode
+
+`graham ro <command>` runs the read-only form of `graham <command>`:
+`graham ro docs cat <id>` is `graham docs cat <id>`, while
+`graham ro docs insert ...` fails to parse. To let an agent read Google files
+but never change them, allow it `Bash(graham ro:*)` and no other `graham`
+command.
+
+```bash
+graham ro --help                       # the read-only groups (then: graham ro docs --help)
+graham ro drive list
+graham ro docs cat <document-id> --markdown
+graham ro sheets values <spreadsheet-id> 'Sheet1!A1:C10'
+graham ro drive export <file-id> --type pdf > report.pdf
+```
+
+Under `ro`, graham itself writes no file: an export or download goes to
+stdout, so any file is written by the caller's shell. `graham ro --help` lists
+what differs from the full commands.
 
 ## Usage
 

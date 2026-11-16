@@ -63,7 +63,7 @@ final class DriveUpdateParsingTests: XCTestCase {
 
     func testDownloadParsesFileAndOutput() throws {
         let command = try Drive.Download.parse(["file-1", "--output", "out.bin"])
-        XCTAssertEqual(command.fileID, "file-1")
+        XCTAssertEqual(command.options.fileID, "file-1")
         XCTAssertEqual(command.output, "out.bin")
     }
 

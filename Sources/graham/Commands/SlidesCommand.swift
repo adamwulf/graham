@@ -52,7 +52,7 @@ struct Slides: AsyncParsableCommand {
         }
     }
 
-    struct Cat: AsyncParsableCommand {
+    struct Cat: ReadOnlyCommand {
         static let configuration = CommandConfiguration(
             abstract: "Print the text of each slide in a presentation."
         )
@@ -84,7 +84,7 @@ struct Slides: AsyncParsableCommand {
         }
     }
 
-    struct List: AsyncParsableCommand {
+    struct List: ReadOnlyCommand {
         static let configuration = CommandConfiguration(
             abstract: "List every element on every slide, groups flattened.",
             discussion: """
@@ -109,7 +109,7 @@ struct Slides: AsyncParsableCommand {
         }
     }
 
-    struct Layouts: AsyncParsableCommand {
+    struct Layouts: ReadOnlyCommand {
         static let configuration = CommandConfiguration(
             commandName: "layouts",
             abstract: "List the slide layouts in a presentation.",
@@ -1015,7 +1015,7 @@ struct Slides: AsyncParsableCommand {
             subcommands: [Get.self, Set.self, Clear.self]
         )
 
-        struct Get: AsyncParsableCommand {
+        struct Get: ReadOnlyCommand {
             static let configuration = CommandConfiguration(
                 commandName: "get",
                 abstract: "Show each slide's speaker notes.",
@@ -1100,7 +1100,7 @@ struct Slides: AsyncParsableCommand {
             subcommands: [Get.self, Set.self]
         )
 
-        struct Get: AsyncParsableCommand {
+        struct Get: ReadOnlyCommand {
             static let configuration = CommandConfiguration(
                 commandName: "get",
                 abstract: "Show whether each slide is skipped and its background.",
@@ -1209,8 +1209,18 @@ struct Slides: AsyncParsableCommand {
                 """
         )
 
-        @Argument(help: "The presentation ID.")
-        var presentationID: String
+        /// The presentation and listing format. Shared with `graham ro slides
+        /// images`, which drops `--download` so a read-only run never writes a
+        /// file.
+        struct Options: ParsableArguments {
+            @Argument(help: "The presentation ID.")
+            var presentationID: String
+
+            @Option(help: "The output format for listing: table, json, jsonl, or id.")
+            var format: OutputFormat = .table
+        }
+
+        @OptionGroup var options: Options
 
         @Option(
             name: [.customShort("d"), .long],
@@ -1218,16 +1228,18 @@ struct Slides: AsyncParsableCommand {
         )
         var download: String?
 
-        @Option(help: "The output format for listing: table, json, jsonl, or id.")
-        var format: OutputFormat = .table
-
         func run() async throws {
+            try await Self.images(options, download: download)
+        }
+
+        /// The one images path for `slides images` and `ro slides images`.
+        static func images(_ options: Options, download: String?) async throws {
             let client = SlidesClient(api: try CLI.makeAPI())
-            let presentation = try await client.presentation(id: presentationID)
+            let presentation = try await client.presentation(id: options.presentationID)
             let images = presentation.imageRows
 
             guard let download else {
-                print(try OutputFormatter.render(images, format: format))
+                print(try OutputFormatter.render(images, format: options.format))
                 return
             }
 
@@ -1242,7 +1254,7 @@ struct Slides: AsyncParsableCommand {
 
         /// Prints one line per image and a summary, and returns how many
         /// downloads failed.
-        private func report(_ results: [SlideImageDownloadResult], directory: URL) -> Int {
+        private static func report(_ results: [SlideImageDownloadResult], directory: URL) -> Int {
             let items = results.map { result in
                 let element = result.objectId ?? "(no id)"
                 let slide = "slide\(result.slideIndex + 1)"

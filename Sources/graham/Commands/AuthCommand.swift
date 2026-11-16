@@ -64,7 +64,7 @@ struct Auth: AsyncParsableCommand {
         }
     }
 
-    struct Status: AsyncParsableCommand {
+    struct Status: ReadOnlyCommand {
         static let configuration = CommandConfiguration(
             abstract: "Show which credentials are set, and test a token refresh."
         )

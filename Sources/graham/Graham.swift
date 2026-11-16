@@ -9,14 +9,17 @@ struct Graham: AsyncParsableCommand {
         commandName: "graham",
         abstract: "A command-line tool for Google Drive, Docs, Sheets, and Slides.",
         version: "0.1.0",
-        subcommands: [Auth.self, Drive.self, Sheets.self, Docs.self, Slides.self]
+        // `ro` goes LAST: a static lookup by type (such as `helpMessage(for:)`)
+        // finds the first parent, so a leaf shared with `ro` reports its
+        // top-level path.
+        subcommands: [Auth.self, Drive.self, Sheets.self, Docs.self, Slides.self, ReadOnly.self]
     )
 
     /// Start file logging before anything runs, then drain the buffered log on
     /// the way out of BOTH the success and error paths — the CLI is short-lived,
-    /// so an un-drained tail would be lost.
+    /// so an un-drained tail would be lost. A `graham ro` run writes no log file.
     static func main() async {
-        let logging = GrahamFileLog.bootstrapIfPossible()
+        let logging = GrahamFileLog.bootstrapIfAllowed(arguments: CommandLine.arguments)
         CLI.installLogHandler()
         do {
             var command = try parseAsRoot()

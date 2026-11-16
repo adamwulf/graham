@@ -45,7 +45,7 @@ struct Drive: AsyncParsableCommand {
         }
     }
 
-    struct List: AsyncParsableCommand {
+    struct List: ReadOnlyCommand {
         static let configuration = CommandConfiguration(
             abstract: "List files in Drive, or navigate drives and folders."
         )
@@ -77,7 +77,7 @@ struct Drive: AsyncParsableCommand {
         }
     }
 
-    struct Get: AsyncParsableCommand {
+    struct Get: ReadOnlyCommand {
         static let configuration = CommandConfiguration(abstract: "Show the metadata of one file.")
 
         @Argument(help: "The Drive file ID.")
@@ -359,45 +359,52 @@ struct Drive: AsyncParsableCommand {
             abstract: "Export a Google Workspace file to another format."
         )
 
-        @Argument(help: "The Drive file ID.")
-        var fileID: String
+        /// The file and target format. Shared with `graham ro drive export`,
+        /// which drops `--output` so a read-only run never writes a file itself.
+        struct Options: ParsableArguments {
+            @Argument(help: "The Drive file ID.")
+            var fileID: String
 
-        @Option(help: "A common export format that maps to the correct MIME type.")
-        var type: DriveExportFormat?
+            @Option(help: "A common export format that maps to the correct MIME type.")
+            var type: DriveExportFormat?
 
-        @Option(help: """
-            A raw target MIME type, for a format --type does not list \
-            (for example application/rtf). Cannot be used with --type. \
-            The default, when neither is given, is text/plain.
-            """)
-        var mime: String?
+            @Option(help: """
+                A raw target MIME type, for a format --type does not list \
+                (for example application/rtf). Cannot be used with --type. \
+                The default, when neither is given, is text/plain.
+                """)
+            var mime: String?
+
+            /// The MIME type sent to Drive: an explicit `--mime` wins, else the
+            /// `--type` mapping, else plain text. `validate()` rejects both at
+            /// once, so at most one of the first two is set here.
+            var resolvedMimeType: String {
+                mime ?? type?.mimeType ?? DriveExportFormat.txt.mimeType
+            }
+
+            func validate() throws {
+                if type != nil, mime != nil {
+                    throw ValidationError(
+                        "Pass either --type (a common format) or --mime (a raw MIME type), not both."
+                    )
+                }
+            }
+        }
+
+        @OptionGroup var options: Options
 
         @Option(name: [.short, .long], help: "Write the export to this file instead of stdout.")
         var output: String?
 
-        /// The MIME type sent to Drive: an explicit `--mime` wins, else the
-        /// `--type` mapping, else plain text. `validate()` rejects both at once,
-        /// so at most one of the first two is set here.
-        var resolvedMimeType: String {
-            mime ?? type?.mimeType ?? DriveExportFormat.txt.mimeType
-        }
-
-        func validate() throws {
-            if type != nil, mime != nil {
-                throw ValidationError(
-                    "Pass either --type (a common format) or --mime (a raw MIME type), not both."
-                )
-            }
-        }
-
         func run() async throws {
+            try await Self.export(options, output: output)
+        }
+
+        /// The one export path for `drive export` and `ro drive export`.
+        static func export(_ options: Options, output: String?) async throws {
             let client = DriveClient(api: try CLI.makeAPI())
-            let data = try await client.export(id: fileID, mimeType: resolvedMimeType)
-            if let output {
-                try data.write(to: URL(fileURLWithPath: output))
-            } else {
-                FileHandle.standardOutput.write(data)
-            }
+            let data = try await client.export(id: options.fileID, mimeType: options.resolvedMimeType)
+            try CLI.write(data, to: output)
         }
     }
 
@@ -411,20 +418,27 @@ struct Drive: AsyncParsableCommand {
                 """
         )
 
-        @Argument(help: "The Drive file ID.")
-        var fileID: String
+        /// The file to download. Shared with `graham ro drive download`, which
+        /// drops `--output` so a read-only run never writes a file itself.
+        struct Options: ParsableArguments {
+            @Argument(help: "The Drive file ID.")
+            var fileID: String
+        }
+
+        @OptionGroup var options: Options
 
         @Option(name: [.short, .long], help: "Write the content to this file instead of stdout.")
         var output: String?
 
         func run() async throws {
+            try await Self.download(options, output: output)
+        }
+
+        /// The one download path for `drive download` and `ro drive download`.
+        static func download(_ options: Options, output: String?) async throws {
             let client = DriveClient(api: try CLI.makeAPI())
-            let data = try await client.download(id: fileID)
-            if let output {
-                try data.write(to: URL(fileURLWithPath: output))
-            } else {
-                FileHandle.standardOutput.write(data)
-            }
+            let data = try await client.download(id: options.fileID)
+            try CLI.write(data, to: output)
         }
     }
 }

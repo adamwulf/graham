@@ -465,6 +465,64 @@ final class GoogleAPITests: GrahamTestCase {
             try await api.sendNoContent(method: "DELETE", url: fileURL)
         }
     }
+
+    // MARK: - Read-only mode (graham ro)
+
+    func testReadOnlyAPISendsGETRequests() async throws {
+        let transport = StubTransport()
+        transport.stubTokenEndpoint()
+        transport.stub(urlContains: "/files/f1", json: fileJSON)
+        let api = TestSupport.makeAPI(transport: transport, readOnly: true)
+
+        let file = try await api.getJSON(DriveFile.self, from: fileURL)
+        let data = try await api.getData(from: fileURL)
+
+        XCTAssertEqual(file.id, "f1")
+        XCTAssertEqual(String(decoding: data, as: UTF8.self), fileJSON)
+        XCTAssertEqual(transport.requests(urlContains: "/files/f1").map(\.method), ["GET", "GET"])
+    }
+
+    func testReadOnlyAPIRefusesEveryNonGETBeforeSending() async {
+        let transport = StubTransport()
+        transport.stubTokenEndpoint()
+        transport.stub(urlContains: "/files/f1", json: fileJSON)
+        let api = TestSupport.makeAPI(transport: transport, readOnly: true)
+
+        for method in ["POST", "PATCH", "PUT"] {
+            do {
+                _ = try await api.sendJSON(
+                    DriveFile.self, method: method, url: fileURL, body: ["name": "x"])
+                XCTFail("\(method) should be refused")
+            } catch GrahamError.readOnlyViolation(let refused, let url) {
+                XCTAssertEqual(refused, method)
+                XCTAssertEqual(url, fileURL.absoluteString)
+            } catch {
+                XCTFail("unexpected error for \(method): \(error)")
+            }
+        }
+        do {
+            try await api.sendNoContent(method: "DELETE", url: fileURL)
+            XCTFail("DELETE should be refused")
+        } catch GrahamError.readOnlyViolation(let refused, _) {
+            XCTAssertEqual(refused, "DELETE")
+        } catch {
+            XCTFail("unexpected error for DELETE: \(error)")
+        }
+
+        // Nothing reached the transport: no API request and no token refresh.
+        XCTAssertTrue(transport.requests.isEmpty)
+    }
+
+    func testReadOnlyIsOffByDefault() async throws {
+        let transport = StubTransport()
+        transport.stubTokenEndpoint()
+        transport.stub(urlContains: "/files/f1", responses: [HTTPResponse(statusCode: 204, body: Data())])
+        let api = TestSupport.makeAPI(transport: transport)
+
+        XCTAssertFalse(api.readOnly)
+        try await api.sendNoContent(method: "DELETE", url: fileURL)
+        XCTAssertEqual(transport.requests(urlContains: "/files/f1").map(\.method), ["DELETE"])
+    }
 }
 
 /// Records backoff delays from the injected sleep closure.
