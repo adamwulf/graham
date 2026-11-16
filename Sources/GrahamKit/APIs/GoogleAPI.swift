@@ -226,17 +226,19 @@ public final class GoogleAPI: @unchecked Sendable {
     }
 
     private func send(_ request: HTTPRequest) async throws -> HTTPResponse {
-        if readOnly, request.method != "GET" {
-            throw GrahamError.readOnlyViolation(method: request.method, url: request.url.absoluteString)
-        }
-        return try await send(request, retryCount: 0, hasRefreshedToken: false)
+        try await send(request, retryCount: 0, hasRefreshedToken: false)
     }
 
+    /// The only place an API request reaches `transport.send`, so the
+    /// read-only check here covers every request, retries included.
     private func send(
         _ request: HTTPRequest,
         retryCount: Int,
         hasRefreshedToken: Bool
     ) async throws -> HTTPResponse {
+        if readOnly, request.method != "GET" {
+            throw GrahamError.readOnlyViolation(method: request.method, url: request.url.absoluteString)
+        }
         var authorized = request
         let token = try await tokenProvider.validAccessToken()
         authorized.headers["Authorization"] = "Bearer \(token)"
