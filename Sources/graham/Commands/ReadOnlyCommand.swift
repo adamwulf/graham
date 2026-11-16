@@ -30,19 +30,9 @@ extension CommandConfiguration {
 }
 
 /// `graham ro`: the read-only commands, at the same paths they have at the top
-/// level, so an agent can be allowed `graham ro` and nothing else.
-///
-/// A read-only command that has no file-writing option is registered in both
-/// places as the SAME type (`Docs.Cat` is both `docs cat` and `ro docs cat`).
-/// A group that mixes reads and writes gets a second, `ro`-only group type
-/// with the same command name that lists only its read-only children. A
-/// command that writes a local file only through an option (`drive export
-/// -o`, `docs images --download`) gets an `ro`-only form that drops that
-/// option and shares the rest through one `@OptionGroup` and one static run
-/// function, so the two cannot drift.
-///
-/// Under `ro`, `CLI.makeAPI()` also builds a read-only `GoogleAPI` that refuses
-/// any request but a GET, and `GrahamFileLog` writes no log file.
+/// level, so an agent can be allowed `graham ro` and nothing else. The rules
+/// for which command goes where are in AGENTS.md, "Read-only and write
+/// commands".
 struct ReadOnly: AsyncParsableCommand {
     static let configuration = CommandConfiguration.readOnlyGroup(
         commandName: "ro",
@@ -52,8 +42,10 @@ struct ReadOnly: AsyncParsableCommand {
             path without `ro`: `graham ro docs cat <id>` is `graham docs cat \
             <id>`. Commands that would write a file instead print to stdout: \
             `ro drive export` and `ro drive download` have no --output, and `ro \
-            docs images` and `ro slides images` only list. A read-only run sends \
-            Google only GET requests and writes no log file.
+            docs images` and `ro slides images` only list. A read-only run \
+            sends the Google APIs only GET requests (the OAuth token refresh is \
+            its one POST) and writes no log file. Use --help on any command \
+            here for its options.
             """,
         subcommands: [
             ReadOnlyAuth.self, ReadOnlyDrive.self, ReadOnlySheets.self,
@@ -63,11 +55,11 @@ struct ReadOnly: AsyncParsableCommand {
 
     /// True when `arguments` (the full argv, program name first) runs a command
     /// under `graham ro`. The root command takes no options of its own, so a
-    /// subcommand under `ro` is reached only when `ro` is the first argument
-    /// (after any leading `--`). An `ro` later in the line, such as a value
-    /// (`graham drive list --query ro`), does not count.
+    /// subcommand under `ro` is reached only when `ro` is the first argument.
+    /// An `ro` later in the line, such as a value (`graham drive list --query
+    /// ro`), does not count.
     static func isInvoked(by arguments: [String]) -> Bool {
-        arguments.dropFirst().drop(while: { $0 == "--" }).first == configuration.commandName
+        arguments.dropFirst().first == configuration.commandName
     }
 }
 

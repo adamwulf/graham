@@ -186,14 +186,18 @@ enforces it:
   Both forms share one `Options` `@OptionGroup` and one static run function,
   so they cannot drift; the `ro` form passes `nil` for the dropped option, so
   output goes to stdout and any file is written by the caller's shell.
+  Adding a file-writing option to a shared read-only command turns it into a
+  two-form command the same way.
 - Under `ro`, `CLI.makeAPI()` builds `GoogleAPI(readOnly: true)`, which refuses
-  any request but a GET (`GrahamError.readOnlyViolation`) before it is sent,
-  and `GrahamFileLog.bootstrapIfAllowed` opens no log file. Both key off
-  `ReadOnly.isInvoked(by: CommandLine.arguments)` (`ro` is the first argument).
-  The GET guard is a backstop, not the rule: it catches a write command
-  wrongly marked `ReadOnlyCommand`. Every read in the service clients is a GET
-  today; a read that needs another method (say, a POST search) would have to
-  revisit the guard.
+  any API request but a GET (`GrahamError.readOnlyViolation`) before it is
+  sent, and `GrahamFileLog.bootstrapIfAllowed` opens no log file. Both key off
+  `ReadOnly.isInvoked(by: CommandLine.arguments)` (`ro` is the first argument;
+  ArgumentParser routes nothing else into `ro`). The OAuth token refresh is a
+  POST, but it goes from `OAuthTokenProvider` straight to the transport, not
+  through `GoogleAPI`, so it is unaffected. The GET guard is a backstop, not
+  the rule: it catches a write command wrongly marked `ReadOnlyCommand`. Every
+  read in the service clients is a GET today; a read that needs another
+  method (say, a POST search) would have to revisit the guard.
 - `ReadOnly` is the LAST root subcommand: a static lookup by type
   (`helpMessage(for:)`) finds a shared leaf's first parent, which must be its
   top-level group.
@@ -206,9 +210,10 @@ When you add a command, decide which kind it is. A new read-only command gets
 every node under `ro` is a `ReadOnlyCommand`, that every read-only top-level
 command is under `ro` at the same path as the same type, that the rest of
 `ro` is exactly the four two-form commands above, that write commands and the
-dropped options fail to parse under `ro`, and pins the full USAGE line of each
-two-form pair (so an option later added to a shared `Options` group forces a
-decision about `ro`).
+dropped options fail to parse under `ro`, and pins the full USAGE line of
+every command under `ro` and of each full two-form command. So any option
+later added to an `ro` command, shared leaf or shared `Options` group, fails
+a test and forces a decision about `ro`.
 
 ## Recipes
 
@@ -370,8 +375,8 @@ write. Tests remain offline and exercise the real encoding path.
   `DriveExportFormat` maps to the right MIME type, so a caller need not memorize
   `application/vnd.openxmlformats-...`; `--mime` is the raw escape hatch for any
   format the enum omits (`application/rtf`, OpenDocument, etc.). The command rejects
-  both at once (`validate()`), and `Export.resolvedMimeType` holds the
-  precedence (explicit `--mime`, else the `--type` mapping, else `text/plain`).
+  both at once (`Drive.Export.Options.validate()`), and
+  `Drive.Export.Options.resolvedMimeType` holds the precedence (explicit `--mime`, else the `--type` mapping, else `text/plain`).
   `DriveExportFormat` lives in `GrahamKit` beside `DriveFileType`; its
   `ExpressibleByArgument` conformance lives in the CLI. The enum only names the
   format — it does not check that the format fits the file (`docx` on a Sheet,

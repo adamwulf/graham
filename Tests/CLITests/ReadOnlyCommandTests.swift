@@ -83,19 +83,6 @@ final class ReadOnlyCommandTests: XCTestCase {
         XCTAssertEqual(readOnlyForms, ["drive download", "drive export", "docs images", "slides images"])
     }
 
-    func testCommandsThatWriteAreNotReadOnly() {
-        let writes: [Command] = [
-            Auth.Login.self, Drive.Create.Doc.self, Drive.Trash.self, Drive.Delete.self,
-            Drive.Export.self, Drive.Download.self, Drive.Test.self, Sheets.Set.self,
-            Sheets.NamedRange.Add.self, Docs.Insert.self, Docs.Style.Set.self,
-            Docs.Images.self, Docs.Tab.Add.self, Slides.Notes.Set.self, Slides.Slide.Set.self,
-            Slides.Images.self, Slides.Chart.Refresh.self,
-        ]
-        for command in writes {
-            XCTAssertFalse(isReadOnly(command), "\(command) writes but is a ReadOnlyCommand")
-        }
-    }
-
     // MARK: - Parsing
 
     func testWriteCommandsParseAtTheTopButNotUnderRo() throws {
@@ -170,28 +157,61 @@ final class ReadOnlyCommandTests: XCTestCase {
         }
     }
 
-    /// The whole surface of each two-form command, not only the dropped option
-    /// by name: an option added later to a shared option group changes these
-    /// lines, and so forces a decision on whether `ro` may have it.
-    func testTheUsageOfEachTwoFormCommandIsPinned() {
-        func usage(_ command: Command) -> String? {
-            Graham.helpMessage(for: command, columns: 1000)
-                .split(separator: "\n")
-                .first { $0.hasPrefix("USAGE: ") }
-                .map(String.init)
+    private func usage(_ command: Command) -> String? {
+        Graham.helpMessage(for: command, columns: 1000)
+            .split(separator: "\n")
+            .first { $0.hasPrefix("USAGE: ") }
+            .map(String.init)
+    }
+
+    /// The whole option surface of every command under `ro`, not only the
+    /// dropped options by name. An option added later to any of them (a
+    /// shared leaf, or a shared `Options` group) changes its line here, and so
+    /// forces a decision on whether `ro` may have it: an option that writes a
+    /// file turns the command into a two-form command.
+    ///
+    /// A shared leaf is one type in both trees, and a lookup by type finds its
+    /// first parent, so its line shows the top-level path. An `ro`-only form
+    /// shows its `ro` path.
+    func testTheUsageOfEveryRoCommandIsPinned() {
+        let range = "[--from <from>] [--to <to>] [--at <at>] [--segment <segment>] [--tab <tab>] [--format <format>]"
+        let expected: [String: String] = [
+            "auth status": "USAGE: graham auth status",
+            "drive list": "USAGE: graham drive list [<id>] [--type <type>] [--query <query>] "
+                + "[--order-by <order-by>] [--limit <limit>] [--format <format>]",
+            "drive get": "USAGE: graham drive get <file-id> [--format <format>]",
+            "drive download": "USAGE: graham ro drive download <file-id>",
+            "drive export": "USAGE: graham ro drive export <file-id> [--type <type>] [--mime <mime>]",
+            "sheets get": "USAGE: graham sheets get <spreadsheet-id> [--format <format>]",
+            "sheets values": "USAGE: graham sheets values <spreadsheet-id> <ranges> ... [--raw] [--formulas] [--json]",
+            "sheets named-range list": "USAGE: graham sheets named-range list <spreadsheet-id> [--format <format>]",
+            "docs cat": "USAGE: graham docs cat <document-id> [--json] [--markdown] [--tab <tab>]",
+            "docs structure": "USAGE: graham docs structure <document-id> [--format <format>] [--tab <tab>]",
+            "docs style get": "USAGE: graham docs style get <document-id> \(range)",
+            "docs paragraph get": "USAGE: graham docs paragraph get <document-id> \(range)",
+            "docs images": "USAGE: graham ro docs images <document-id> [--format <format>]",
+            "docs range list": "USAGE: graham docs range list <document-id> [--format <format>]",
+            "docs tab list": "USAGE: graham docs tab list <document-id> [--format <format>]",
+            "slides cat": "USAGE: graham slides cat <presentation-id> [--json]",
+            "slides list": "USAGE: graham slides list <presentation-id> [--format <format>]",
+            "slides layouts": "USAGE: graham slides layouts <presentation-id> [--format <format>]",
+            "slides images": "USAGE: graham ro slides images <presentation-id> [--format <format>]",
+            "slides notes get": "USAGE: graham slides notes get <presentation-id> [--format <format>]",
+            "slides slide get": "USAGE: graham slides slide get <presentation-id> [--format <format>]",
+        ]
+        for leaf in leaves(under: ReadOnly.self) {
+            XCTAssertEqual(usage(leaf.type), expected[leaf.path], "`ro \(leaf.path)`")
         }
-        XCTAssertEqual(usage(ReadOnlyDrive.Export.self),
-                       "USAGE: graham ro drive export <file-id> [--type <type>] [--mime <mime>]")
+        XCTAssertEqual(Set(expected.keys), Set(leaves(under: ReadOnly.self).map(\.path)))
+    }
+
+    /// The full forms keep the option their `ro` form drops.
+    func testTheUsageOfEachFullFormIsPinned() {
         XCTAssertEqual(usage(Drive.Export.self),
                        "USAGE: graham drive export <file-id> [--type <type>] [--mime <mime>] [--output <output>]")
-        XCTAssertEqual(usage(ReadOnlyDrive.Download.self), "USAGE: graham ro drive download <file-id>")
         XCTAssertEqual(usage(Drive.Download.self), "USAGE: graham drive download <file-id> [--output <output>]")
-        XCTAssertEqual(usage(ReadOnlyDocs.Images.self),
-                       "USAGE: graham ro docs images <document-id> [--format <format>]")
         XCTAssertEqual(usage(Docs.Images.self),
                        "USAGE: graham docs images <document-id> [--format <format>] [--download <download>]")
-        XCTAssertEqual(usage(ReadOnlySlides.Images.self),
-                       "USAGE: graham ro slides images <presentation-id> [--format <format>]")
         XCTAssertEqual(usage(Slides.Images.self),
                        "USAGE: graham slides images <presentation-id> [--format <format>] [--download <download>]")
     }
@@ -201,10 +221,15 @@ final class ReadOnlyCommandTests: XCTestCase {
     func testIsInvokedOnlyWhenRoIsTheFirstArgument() {
         XCTAssertTrue(ReadOnly.isInvoked(by: ["graham", "ro"]))
         XCTAssertTrue(ReadOnly.isInvoked(by: ["graham", "ro", "drive", "list"]))
-        XCTAssertTrue(ReadOnly.isInvoked(by: ["graham", "--", "ro", "docs", "cat", "d1"]))
         XCTAssertFalse(ReadOnly.isInvoked(by: ["graham"]))
         XCTAssertFalse(ReadOnly.isInvoked(by: ["graham", "drive", "list"]))
         XCTAssertFalse(ReadOnly.isInvoked(by: ["graham", "drive", "list", "--query", "ro"]))
         XCTAssertFalse(ReadOnly.isInvoked(by: ["ro", "drive", "list"]), "the program name comes first")
+    }
+
+    func testRoIsReachedOnlyAsTheFirstArgument() throws {
+        // The premise of `isInvoked`: nothing before `ro` routes into it.
+        XCTAssertTrue(try Graham.parseAsRoot(["ro", "drive", "list"]) is Drive.List)
+        XCTAssertThrowsError(try Graham.parseAsRoot(["--", "ro", "drive", "list"]))
     }
 }

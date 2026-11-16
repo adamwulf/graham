@@ -134,12 +134,9 @@ graham ro sheets values <spreadsheet-id> 'Sheet1!A1:C10'
 graham ro drive export <file-id> --type pdf > report.pdf
 ```
 
-Under `ro`, graham itself writes no file. `ro drive export` and
-`ro drive download` have no `-o`/`--output` and always write to stdout, so any
-file is written by the caller's shell, under the caller's own permissions.
-`ro docs images` and `ro slides images` list but cannot `--download`. A
-read-only run also sends Google only GET requests (anything else is refused
-before it is sent) and writes no log file.
+Under `ro`, graham itself writes no file: an export or download goes to
+stdout, so any file is written by the caller's shell. `graham ro --help` lists
+what differs from the full commands.
 
 ## Usage
 
